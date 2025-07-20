@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Eye, EyeOff, Mail, Lock } from "lucide-react";
 
 interface LoginScreenProps {
   onNavigate: (screen: string) => void;
@@ -11,12 +11,12 @@ interface LoginScreenProps {
 
 export const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const handleLogin = () => {
     // In a real app, this would handle authentication
-    onNavigate('buyer-dashboard');
+    onNavigate("buyer-dashboard");
   };
 
   return (
@@ -26,7 +26,7 @@ export const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onNavigate('welcome')}
+          onClick={() => onNavigate("welcome")}
           className="text-ocean-primary hover:bg-white/20 rounded-full"
         >
           <ArrowLeft className="w-6 h-6" />
@@ -38,14 +38,20 @@ export const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
       <div className="max-w-sm mx-auto animate-slide-up">
         <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-xl">
           <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl text-ocean-primary">Welcome Back</CardTitle>
-            <p className="text-ocean-medium text-sm">Sign in to your MARINA account</p>
+            <CardTitle className="text-2xl text-ocean-primary">
+              Welcome Back
+            </CardTitle>
+            <p className="text-ocean-medium text-sm">
+              Sign in to your MARINA account
+            </p>
           </CardHeader>
-          
+
           <CardContent className="space-y-6">
             {/* Email Input */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-ocean-primary font-medium">Email</Label>
+              <Label htmlFor="email" className="text-ocean-primary font-medium">
+                Email
+              </Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-ocean-medium" />
                 <Input
@@ -61,12 +67,17 @@ export const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
 
             {/* Password Input */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-ocean-primary font-medium">Password</Label>
+              <Label
+                htmlFor="password"
+                className="text-ocean-primary font-medium"
+              >
+                Password
+              </Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-ocean-medium" />
                 <Input
                   id="password"
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
@@ -112,14 +123,16 @@ export const LoginScreen = ({ onNavigate }: LoginScreenProps) => {
                 <div className="w-full border-t border-ocean-light/30" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-ocean-medium">Don't have an account?</span>
+                <span className="px-4 bg-white text-ocean-medium">
+                  Don't have an account?
+                </span>
               </div>
             </div>
 
             {/* Sign Up Link */}
             <Button
               variant="outline"
-              onClick={() => onNavigate('signup')}
+              onClick={() => onNavigate("signup")}
               className="w-full h-12 border-2 border-ocean-primary text-ocean-primary hover:bg-ocean-primary hover:text-white font-semibold rounded-xl transition-all duration-300"
             >
               Create Account
