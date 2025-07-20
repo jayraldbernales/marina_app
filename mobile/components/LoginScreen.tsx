@@ -1,27 +1,71 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
-  View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   Platform,
+  Animated,
+  Easing,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants";
+import { PrimaryButton } from "../components/ui/buttons/PrimaryButton";
+import { SecondaryButton } from "../components/ui/buttons/SecondaryButton";
+import { TextInputWithIcon } from "../components/ui/inputs/InputField";
+import { AuthCard } from "../components/ui/cards/AuthCard";
+import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
+import { DividerWithText } from "../components/ui/DividerWithText";
 
 export const LoginScreen = ({
   onNavigate,
 }: {
   onNavigate: (screen: string) => void;
 }) => {
+  // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Interaction states
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Refs
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+
+  // Animations
+  const buttonScale = new Animated.Value(1);
+  const focusAnim = new Animated.Value(0);
+
   const handleLogin = () => {
     onNavigate("buyer-dashboard");
+  };
+
+  const animatePressIn = () => {
+    Animated.spring(buttonScale, {
+      toValue: 0.98,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const animatePressOut = () => {
+    Animated.spring(buttonScale, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const animateFocus = (focused: boolean) => {
+    Animated.timing(focusAnim, {
+      toValue: focused ? 1 : 0,
+      duration: 150,
+      easing: Easing.ease,
+      useNativeDriver: false,
+    }).start();
   };
 
   return (
@@ -35,111 +79,87 @@ export const LoginScreen = ({
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => onNavigate("welcome")}
-          style={styles.backButton}
+      <ScreenHeader title="Login" onBackPress={() => onNavigate("welcome")} />
+
+      <AuthCard title="Welcome Back" subtitle="Sign in to your MARINA account">
+        {/* Email Input */}
+        <TextInputWithIcon
+          iconName="mail-outline"
+          placeholder="Enter your email"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          focused={emailFocused}
+          focusAnim={focusAnim}
+          label="Email"
+          onFocus={() => {
+            setEmailFocused(true);
+            animateFocus(true);
+          }}
+          onBlur={() => {
+            setEmailFocused(false);
+            animateFocus(false);
+          }}
+        />
+
+        {/* Password Input */}
+        <TextInputWithIcon
+          iconName="lock-closed-outline"
+          placeholder="Enter your password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+          autoCapitalize="none"
+          focused={passwordFocused}
+          focusAnim={focusAnim}
+          label="Password"
+          showPassword={showPassword}
+          onTogglePassword={() => setShowPassword(!showPassword)}
+          onFocus={() => {
+            setPasswordFocused(true);
+            animateFocus(true);
+          }}
+          onBlur={() => {
+            setPasswordFocused(false);
+            animateFocus(false);
+          }}
+        />
+
+        {/* Forgot Password */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.forgotPasswordButton,
+            pressed && { opacity: 0.6 },
+          ]}
         >
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color={COLORS.light.oceanPrimary}
-          />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Login</Text>
-      </View>
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </Pressable>
 
-      {/* Login Card */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Welcome Back</Text>
-          <Text style={styles.cardSubtitle}>
-            Sign in to your MARINA account
-          </Text>
-        </View>
+        {/* Login Button */}
+        <PrimaryButton
+          title="Sign In"
+          onPress={handleLogin}
+          buttonScale={buttonScale}
+          onPressIn={animatePressIn}
+          onPressOut={animatePressOut}
+        />
 
-        <View style={styles.cardContent}>
-          {/* Email Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="mail-outline"
-                size={18}
-                color={COLORS.light.oceanPrimary}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor={COLORS.light.mutedForeground}
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
-            </View>
-          </View>
+        {/* Divider */}
+        <DividerWithText text="Don't have an account?" />
 
-          {/* Password Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={18}
-                color={COLORS.light.oceanPrimary}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor={COLORS.light.mutedForeground}
-                value={password}
-                onChangeText={setPassword}
-                autoCapitalize="none"
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off-outline" : "eye-outline"}
-                  size={18}
-                  color={COLORS.light.oceanPrimary}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Forgot Password */}
-          <TouchableOpacity style={styles.forgotPasswordButton}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          {/* Login Button */}
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-            <Text style={styles.loginButtonText}>Sign In</Text>
-          </TouchableOpacity>
-
-          {/* Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>Don't have an account?</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Sign Up Button */}
-          <TouchableOpacity
-            style={styles.signUpButton}
-            onPress={() => onNavigate("signup")}
-          >
-            <Text style={styles.signUpButtonText}>Create Account</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+        {/* Sign Up Button */}
+        <SecondaryButton
+          title="Create Account"
+          onPress={() => onNavigate("signup")}
+          buttonScale={buttonScale}
+          onPressIn={animatePressIn}
+          onPressOut={animatePressOut}
+          onLongPress={() => {
+            setTimeout(() => {}, 500);
+          }}
+        />
+      </AuthCard>
     </LinearGradient>
   );
 };
@@ -150,131 +170,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  backButton: {
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: COLORS.light.oceanPrimary,
-  },
-  card: {
-    backgroundColor: COLORS.light.card,
-    borderRadius: 8,
-    overflow: "hidden",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowColor: COLORS.common.black,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  cardHeader: {
-    padding: 24,
-    paddingBottom: 16,
-    alignItems: "center",
-  },
-  cardTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: COLORS.light.oceanPrimary,
-    marginBottom: 4,
-  },
-  cardSubtitle: {
-    fontSize: 12,
-    color: COLORS.light.oceanMedium,
-    fontWeight: "500",
-  },
-  cardContent: {
-    padding: 24,
-    paddingTop: 0,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: COLORS.light.oceanPrimary,
-    marginBottom: 8,
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: `${COLORS.light.oceanLight}4D`, // 30% opacity
-    borderRadius: 12,
-    paddingHorizontal: 16,
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    height: 40,
-    color: COLORS.light.foreground,
-    fontSize: 14,
-  },
-  eyeIcon: {
-    padding: 8,
-  },
   forgotPasswordButton: {
     alignSelf: "flex-end",
     marginBottom: 24,
   },
   forgotPasswordText: {
-    color: COLORS.light.aquaBright,
+    color: COLORS.light.oceanMedium,
     fontWeight: "500",
     fontSize: 12,
-  },
-  loginButton: {
-    backgroundColor: COLORS.light.oceanPrimary,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-    shadowColor: COLORS.light.oceanPrimary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  loginButtonText: {
-    color: COLORS.light.primaryForeground,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  dividerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: `${COLORS.light.oceanLight}4D`, // 30% opacity
-  },
-  dividerText: {
-    marginHorizontal: 10,
-    color: COLORS.light.oceanPrimary,
-    fontSize: 14,
-  },
-  signUpButton: {
-    borderWidth: 2,
-    borderColor: COLORS.light.oceanPrimary,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  signUpButtonText: {
-    color: COLORS.light.oceanPrimary,
-    fontSize: 14,
-    fontWeight: "600",
   },
 });
