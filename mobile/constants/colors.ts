@@ -91,6 +91,7 @@ export const COMMON_COLORS = {
   white: "hsl(0, 0%, 100%)",
   black: "hsl(0, 0%, 0%)",
   transparent: "transparent",
+  facebook: "#1877F2",
 } as const;
 
 // Combined color system

@@ -72,13 +72,6 @@ export const WelcomeScreen = ({
           >
             <Text style={styles.loginButtonText}>Login</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.signupButton}
-            onPress={() => onNavigate("signup")}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.signupButtonText}>Sign Up</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.footer}>
@@ -191,19 +184,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
   },
-  signupButton: {
-    borderColor: "#00BFFF",
-    borderWidth: 2,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  signupButtonText: {
-    color: "#00BFFF",
-    fontSize: 18,
-    fontWeight: "600",
-  },
   footer: {
     position: "absolute",
     bottom: 32,
@@ -212,7 +192,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   footerText: {
-    color: "rgba(127, 255, 212, 0.7)", // aqua-soft/70
+    color: "rgba(127, 255, 212, 0.7)",
     fontSize: 12,
   },
 });

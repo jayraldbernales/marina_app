@@ -16,6 +16,7 @@ import { TextInputWithIcon } from "../components/ui/inputs/InputField";
 import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
+import { FacebookButton } from "./ui/buttons/FacebookButton";
 
 export const LoginScreen = ({
   onNavigate,
@@ -136,7 +137,6 @@ export const LoginScreen = ({
           <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
         </Pressable>
 
-        {/* Login Button */}
         <PrimaryButton
           title="Sign In"
           onPress={handleLogin}
@@ -145,10 +145,17 @@ export const LoginScreen = ({
           onPressOut={animatePressOut}
         />
 
+        {/* <FacebookButton
+          title="Connect with Facebook"
+          onPress={handleLogin}
+          buttonScale={buttonScale}
+          onPressIn={animatePressIn}
+          onPressOut={animatePressOut}
+        /> */}
+
         {/* Divider */}
         <DividerWithText text="Don't have an account?" />
 
-        {/* Sign Up Button */}
         <SecondaryButton
           title="Create Account"
           onPress={() => onNavigate("signup")}

@@ -15,7 +15,8 @@ type IoniconsName =
   | "mail-outline"
   | "lock-closed-outline"
   | "eye-outline"
-  | "eye-off-outline";
+  | "eye-off-outline"
+  | "person-outline";
 
 interface TextInputWithIconProps {
   iconName: IoniconsName;
