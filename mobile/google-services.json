@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "177731162717",
+    "project_id": "marina-marketplace",
+    "storage_bucket": "marina-marketplace.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:177731162717:android:0ee442316645afc290b3b4",
+        "android_client_info": {
+          "package_name": "marina.marketplace"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuV1_tY-imHdkLxrfYJOFIoS57JK5wc00"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
