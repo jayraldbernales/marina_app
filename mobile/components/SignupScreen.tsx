@@ -15,11 +15,10 @@ import { TextInputWithIcon } from "../components/ui/inputs/InputField";
 import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
-export const SignupScreen = ({
-  onNavigate,
-}: {
-  onNavigate: (screen: string) => void;
-}) => {
+import { useRouter } from "expo-router";
+
+export const SignupScreen = () => {
+  const router = useRouter();
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -33,8 +32,8 @@ export const SignupScreen = ({
   const buttonScale = new Animated.Value(1);
   const focusAnim = new Animated.Value(0);
 
-  const handleLogin = () => {
-    onNavigate("buyer-dashboard");
+  const handleSignup = () => {
+    router.push("/(tabs)");
   };
 
   const animatePressIn = () => {
@@ -75,70 +74,10 @@ export const SignupScreen = ({
     >
       <ScreenHeader
         title="Create Account"
-        onBackPress={() => onNavigate("login")}
+        onBackPress={() => router.replace("/login")}
       />
 
       <AuthCard title="Join MARINA" subtitle="Start your seafood journey today">
-        {/* <TextInputWithIcon
-          iconName="person-outline"
-          placeholder="Enter your First Name"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          focused={emailFocused}
-          focusAnim={focusAnim}
-          label="First Name"
-          onFocus={() => {
-            setEmailFocused(true);
-            animateFocus(true);
-          }}
-          onBlur={() => {
-            setEmailFocused(false);
-            animateFocus(false);
-          }}
-        />
-
-        <TextInputWithIcon
-          iconName="person-outline"
-          placeholder="Enter your Middle Name"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          focused={emailFocused}
-          focusAnim={focusAnim}
-          label="Middle Name"
-          onFocus={() => {
-            setEmailFocused(true);
-            animateFocus(true);
-          }}
-          onBlur={() => {
-            setEmailFocused(false);
-            animateFocus(false);
-          }}
-        />
-
-        <TextInputWithIcon
-          iconName="person-outline"
-          placeholder="Enter your Last Name"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          focused={emailFocused}
-          focusAnim={focusAnim}
-          label="Last Name"
-          onFocus={() => {
-            setEmailFocused(true);
-            animateFocus(true);
-          }}
-          onBlur={() => {
-            setEmailFocused(false);
-            animateFocus(false);
-          }}
-        /> */}
-
         {/* Email Input */}
         <TextInputWithIcon
           iconName="mail-outline"
@@ -214,7 +153,7 @@ export const SignupScreen = ({
 
         <PrimaryButton
           title="Create Account"
-          onPress={handleLogin}
+          onPress={handleSignup}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
@@ -222,7 +161,7 @@ export const SignupScreen = ({
 
         <View style={styles.loginLinkWrapper}>
           <Text style={styles.loginLinkText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => onNavigate("login")}>
+          <TouchableOpacity onPress={() => router.replace("/login")}>
             <Text style={styles.loginLinkButton}>Sign In</Text>
           </TouchableOpacity>
         </View>

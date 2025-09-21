@@ -25,11 +25,10 @@ const FishIcon = () => (
   />
 );
 
-export const WelcomeScreen = ({
-  onNavigate,
-}: {
-  onNavigate: (screen: string) => void;
-}) => {
+import { useRouter } from "expo-router";
+
+export const WelcomeScreen = () => {
+  const router = useRouter();
   return (
     <ImageBackground
       source={require("../assets/img/ocean-hero.jpg")}
@@ -67,7 +66,7 @@ export const WelcomeScreen = ({
         <View style={styles.buttons}>
           <TouchableOpacity
             style={styles.loginButton}
-            onPress={() => onNavigate("login")}
+            onPress={() => router.replace("/login")}
             activeOpacity={0.8}
           >
             <Text style={styles.loginButtonText}>Login</Text>

@@ -18,11 +18,10 @@ import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 
-export const LoginScreen = ({
-  onNavigate,
-}: {
-  onNavigate: (screen: string) => void;
-}) => {
+import { useRouter } from "expo-router";
+
+export const LoginScreen = () => {
+  const router = useRouter();
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -41,7 +40,7 @@ export const LoginScreen = ({
   const focusAnim = new Animated.Value(0);
 
   const handleLogin = () => {
-    onNavigate("buyer-dashboard");
+    router.push("/(tabs)");
   };
 
   const animatePressIn = () => {
@@ -80,7 +79,7 @@ export const LoginScreen = ({
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <ScreenHeader title="Login" onBackPress={() => onNavigate("welcome")} />
+      <ScreenHeader title="Login" onBackPress={() => router.replace("/")} />
 
       <AuthCard title="Welcome Back" subtitle="Sign in to your MARINA account">
         {/* Email Input */}
@@ -158,7 +157,7 @@ export const LoginScreen = ({
 
         <SecondaryButton
           title="Create Account"
-          onPress={() => onNavigate("signup")}
+          onPress={() => router.replace("/signup")}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
