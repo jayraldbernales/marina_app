@@ -17,11 +17,17 @@ import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
-
 import { useRouter } from "expo-router";
+
+import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
+import { supabase } from "../lib/supabase";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export const LoginScreen = () => {
   const router = useRouter();
+
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -38,10 +44,6 @@ export const LoginScreen = () => {
   // Animations
   const buttonScale = new Animated.Value(1);
   const focusAnim = new Animated.Value(0);
-
-  const handleLogin = () => {
-    router.push("/(tabs)");
-  };
 
   const animatePressIn = () => {
     Animated.spring(buttonScale, {
@@ -68,6 +70,129 @@ export const LoginScreen = () => {
     }).start();
   };
 
+  const handleLogin = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      router.push("/(tabs)");
+    } catch (err) {
+      console.error(err);
+      alert("Something went wrong while signing in");
+    }
+  };
+
+  const handleFacebookLogin = async () => {
+    try {
+      // Build redirect URI. In dev use the Expo proxy so PKCE state is
+      // maintained when running in Expo Go; production uses the app scheme.
+      let redirectTo: string;
+      if (__DEV__) {
+        // `useProxy` is not present in the local TypeScript types for
+        // `makeRedirectUri` in this project; cast to `any` to allow it at
+        // runtime while keeping a clear dev/production branch.
+        redirectTo = AuthSession.makeRedirectUri({ useProxy: true } as any);
+      } else {
+        redirectTo = AuthSession.makeRedirectUri({
+          scheme: "marina",
+          path: "/auth/callback",
+          preferLocalhost: false,
+        });
+      }
+
+      console.log("Redirect URI:", redirectTo);
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "facebook",
+        options: {
+          redirectTo,
+          // Keep skipBrowserRedirect true so we can open the provider URL
+          // inside the Expo browser and manually exchange the code.
+          // This is the recommended flow for React Native / Expo.
+          skipBrowserRedirect: true,
+        },
+      });
+
+      console.log("signInWithOAuth response:", { data, error });
+
+      if (error) throw error;
+      if (!data?.url) throw new Error("No OAuth URL returned from Supabase.");
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo
+      );
+
+      console.log("openAuthSessionAsync result:", result);
+
+      if (result.type === "success" && result.url) {
+        // The provider may return either an authorization `code` (PKCE
+        // flow) or an `access_token`/`refresh_token` (implicit). Handle
+        // both: prefer exchanging the code, but if a token was returned
+        // directly, set the session with Supabase.
+        const returnedUrl = result.url;
+
+        // Look in the fragment first (after '#'), then in the query if
+        // needed.
+        const fragment = (returnedUrl.split("#")[1] || "").trim();
+        const queryFragment = fragment || returnedUrl.split("?")[1] || "";
+        const params = new URLSearchParams(queryFragment);
+
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token");
+
+        if (accessToken) {
+          // Provider returned tokens directly (implicit). Use them to set
+          // the Supabase session so the client is authenticated.
+          const { data: sessionData, error: sessionError } =
+            await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken ?? undefined,
+            } as any);
+
+          if (sessionError) throw sessionError;
+          if (sessionData?.session) {
+            console.log("✅ Login success:", sessionData.session.user);
+            router.push("/(tabs)");
+          } else {
+            alert("Could not retrieve session after login.");
+          }
+        } else {
+          // No tokens present — assume authorization code flow. Normalize
+          // `?` -> `#` then exchange code for a session as before.
+          let urlWithCode = returnedUrl;
+          if (urlWithCode.includes("?") && !urlWithCode.includes("#")) {
+            const [base, query] = urlWithCode.split("?");
+            urlWithCode = `${base}#${query}`;
+          }
+
+          const { data: sessionData, error: sessionError } =
+            await supabase.auth.exchangeCodeForSession(urlWithCode);
+
+          if (sessionError) throw sessionError;
+          if (sessionData?.session) {
+            console.log("✅ Login success:", sessionData.session.user);
+            router.push("/(tabs)");
+          } else {
+            alert("Could not retrieve session after login.");
+          }
+        }
+      } else {
+        console.log("❌ Login cancelled or failed.");
+      }
+    } catch (err: any) {
+      console.error("Facebook login error:", err);
+      alert("Error retrieving session: " + err.message);
+    }
+  };
+
   return (
     <LinearGradient
       colors={[
@@ -82,7 +207,6 @@ export const LoginScreen = () => {
       <ScreenHeader title="Login" onBackPress={() => router.replace("/")} />
 
       <AuthCard title="Welcome Back" subtitle="Sign in to your MARINA account">
-        {/* Email Input */}
         <TextInputWithIcon
           iconName="mail-outline"
           placeholder="Enter your email"
@@ -103,7 +227,6 @@ export const LoginScreen = () => {
           }}
         />
 
-        {/* Password Input */}
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Enter your password"
@@ -126,7 +249,6 @@ export const LoginScreen = () => {
           }}
         />
 
-        {/* Forgot Password */}
         <Pressable
           style={({ pressed }) => [
             styles.forgotPasswordButton,
@@ -144,15 +266,15 @@ export const LoginScreen = () => {
           onPressOut={animatePressOut}
         />
 
-        {/* <FacebookButton
-          title="Connect with Facebook"
-          onPress={handleLogin}
+        {/* ✅ Facebook OAuth login */}
+        <FacebookButton
+          title="Continue with Facebook"
+          onPress={handleFacebookLogin}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
-        /> */}
+        />
 
-        {/* Divider */}
         <DividerWithText text="Don't have an account?" />
 
         <SecondaryButton
@@ -161,9 +283,6 @@ export const LoginScreen = () => {
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
-          onLongPress={() => {
-            setTimeout(() => {}, 500);
-          }}
         />
       </AuthCard>
     </LinearGradient>

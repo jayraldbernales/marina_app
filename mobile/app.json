@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "marina",
+    "owner": "jayrald",
+    "slug": "marina",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "marina",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -33,10 +34,16 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "supabaseUrl": "https://kpqbwvxuzeveqwfhulaf.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcWJ3dnh1emV2ZXF3Zmh1bGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0NjI3ODYsImV4cCI6MjA3NDAzODc4Nn0.08wYrgXHTgSE5FWEFflVi70JTsm9FQO6j6n2Ndukwyk"
     }
   }
 }

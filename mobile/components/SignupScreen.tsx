@@ -16,6 +16,8 @@ import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
 import { useRouter } from "expo-router";
+import * as AuthSession from "expo-auth-session";
+import { supabase } from "../lib/supabase";
 
 export const SignupScreen = () => {
   const router = useRouter();
@@ -23,17 +25,73 @@ export const SignupScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   // Interaction states
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
+  //Name
+  const [fullName, setFullName] = useState("");
+  const [nameFocused, setNameFocused] = useState(false);
+
   // Animations
   const buttonScale = new Animated.Value(1);
   const focusAnim = new Animated.Value(0);
 
-  const handleSignup = () => {
-    router.push("/(tabs)");
+  const handleSignup = async () => {
+    try {
+      if (!email || !password) {
+        alert("Please enter email and password.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        alert("Passwords do not match.");
+        return;
+      }
+
+      // Build redirect URI similarly to Login flow so email links return
+      // to the app and can be exchanged for a session.
+      let redirectTo: string;
+      if (__DEV__) {
+        redirectTo = AuthSession.makeRedirectUri({ useProxy: true } as any);
+      } else {
+        redirectTo = AuthSession.makeRedirectUri({
+          scheme: "marina",
+          path: "/auth/callback",
+          preferLocalhost: false,
+        });
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectTo,
+          data: {
+            fullname: fullName,
+          },
+        },
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      // If a session was returned, user is already signed in. Otherwise
+      // Supabase has sent a confirmation email and we should prompt user
+      // to check their inbox.
+      if (data?.session) {
+        router.push("/(tabs)");
+      } else {
+        alert("Check your email to confirm your account.\nThen sign in.");
+        router.replace("/login");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Error creating account: " + (err?.message ?? err));
+    }
   };
 
   const animatePressIn = () => {
@@ -78,6 +136,26 @@ export const SignupScreen = () => {
       />
 
       <AuthCard title="Join MARINA" subtitle="Start your seafood journey today">
+        {/* Name Input */}
+        <TextInputWithIcon
+          iconName="person-outline"
+          placeholder="Enter your full name"
+          value={fullName}
+          onChangeText={setFullName}
+          autoCapitalize="sentences"
+          focused={nameFocused}
+          focusAnim={focusAnim}
+          label="Full Name"
+          onFocus={() => {
+            setNameFocused(true);
+            animateFocus(true);
+          }}
+          onBlur={() => {
+            setNameFocused(false);
+            animateFocus(false);
+          }}
+        />
+
         {/* Email Input */}
         <TextInputWithIcon
           iconName="mail-outline"
@@ -121,13 +199,12 @@ export const SignupScreen = () => {
             animateFocus(false);
           }}
         />
-
-        {/* Password Input */}
+        {/* Confirm Password Input */}
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Confirm your password"
-          value={password}
-          onChangeText={setPassword}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
           secureTextEntry={!showPassword}
           autoCapitalize="none"
           focused={passwordFocused}
