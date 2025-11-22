@@ -266,7 +266,7 @@ export const LoginScreen = () => {
           onPressOut={animatePressOut}
         />
 
-        {/* ✅ Facebook OAuth login */}
+        {/* Facebook OAuth login */}
         <FacebookButton
           title="Continue with Facebook"
           onPress={handleFacebookLogin}

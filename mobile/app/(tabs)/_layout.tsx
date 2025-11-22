@@ -1,8 +1,7 @@
 import { Tabs } from "expo-router";
 import React from "react";
 import { Platform } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
-
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { HapticTab } from "@/components/HapticTab";
 import TabBarBackground from "@/components/ui/TabBarBackground";
 import { COLORS } from "@/constants/colors";
@@ -12,6 +11,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: COLORS.light.primary,
+        tabBarInactiveTintColor: COLORS.light.primary,
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
@@ -25,27 +25,37 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="home" size={size ?? 28} color={color} />
+          tabBarIcon: ({ focused, size, color }) => (
+            <MaterialCommunityIcons
+              name={focused ? "home" : "home-outline"}
+              size={size ?? 28}
+              color={color}
+            />
           ),
         }}
       />
+
       <Tabs.Screen
         name="orders"
         options={{
           title: "Orders",
-          tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="receipt" size={size ?? 28} color={color} />
+          tabBarIcon: ({ focused, size, color }) => (
+            <MaterialIcons
+              name={focused ? "access-time-filled" : "access-time"}
+              size={size ?? 28}
+              color={color}
+            />
           ),
         }}
       />
+
       <Tabs.Screen
         name="cart"
         options={{
           title: "Cart",
-          tabBarIcon: ({ color, size }) => (
-            <MaterialIcons
-              name="shopping-cart"
+          tabBarIcon: ({ focused, size, color }) => (
+            <MaterialCommunityIcons
+              name={focused ? "cart" : "cart-outline"}
               size={size ?? 28}
               color={color}
             />
@@ -57,21 +67,26 @@ export default function TabLayout() {
         name="notifications"
         options={{
           title: "Notifications",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ focused, size, color }) => (
             <MaterialIcons
-              name="notifications"
+              name={focused ? "notifications" : "notifications-none"}
               size={size ?? 28}
               color={color}
             />
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="person" size={size ?? 28} color={color} />
+          tabBarIcon: ({ focused, size, color }) => (
+            <MaterialIcons
+              name={focused ? "person" : "person-outline"}
+              size={size ?? 28}
+              color={color}
+            />
           ),
         }}
       />

@@ -7,7 +7,7 @@
 // Light Mode Colors
 export const LIGHT_COLORS = {
   // Core
-  background: "hsl(210, 40%, 98%)",
+  background: "#D3EAF2",
   foreground: "hsl(210, 40%, 12%)",
   card: "hsl(0, 0%, 100%)",
   cardForeground: "hsl(210, 40%, 12%)",
@@ -36,6 +36,7 @@ export const LIGHT_COLORS = {
   oceanPrimary: "hsl(210, 100%, 20%)",
   oceanMedium: "hsl(210, 80%, 35%)",
   oceanLight: "hsl(210, 60%, 85%)",
+  ocean: "#0E6280",
   aquaBright: "hsl(180, 100%, 70%)",
   aquaSoft: "hsl(180, 100%, 85%)",
   seafoam: "hsl(180, 40%, 95%)",
@@ -59,6 +60,7 @@ export const COMMON_COLORS = {
   black: "hsl(0, 0%, 0%)",
   transparent: "transparent",
   facebook: "#1877F2",
+  gray: "#F5F2F2",
 } as const;
 
 // Combined color system
