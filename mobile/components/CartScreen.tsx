@@ -107,7 +107,11 @@ const CartScreen = () => {
               style={cartScreenStyles.headerBackBtn}
               accessibilityLabel="Back to dashboard"
             >
-              <Ionicons name="arrow-back" size={24} color="#005f73" />
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={COLORS.light.primary}
+              />
             </TouchableOpacity>
             <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           </View>
@@ -144,7 +148,11 @@ const CartScreen = () => {
             style={cartScreenStyles.headerBackBtn}
             accessibilityLabel="Back to dashboard"
           >
-            <Ionicons name="arrow-back" size={24} color="#005f73" />
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={COLORS.light.primary}
+            />
           </TouchableOpacity>
           <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           <Text style={cartScreenStyles.headerItemsCount}>

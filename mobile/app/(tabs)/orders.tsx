@@ -1,3 +1,3 @@
-import CartScreen from "@/components/CartScreen";
+import OrderScreen from "@/components/OrderScreen";
 
-export default CartScreen;
+export default OrderScreen;

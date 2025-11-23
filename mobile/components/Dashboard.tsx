@@ -6,13 +6,9 @@ import {
   TouchableOpacity,
   TextInput,
   SafeAreaView,
+  Image,
 } from "react-native";
-import {
-  Ionicons,
-  MaterialCommunityIcons,
-  Feather,
-  FontAwesome5,
-} from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { useNavigation } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
@@ -32,36 +28,63 @@ const categories: {
 const featuredProducts = [
   {
     id: 1,
-    name: "Fresh Red Snapper",
+    name: "Bangus",
     price: 480,
     unit: "kg",
     vendor: "Maria's Catch",
     rating: 4.8,
-    image: "🐟",
+    image: require("@/assets/img/bangus.jpg"),
     freshness: "Caught Today",
-    location: "2.3 km away",
   },
   {
     id: 2,
-    name: "Tiger Prawns",
+    name: "Mayamaya",
     price: 650,
     unit: "kg",
     vendor: "Ocean Harvest",
     rating: 4.9,
-    image: "🦐",
-    freshness: "Ultra Fresh",
-    location: "1.8 km away",
+    image: require("@/assets/img/mayamaya.jpg"),
+    freshness: "Caught Today",
   },
   {
     id: 3,
-    name: "Blue Marlin Steak",
+    name: "Crab",
     price: 720,
     unit: "kg",
     vendor: "Deep Sea Catch",
     rating: 4.7,
-    image: "🐟",
-    freshness: "Just Landed",
-    location: "3.1 km away",
+    image: require("@/assets/img/crab.jpg"),
+    freshness: "Caught Today",
+  },
+  {
+    id: 4,
+    name: "Shrimp",
+    price: 720,
+    unit: "kg",
+    vendor: "Deep Sea Catch",
+    rating: 4.7,
+    image: require("@/assets/img/shrimp.jpg"),
+    freshness: "Caught Today",
+  },
+  {
+    id: 5,
+    name: "Mayamaya",
+    price: 650,
+    unit: "kg",
+    vendor: "Ocean Harvest",
+    rating: 4.9,
+    image: require("@/assets/img/mayamaya.jpg"),
+    freshness: "Caught Today",
+  },
+  {
+    id: 6,
+    name: "Bangus",
+    price: 480,
+    unit: "kg",
+    vendor: "Maria's Catch",
+    rating: 4.8,
+    image: require("@/assets/img/bangus.jpg"),
+    freshness: "Caught Today",
   },
 ];
 
@@ -165,7 +188,7 @@ const BuyerDashboard = () => {
         </View>
         <ScrollView
           style={buyerDashboardStyles.scrollArea}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: 20 }}
         >
           {/* Promos */}
           <Text style={buyerDashboardStyles.sectionTitle}>Today's Offers</Text>
@@ -210,7 +233,7 @@ const BuyerDashboard = () => {
               <TouchableOpacity
                 key={idx}
                 style={buyerDashboardStyles.categoryCard}
-                onPress={() => handleCategoryPress(cat)} // Added stub handler
+                onPress={() => handleCategoryPress(cat)}
                 accessibilityLabel={`Browse ${cat.name}`}
               >
                 <View style={buyerDashboardStyles.categoryIconWrapper}>
@@ -243,67 +266,90 @@ const BuyerDashboard = () => {
               <Text style={{ color: "#00b4d8", fontSize: 14 }}>See All</Text>
             </TouchableOpacity>
           </View>
-          {featuredProducts.map((product) => (
-            <TouchableOpacity
-              key={product.id}
-              style={buyerDashboardStyles.productCard}
-              onPress={() => handleProductPress(product)}
-              accessibilityLabel={`${product.name}, ${product.price} per ${product.unit}`}
-            >
-              <Text style={buyerDashboardStyles.productImage}>
-                {product.image}
-              </Text>
-              <View style={{ flex: 1 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    marginBottom: 2,
-                  }}
-                >
-                  <Text style={buyerDashboardStyles.productName}>
-                    {product.name}
-                  </Text>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={buyerDashboardStyles.productPrice}>
-                      ₱{product.price}
-                    </Text>
-                    <Text style={buyerDashboardStyles.productUnit}>
-                      per {product.unit}
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "space-between",
+            }}
+          >
+            {featuredProducts.map((product) => (
+              <TouchableOpacity
+                key={product.id}
+                style={[
+                  buyerDashboardStyles.productCard,
+                  {
+                    width: "49%",
+                    marginBottom: 12,
+                  },
+                ]}
+                onPress={() => handleProductPress(product)}
+                accessibilityLabel={`${product.name}, ${product.price} per ${product.unit}`}
+              >
+                <View style={{ position: "relative" }}>
+                  <Image
+                    source={product.image}
+                    style={buyerDashboardStyles.productImage}
+                    resizeMode="cover"
+                  />
+                  <View style={buyerDashboardStyles.freshnessOverlay}>
+                    <Text style={buyerDashboardStyles.freshnessOverlayText}>
+                      {product.freshness}
                     </Text>
                   </View>
                 </View>
-                <Text style={buyerDashboardStyles.productVendor}>
-                  {product.vendor}
-                </Text>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <FontAwesome5 name="star" size={14} color="#FFD700" />
-                    <Text style={buyerDashboardStyles.productRating}>
-                      {product.rating}
+                <View style={{ flex: 1 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 2,
+                    }}
+                  >
+                    <Text style={buyerDashboardStyles.productName}>
+                      {product.name}
                     </Text>
-                    <View style={buyerDashboardStyles.freshnessBadge}>
-                      <Text style={buyerDashboardStyles.freshnessText}>
-                        {product.freshness}
+
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <Text style={buyerDashboardStyles.productPrice}>
+                        ₱{product.price}
+                      </Text>
+                      <Text style={buyerDashboardStyles.productUnit}>
+                        /{product.unit}
                       </Text>
                     </View>
                   </View>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Feather name="map-pin" size={12} color="#005f73" />
-                    <Text style={buyerDashboardStyles.productLocation}>
-                      {product.location}
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      marginBottom: 2,
+                    }}
+                  >
+                    <Text style={buyerDashboardStyles.productVendor}>
+                      {product.vendor}
                     </Text>
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <MaterialCommunityIcons
+                        name="star"
+                        size={11}
+                        color="#FFD700"
+                      />
+                      <Text style={buyerDashboardStyles.productRating}>
+                        {product.rating}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            ))}
+          </View>
         </ScrollView>
       </View>
     </SafeAreaView>

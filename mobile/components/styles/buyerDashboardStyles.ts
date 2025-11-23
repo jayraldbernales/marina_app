@@ -1,5 +1,6 @@
 import { StyleSheet } from "react-native";
 import { COLORS } from "../../constants";
+import { Dimensions } from "react-native";
 
 export const buyerDashboardStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.light.background },
@@ -68,29 +69,49 @@ export const buyerDashboardStyles = StyleSheet.create({
     fontWeight: "600",
   },
   productCard: {
-    flexDirection: "row",
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    alignItems: "center",
-    elevation: 2,
-  },
-  productImage: { fontSize: 36, marginRight: 12 },
-  productName: { fontWeight: "bold", color: "#005f73", fontSize: 16 },
-  productPrice: { fontWeight: "bold", color: "#005f73", fontSize: 16 },
-  productUnit: { fontSize: 12, color: "#0077b6" },
-  productVendor: { fontSize: 13, color: "#0077b6", marginBottom: 2 },
-  productRating: { fontSize: 13, color: "#333", marginLeft: 4, marginRight: 8 },
-  freshnessBadge: {
-    backgroundColor: "#7fffd4",
     borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
+    padding: 6,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    flexDirection: "column",
   },
-  freshnessText: { fontSize: 11, color: "#005f73" },
-  productLocation: { fontSize: 11, color: "#005f73", marginLeft: 2 },
+  productImage: {
+    width: "100%",
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  freshnessOverlay: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    backgroundColor: COLORS.light.coral,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  freshnessOverlayText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  productName: {
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+    fontSize: 18,
+  },
+  productPrice: { fontWeight: "bold", color: COLORS.light.coral, fontSize: 14 },
+  productUnit: { fontSize: 12, color: COLORS.light.oceanMedium },
+  productVendor: {
+    fontSize: 11,
+    color: COLORS.light.oceanMedium,
+    marginBottom: 2,
+  },
+  productRating: { fontSize: 11, color: "#333", marginLeft: 4, marginRight: 8 },
   bottomNav: {
     position: "absolute",
     left: 0,
