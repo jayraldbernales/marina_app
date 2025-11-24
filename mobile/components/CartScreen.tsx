@@ -84,11 +84,10 @@ const CartScreen = () => {
   };
 
   const removeItem = (id: number) => {
-    updateQuantity(id, 0); // DRY: Reuse update logic
+    updateQuantity(id, 0);
   };
 
   const handleCheckout = () => {
-    // TODO: Validate address/payment; integrate Stripe/API
     console.log("Proceed to checkout");
     navigation.navigate("OrderTracking");
   };
@@ -159,7 +158,7 @@ const CartScreen = () => {
             {cartItems.length} items
           </Text>
         </View>
-        <ScrollView style={{ padding: 16, marginBottom: 80, paddingTop: 10 }}>
+        <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
           {/* Cart Items */}
           {cartItems.map((item) => (
             <View key={item.id} style={cartScreenStyles.cartCard}>

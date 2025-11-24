@@ -9,10 +9,9 @@ import {
   ImageSourcePropType,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "expo-router";
+import { useNavigation, router } from "expo-router";
 import { COLORS } from "@/constants";
 import { orderStyles } from "../components/styles/orderStyles";
-
 type OrderStatus =
   | "to-pay"
   | "to-ship"
@@ -20,7 +19,6 @@ type OrderStatus =
   | "completed"
   | "return-refund"
   | "canceled";
-
 type OrderItem = {
   id: string;
   name: string;
@@ -29,7 +27,6 @@ type OrderItem = {
   vendor: string;
   image: ImageSourcePropType;
 };
-
 type Order = {
   id: string;
   items: OrderItem[];
@@ -39,7 +36,6 @@ type Order = {
   paymentMethod: string;
   deliveryAddress: string;
 };
-
 // Mock data
 const mockOrders: Order[] = [
   {
@@ -187,7 +183,6 @@ const mockOrders: Order[] = [
     deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
   },
 ];
-
 const OrdersScreen = () => {
   const [activeTab, setActiveTab] = useState<OrderStatus>("to-pay");
   const navigation = useNavigation();
@@ -283,9 +278,13 @@ const OrdersScreen = () => {
           )}
           {order.status === "to-receive" && (
             <>
-              <TouchableOpacity style={orderStyles.secondaryButton}>
+              <TouchableOpacity
+                style={orderStyles.secondaryButton}
+                onPress={() => router.push("/order-tracking")}
+              >
                 <Text style={orderStyles.secondaryButtonText}>Track Order</Text>
               </TouchableOpacity>
+
               <TouchableOpacity style={orderStyles.primaryButton}>
                 <Text style={orderStyles.primaryButtonText}>
                   Confirm Receipt
@@ -364,5 +363,4 @@ const OrdersScreen = () => {
     </SafeAreaView>
   );
 };
-
 export default OrdersScreen;

@@ -1,7 +1,7 @@
 import { StyleSheet } from "react-native";
-import { COLORS } from "../../constants";
+import { COLORS } from "../../../constants";
 
-export const profileStyles = StyleSheet.create({
+export const sellerShopProfileStyles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.light.background,
@@ -12,9 +12,27 @@ export const profileStyles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
+  headerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.common.white,
+    paddingTop: 48,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#cce3de",
+  },
+  headerBackBtn: {
+    marginRight: 12,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+    flex: 1,
+  },
   header: {
-    backgroundColor: COLORS.light.primary,
-    paddingTop: 60,
+    backgroundColor: COLORS.common.white,
+    paddingTop: 20,
     paddingBottom: 24,
     paddingHorizontal: 20,
     borderBottomLeftRadius: 32,
@@ -37,8 +55,8 @@ export const profileStyles = StyleSheet.create({
     height: 90,
     borderRadius: 45,
     borderWidth: 4,
-    borderColor: "#ffffff",
-    backgroundColor: "#fff",
+    borderColor: COLORS.light.primary,
+    backgroundColor: COLORS.light.primary,
   },
   editImageButton: {
     position: "absolute",
@@ -47,11 +65,11 @@ export const profileStyles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: COLORS.common.white,
+    backgroundColor: COLORS.light.primary,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 3,
-    borderColor: COLORS.light.primary,
+    borderColor: COLORS.common.white,
     elevation: 3,
     shadowColor: "#000",
     shadowOpacity: 0.2,
@@ -65,12 +83,12 @@ export const profileStyles = StyleSheet.create({
   userName: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#fff",
+    color: COLORS.light.primary,
     marginBottom: 2,
   },
   userEmail: {
     fontSize: 14,
-    color: COLORS.light.accent,
+    color: COLORS.light.oceanMedium,
     marginBottom: 8,
     opacity: 0.95,
   },
@@ -82,13 +100,13 @@ export const profileStyles = StyleSheet.create({
   primaryButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#ffffff",
+    backgroundColor: COLORS.light.primary,
     paddingVertical: 5,
     paddingHorizontal: 12,
     borderRadius: 20,
     gap: 6,
     elevation: 2,
-    shadowColor: "#000",
+    shadowColor: "#fff",
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 2,
@@ -96,7 +114,7 @@ export const profileStyles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 12,
     fontWeight: "600",
-    color: COLORS.light.primary,
+    color: COLORS.common.white,
   },
   sectionsContainer: {
     paddingHorizontal: 12,

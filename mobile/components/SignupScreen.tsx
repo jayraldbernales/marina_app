@@ -19,39 +19,77 @@ import { useRouter } from "expo-router";
 import * as AuthSession from "expo-auth-session";
 import { supabase } from "../lib/supabase";
 
+// ⭐ Import toast helpers
+import { showError, showSuccess, showInfo } from "../lib/toast";
+
 export const SignupScreen = () => {
   const router = useRouter();
+
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Name
+  const [fullName, setFullName] = useState("");
+  const [nameFocused, setNameFocused] = useState(false);
+
   // Interaction states
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-
-  //Name
-  const [fullName, setFullName] = useState("");
-  const [nameFocused, setNameFocused] = useState(false);
 
   // Animations
   const buttonScale = new Animated.Value(1);
   const focusAnim = new Animated.Value(0);
 
+  const validatePassword = (password: string) => {
+    const rules = [
+      { test: /.{8,}/, msg: "Password must be at least 8 characters long." },
+      {
+        test: /[A-Z]/,
+        msg: "Password must contain at least one uppercase letter.",
+      },
+      {
+        test: /[a-z]/,
+        msg: "Password must contain at least one lowercase letter.",
+      },
+      { test: /[0-9]/, msg: "Password must contain at least one number." },
+      {
+        test: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/,
+        msg: "Password must contain at least one symbol.",
+      },
+    ];
+
+    return rules
+      .filter((rule) => !rule.test.test(password))
+      .map((rule) => rule.msg);
+  };
+
   const handleSignup = async () => {
     try {
-      if (!email || !password) {
-        alert("Please enter email and password.");
+      if (!fullName) {
+        showError("Please enter your full name.");
         return;
       }
-      if (password !== confirmPassword) {
-        alert("Passwords do not match.");
+      if (!email) {
+        showError("Please enter your email.");
         return;
       }
 
-      // Build redirect URI similarly to Login flow so email links return
-      // to the app and can be exchanged for a session.
+      // ⭐ Validate password with rules
+      const passwordErrors = validatePassword(password);
+      if (passwordErrors.length > 0) {
+        showError(passwordErrors[0]);
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showError("Passwords do not match.");
+        return;
+      }
+
+      // Redirect handling
       let redirectTo: string;
       if (__DEV__) {
         redirectTo = AuthSession.makeRedirectUri({ useProxy: true } as any);
@@ -75,49 +113,52 @@ export const SignupScreen = () => {
       });
 
       if (error) {
-        alert(error.message);
+        showError(error.message);
         return;
       }
 
-      // If a session was returned, user is already signed in. Otherwise
-      // Supabase has sent a confirmation email and we should prompt user
-      // to check their inbox.
-      if (data?.session) {
-        router.push("/(tabs)");
-      } else {
-        alert("Check your email to confirm your account.\nThen sign in.");
-        router.replace("/login");
+      if (data?.user && !data?.session) {
+        showError(
+          "This email is already registered. Please verify your email or log in."
+        );
+        return;
       }
+
+      if (data?.session) {
+        showSuccess("Account created!");
+        router.push("/(tabs)");
+        return;
+      }
+
+      showInfo("Check your email to confirm your account.");
+      router.replace("/login");
     } catch (err: any) {
       console.error(err);
-      alert("Error creating account: " + (err?.message ?? err));
+      showError("Error creating account: " + (err?.message ?? err));
     }
   };
 
-  const animatePressIn = () => {
+  const animatePressIn = () =>
     Animated.spring(buttonScale, {
       toValue: 0.98,
       useNativeDriver: true,
     }).start();
-  };
 
-  const animatePressOut = () => {
+  const animatePressOut = () =>
     Animated.spring(buttonScale, {
       toValue: 1,
       friction: 3,
       tension: 40,
       useNativeDriver: true,
     }).start();
-  };
 
-  const animateFocus = (focused: boolean) => {
+  const animateFocus = (focused: boolean) =>
     Animated.timing(focusAnim, {
       toValue: focused ? 1 : 0,
       duration: 150,
       easing: Easing.ease,
       useNativeDriver: false,
     }).start();
-  };
 
   return (
     <LinearGradient
@@ -136,7 +177,6 @@ export const SignupScreen = () => {
       />
 
       <AuthCard title="Join MARINA" subtitle="Start your seafood journey today">
-        {/* Name Input */}
         <TextInputWithIcon
           iconName="person-outline"
           placeholder="Enter your full name"
@@ -156,7 +196,6 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Email Input */}
         <TextInputWithIcon
           iconName="mail-outline"
           placeholder="Enter your email"
@@ -177,7 +216,6 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Password Input */}
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Enter your password"
@@ -199,7 +237,7 @@ export const SignupScreen = () => {
             animateFocus(false);
           }}
         />
-        {/* Confirm Password Input */}
+
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Confirm your password"
@@ -222,7 +260,6 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Divider */}
         <Text style={styles.termsText}>
           By creating an account, you agree to our Terms of Service and Privacy
           Policy.
@@ -252,15 +289,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
-  },
-  forgotPasswordButton: {
-    alignSelf: "flex-end",
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    color: COLORS.light.oceanMedium,
-    fontWeight: "500",
-    fontSize: 12,
   },
   termsText: {
     fontSize: 12,

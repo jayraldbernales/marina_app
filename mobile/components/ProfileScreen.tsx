@@ -7,15 +7,14 @@ import {
   SafeAreaView,
   Image,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, router } from "expo-router";
 import { COLORS } from "../constants";
 import { profileStyles } from "../components/styles/profileStyles";
 
 const ProfileTab = () => {
   const navigation = useNavigation();
-
-  const profileSections = [
+  const accountMenus = [
     {
       id: 1,
       title: "My Account Information",
@@ -25,25 +24,29 @@ const ProfileTab = () => {
     },
     {
       id: 2,
-      title: "My Shop",
-      subtitle: "Manage your store",
-      icon: "storefront-outline" as const,
-      onPress: () => console.log("Navigate to My Shop"),
-    },
-    {
-      id: 3,
-      title: "Delivery Center",
-      subtitle: "Manage deliveries",
-      icon: "bicycle-outline" as const,
-      onPress: () => console.log("Navigate to Delivery Center"),
-    },
-    {
-      id: 4,
       title: "Settings",
       subtitle: "Account preferences",
       icon: "settings-outline" as const,
       onPress: () => console.log("Navigate to Settings"),
     },
+  ];
+  const businessMenus = [
+    {
+      id: 3,
+      title: "My Shop",
+      subtitle: "Manage your store",
+      icon: "storefront-outline" as const,
+      onPress: () => router.push("/(seller-tabs)"),
+    },
+    {
+      id: 4,
+      title: "Delivery Center",
+      subtitle: "Manage deliveries",
+      icon: "bicycle-outline" as const,
+      onPress: () => console.log("Navigate to Delivery Center"),
+    },
+  ];
+  const supportMenus = [
     {
       id: 5,
       title: "Support and Help",
@@ -53,74 +56,132 @@ const ProfileTab = () => {
     },
     {
       id: 6,
-      title: "Log out",
-      subtitle: "Sign out of your account",
-      icon: "power" as const,
-      onPress: () => console.log("Navigate to Support"),
+      title: "About",
+      subtitle: "App information and terms",
+      icon: "information-circle-outline" as const,
+      onPress: () => console.log("Navigate to About"),
     },
   ];
+  const logOutMenus = [
+    {
+      id: 7,
+      title: "Log Out",
+      subtitle: "Sign out of your account",
+      icon: "power" as const,
+      onPress: () => console.log("Logout"),
+    },
+  ];
+  type MenuItem = {
+    id: number;
+    title: string;
+    subtitle: string;
+    icon: any;
+    onPress: () => void;
+  };
+  const renderMenuItem = (section: MenuItem) => (
+    <TouchableOpacity
+      key={section.id}
+      style={profileStyles.menuItem}
+      onPress={section.onPress}
+      accessibilityLabel={section.title}
+      activeOpacity={0.7}
+    >
+      <View style={profileStyles.menuIconContainer}>
+        <Ionicons name={section.icon} size={24} color={COLORS.light.primary} />
+      </View>
+      <View style={profileStyles.menuTextContainer}>
+        <Text style={profileStyles.menuTitle}>{section.title}</Text>
+        <Text style={profileStyles.menuSubtitle}>{section.subtitle}</Text>
+      </View>
+      <Ionicons
+        name="chevron-forward"
+        size={20}
+        color={COLORS.light.oceanMedium}
+      />
+    </TouchableOpacity>
+  );
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={profileStyles.container}>
-        {/* Header */}
-        <View style={profileStyles.header}>
-          {/* User Profile Row */}
-          <View style={profileStyles.userInfoRow}>
-            <Image
-              source={{ uri: "https://i.pravatar.cc/600" }}
-              style={profileStyles.profileImage}
-            />
-
-            <View style={{ marginLeft: 14 }}>
-              <Text style={profileStyles.userName}>Juan Dela Cruz</Text>
-              <Text style={profileStyles.userEmail}>
-                juan.delacruz@email.com
-              </Text>
-            </View>
-          </View>
-        </View>
-
         <ScrollView
-          style={profileStyles.scrollArea}
-          contentContainerStyle={{ paddingBottom: 20 }}
+          style={profileStyles.scrollView}
+          contentContainerStyle={profileStyles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          {/* Menu Sections */}
-          <View style={profileStyles.menuContainer}>
-            {profileSections.map((section) => (
-              <TouchableOpacity
-                key={section.id}
-                style={profileStyles.menuItem}
-                onPress={section.onPress}
-                accessibilityLabel={section.title}
-              >
-                <View style={profileStyles.menuIconContainer}>
+          <View style={profileStyles.header}>
+            <View style={profileStyles.profileSection}>
+              <View style={profileStyles.imageContainer}>
+                <Image
+                  source={{ uri: "https://i.pravatar.cc/600" }}
+                  style={profileStyles.profileImage}
+                />
+                <TouchableOpacity
+                  style={profileStyles.editImageButton}
+                  onPress={() => console.log("Edit profile picture")}
+                  activeOpacity={0.8}
+                >
                   <Ionicons
-                    name={section.icon}
-                    size={24}
+                    name="camera"
+                    size={16}
                     color={COLORS.light.primary}
                   />
+                </TouchableOpacity>
+              </View>
+              <View style={profileStyles.userDetails}>
+                <Text style={profileStyles.userName}>Juan Dela Cruz</Text>
+                <Text style={profileStyles.userEmail}>
+                  juan.delacruz@email.com
+                </Text>
+                <View style={profileStyles.actionButtons}>
+                  <TouchableOpacity
+                    style={profileStyles.primaryButton}
+                    onPress={() => console.log("Edit Profile")}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="pencil"
+                      size={12}
+                      color={COLORS.light.primary}
+                    />
+                    <Text style={profileStyles.primaryButtonText}>
+                      Edit Profile
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={profileStyles.menuTextContainer}>
-                  <Text style={profileStyles.menuTitle}>{section.title}</Text>
-                  <Text style={profileStyles.menuSubtitle}>
-                    {section.subtitle}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={20}
-                  color={COLORS.light.oceanMedium}
-                />
-              </TouchableOpacity>
-            ))}
+              </View>
+            </View>
           </View>
-
-          {/* App Version */}
-          <Text style={profileStyles.versionText}>Version 1.0.0</Text>
+          {/* Account Section */}
+          <View style={profileStyles.sectionsContainer}>
+            <View style={profileStyles.sectionContainer}>
+              <View style={profileStyles.menuContainer}>
+                {accountMenus.map(renderMenuItem)}
+              </View>
+            </View>
+            {/* Business Section */}
+            <View style={profileStyles.sectionContainer}>
+              <View style={profileStyles.menuContainer}>
+                {businessMenus.map(renderMenuItem)}
+              </View>
+            </View>
+            {/* Support Section */}
+            <View style={profileStyles.sectionContainer}>
+              <View style={profileStyles.menuContainer}>
+                {supportMenus.map(renderMenuItem)}
+              </View>
+            </View>
+            {/* Logout Section */}
+            <View style={profileStyles.sectionContainer}>
+              <View style={profileStyles.menuContainer}>
+                {logOutMenus.map(renderMenuItem)}
+              </View>
+            </View>
+            {/* App Version */}
+            <Text style={profileStyles.versionText}>Version 1.0.0</Text>
+          </View>
         </ScrollView>
       </View>
     </SafeAreaView>
   );
 };
-
 export default ProfileTab;

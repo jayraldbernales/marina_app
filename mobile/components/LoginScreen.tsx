@@ -18,6 +18,8 @@ import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 import { useRouter } from "expo-router";
+import { showError, showSuccess } from "../lib/toast";
+import { useUserStore } from "../store/userStore";
 
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
@@ -78,14 +80,24 @@ export const LoginScreen = () => {
       });
 
       if (error) {
-        alert(error.message);
+        showError(error.message);
         return;
       }
+
+      const user = data?.user;
+
+      useUserStore.getState().setUser({
+        id: user.id,
+        email: user.email ?? "",
+        fullName: user.user_metadata?.fullname ?? "",
+      });
+
+      showSuccess("Welcome!");
 
       router.push("/(tabs)");
     } catch (err) {
       console.error(err);
-      alert("Something went wrong while signing in");
+      showError("Something went wrong while signing in");
     }
   };
 
@@ -162,7 +174,7 @@ export const LoginScreen = () => {
             console.log("✅ Login success:", sessionData.session.user);
             router.push("/(tabs)");
           } else {
-            alert("Could not retrieve session after login.");
+            showError("Could not retrieve session after login.");
           }
         } else {
           // No tokens present — assume authorization code flow. Normalize
@@ -181,7 +193,7 @@ export const LoginScreen = () => {
             console.log("✅ Login success:", sessionData.session.user);
             router.push("/(tabs)");
           } else {
-            alert("Could not retrieve session after login.");
+            showError("Could not retrieve session after login.");
           }
         }
       } else {
@@ -189,7 +201,7 @@ export const LoginScreen = () => {
       }
     } catch (err: any) {
       console.error("Facebook login error:", err);
-      alert("Error retrieving session: " + err.message);
+      showError("Error retrieving session: " + err.message);
     }
   };
 

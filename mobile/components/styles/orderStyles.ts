@@ -59,16 +59,16 @@ export const orderStyles = StyleSheet.create({
   orderCard: {
     backgroundColor: COLORS.common.white,
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
     elevation: 2,
   },
   orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
-    paddingBottom: 12,
+    marginBottom: 8,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#cce3de",
   },
@@ -94,12 +94,12 @@ export const orderStyles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: "row",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   itemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
+    width: 50,
+    height: 50,
+    borderRadius: 8,
     marginRight: 12,
   },
   itemDetails: {
@@ -124,14 +124,14 @@ export const orderStyles = StyleSheet.create({
   orderFooter: {
     borderTopWidth: 1,
     borderTopColor: "#cce3de",
-    paddingTop: 12,
-    marginTop: 4,
+    paddingTop: 8,
+    marginTop: 0,
   },
   totalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   totalLabel: {
     fontSize: 14,

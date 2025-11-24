@@ -53,7 +53,7 @@ export const TextInputWithIcon = ({
 }: TextInputWithIconProps) => {
   const focusBorderColor = focusAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [`${COLORS.light.oceanLight}4D`, COLORS.light.aquaBright],
+    outputRange: [`${COLORS.light.primary}4D`, COLORS.light.primary],
   });
 
   return (
