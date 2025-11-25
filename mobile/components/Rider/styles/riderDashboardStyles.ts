@@ -1,7 +1,7 @@
 import { StyleSheet } from "react-native";
 import { COLORS } from "../../../constants";
 
-export const sellerDashboardStyles = StyleSheet.create({
+export const riderDashboardStyles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.light.background,
@@ -18,9 +18,6 @@ export const sellerDashboardStyles = StyleSheet.create({
   headerBackBtn: {
     marginRight: 12,
   },
-  headerMessageBtn: {
-    marginLeft: 12,
-  },
   headerTitle: {
     fontSize: 20,
     fontWeight: "bold",
@@ -31,7 +28,7 @@ export const sellerDashboardStyles = StyleSheet.create({
     flex: 1,
   },
   section: {
-    padding: 12,
+    padding: 16,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -53,7 +50,7 @@ export const sellerDashboardStyles = StyleSheet.create({
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 12,
   },
   statCard: {
     backgroundColor: COLORS.common.white,
@@ -94,7 +91,33 @@ export const sellerDashboardStyles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     marginTop: 2,
   },
-  orderItem: {
+  quickActionBtn: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    width: "48%",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  quickActionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  quickActionLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    textAlign: "center",
+  },
+  deliveryItem: {
     backgroundColor: COLORS.common.white,
     borderRadius: 12,
     padding: 16,
@@ -105,44 +128,44 @@ export const sellerDashboardStyles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  orderItemHeader: {
+  deliveryItemHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     marginBottom: 8,
   },
-  orderId: {
+  deliveryId: {
     fontSize: 15,
     fontWeight: "bold",
     color: COLORS.light.primary,
   },
-  orderCustomer: {
+  deliveryCustomer: {
     fontSize: 13,
     color: COLORS.light.oceanMedium,
     marginTop: 2,
   },
-  orderStatusBadge: {
+  deliveryStatusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  orderStatusText: {
+  deliveryStatusText: {
     color: COLORS.common.white,
     fontSize: 11,
     fontWeight: "bold",
   },
-  orderItemContent: {
+  deliveryItemContent: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 8,
   },
-  orderAddress: {
+  deliveryAddress: {
     fontSize: 13,
     color: COLORS.light.oceanMedium,
     marginLeft: 6,
     flex: 1,
   },
-  orderItemFooter: {
+  deliveryItemFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -150,12 +173,12 @@ export const sellerDashboardStyles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#cce3de",
   },
-  orderAmount: {
+  deliveryAmount: {
     fontSize: 16,
     fontWeight: "bold",
     color: COLORS.light.primary,
   },
-  orderItems: {
+  deliveryItems: {
     fontSize: 13,
     color: COLORS.light.oceanMedium,
   },

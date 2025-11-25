@@ -1,3 +1,3 @@
-import OrderScreen from "@/components/OrderScreen";
+import SellerOrders from "@/components/Seller/SellerOrders";
 
-export default OrderScreen;
+export default SellerOrders;

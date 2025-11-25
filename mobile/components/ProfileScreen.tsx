@@ -43,7 +43,7 @@ const ProfileTab = () => {
       title: "Delivery Center",
       subtitle: "Manage deliveries",
       icon: "bicycle-outline" as const,
-      onPress: () => console.log("Navigate to Delivery Center"),
+      onPress: () => router.push("/(rider-tabs)"),
     },
   ];
   const supportMenus = [

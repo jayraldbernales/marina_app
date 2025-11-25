@@ -9,7 +9,7 @@ import {
   Image,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
-import { useNavigation } from "expo-router";
+import { useNavigation, router } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
 
@@ -119,11 +119,6 @@ const BuyerDashboard = () => {
     navigation.navigate("ProductDetail", { product });
   };
 
-  const handleChatPress = () => {
-    console.log("Open chat");
-    // TODO: Navigate to chat
-  };
-
   const handleSeeAllPress = () => {
     console.log("View all products");
     // TODO: Navigate to full list
@@ -156,7 +151,7 @@ const BuyerDashboard = () => {
             <View style={{ flexDirection: "row" }}>
               <TouchableOpacity
                 style={buyerDashboardStyles.chatButton}
-                onPress={handleChatPress}
+                onPress={() => router.push("/buyer/chat")}
                 accessibilityLabel="Open chat"
               >
                 <Ionicons

@@ -1,3 +1,3 @@
-import CartScreen from "@/components/CartScreen";
+import SellerProducts from "@/components/Seller/SellerProducts";
 
-export default CartScreen;
+export default SellerProducts;

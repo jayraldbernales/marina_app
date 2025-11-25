@@ -54,7 +54,7 @@ export const COMMON_COLORS = {
   transparent: "transparent",
   facebook: "#1877F2",
   gray: "#F5F2F2",
-  yellow: "#FFFF00",
+  yellow: "#ca8a04",
 } as const;
 
 // Combined color system

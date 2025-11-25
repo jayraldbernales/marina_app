@@ -1,3 +1,3 @@
-import NotificationScreen from "@/components/NotificationScreen";
+import SellerNotification from "@/components/Seller/SellerNotification";
 
-export default NotificationScreen;
+export default SellerNotification;
