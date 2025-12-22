@@ -16,11 +16,10 @@ import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
 import { useRouter } from "expo-router";
-import * as AuthSession from "expo-auth-session";
-import { supabase } from "../lib/supabase";
-
-// ⭐ Import toast helpers
 import { showError, showSuccess, showInfo } from "../lib/toast";
+import { validatePassword } from "../lib/validation";
+import { useAuth } from "../hooks/useAuth";
+import { usePressAndFocusAnimations } from "../hooks/useAnimations";
 
 export const SignupScreen = () => {
   const router = useRouter();
@@ -39,45 +38,36 @@ export const SignupScreen = () => {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
-  // Animations
-  const buttonScale = new Animated.Value(1);
-  const focusAnim = new Animated.Value(0);
+  const {
+    buttonScale,
+    focusAnim,
+    animatePressIn,
+    animatePressOut,
+    animateFocus,
+  } = usePressAndFocusAnimations();
+  const { signUp } = useAuth();
 
-  const validatePassword = (password: string) => {
-    const rules = [
-      { test: /.{8,}/, msg: "Password must be at least 8 characters long." },
-      {
-        test: /[A-Z]/,
-        msg: "Password must contain at least one uppercase letter.",
-      },
-      {
-        test: /[a-z]/,
-        msg: "Password must contain at least one lowercase letter.",
-      },
-      { test: /[0-9]/, msg: "Password must contain at least one number." },
-      {
-        test: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/,
-        msg: "Password must contain at least one symbol.",
-      },
-    ];
-
-    return rules
-      .filter((rule) => !rule.test.test(password))
-      .map((rule) => rule.msg);
-  };
+  // Animations handled by shared hook
 
   const handleSignup = async () => {
     try {
-      if (!fullName) {
+      if (!fullName.trim()) {
         showError("Please enter your full name.");
         return;
       }
-      if (!email) {
+      if (!email.trim()) {
         showError("Please enter your email.");
         return;
       }
 
-      // ⭐ Validate password with rules
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showError("Please enter a valid email address.");
+        return;
+      }
+
+      // Validate password using shared util
       const passwordErrors = validatePassword(password);
       if (passwordErrors.length > 0) {
         showError(passwordErrors[0]);
@@ -89,76 +79,34 @@ export const SignupScreen = () => {
         return;
       }
 
-      // Redirect handling
-      let redirectTo: string;
-      if (__DEV__) {
-        redirectTo = AuthSession.makeRedirectUri({ useProxy: true } as any);
-      } else {
-        redirectTo = AuthSession.makeRedirectUri({
-          scheme: "marina",
-          path: "/auth/callback",
-          preferLocalhost: false,
-        });
-      }
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectTo,
-          data: {
-            fullname: fullName,
-          },
-        },
-      });
+      // Use shared auth hook which encapsulates retry logic
+      const { data, error } = await signUp(email, password, { fullName });
 
       if (error) {
-        showError(error.message);
+        const errorStr = (error.message || "").toLowerCase();
+        if (errorStr.includes("already registered")) {
+          showError(
+            "This email is already registered. Please sign in instead."
+          );
+        } else if (errorStr.includes("invalid email")) {
+          showError("Please enter a valid email address.");
+        } else if (errorStr.includes("smtp") || errorStr.includes("email")) {
+          showError("Email service is having issues. Please try again later.");
+        } else {
+          showError(
+            error.message || "Failed to create account. Please try again."
+          );
+        }
         return;
       }
 
-      if (data?.user && !data?.session) {
-        showError(
-          "This email is already registered. Please verify your email or log in."
-        );
-        return;
-      }
-
-      if (data?.session) {
-        showSuccess("Account created!");
-        router.push("/(tabs)");
-        return;
-      }
-
-      showInfo("Check your email to confirm your account.");
+      showInfo("Account created! Check your email to confirm.");
       router.replace("/login");
     } catch (err: any) {
-      console.error(err);
-      showError("Error creating account: " + (err?.message ?? err));
+      console.error("Signup exception:", err);
+      showError("Error creating account: " + (err?.message || String(err)));
     }
   };
-
-  const animatePressIn = () =>
-    Animated.spring(buttonScale, {
-      toValue: 0.98,
-      useNativeDriver: true,
-    }).start();
-
-  const animatePressOut = () =>
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-
-  const animateFocus = (focused: boolean) =>
-    Animated.timing(focusAnim, {
-      toValue: focused ? 1 : 0,
-      duration: 150,
-      easing: Easing.ease,
-      useNativeDriver: false,
-    }).start();
 
   return (
     <LinearGradient

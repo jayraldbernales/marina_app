@@ -6,14 +6,15 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { router } from "expo-router";
 import { COLORS } from "../constants";
 import { profileStyles } from "../components/styles/profileStyles";
+import { supabase } from "../lib/supabase";
 
 const ProfileTab = () => {
-  const navigation = useNavigation();
   const accountMenus = [
     {
       id: 1,
@@ -68,9 +69,22 @@ const ProfileTab = () => {
       title: "Log Out",
       subtitle: "Sign out of your account",
       icon: "power" as const,
-      onPress: () => console.log("Logout"),
+      onPress: () => {
+        Alert.alert("Log Out", "Are you sure you want to sign out?", [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Log Out",
+            style: "destructive",
+            onPress: async () => {
+              await supabase.auth.signOut();
+              router.replace("/login");
+            },
+          },
+        ]);
+      },
     },
   ];
+
   type MenuItem = {
     id: number;
     title: string;
