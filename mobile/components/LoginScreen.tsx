@@ -39,6 +39,8 @@ export const LoginScreen = () => {
   // Refs
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isFacebookLoggingIn, setIsFacebookLoggingIn] = useState(false);
 
   const { signInWithPassword, signInWithOAuth } = useAuth();
   const {
@@ -50,6 +52,17 @@ export const LoginScreen = () => {
   } = usePressAndFocusAnimations();
 
   const handleLogin = async () => {
+    // Prevent multiple clicks if already logging in
+    if (isLoggingIn) return;
+
+    // Basic validation
+    if (!email.trim() || !password.trim()) {
+      showError("Please enter both email and password");
+      return;
+    }
+
+    setIsLoggingIn(true);
+
     try {
       const { data, error } = await signInWithPassword(email, password);
 
@@ -59,7 +72,6 @@ export const LoginScreen = () => {
       }
 
       const user = (data as any)?.user;
-
       if (!user) {
         showError("Could not retrieve user after login.");
         return;
@@ -68,22 +80,26 @@ export const LoginScreen = () => {
       useUserStore.getState().setUser({
         id: user.id,
         email: user.email ?? "",
-        fullName: user.user_metadata?.fullname ?? "",
+        fullName: user.user_metadata?.full_name ?? "",
       });
 
       showSuccess("Welcome!");
-
       router.push("/(tabs)");
     } catch (err: any) {
       console.error(err);
       showError("Something went wrong while signing in");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   const handleFacebookLogin = async () => {
+    if (isFacebookLoggingIn) return;
+
+    setIsFacebookLoggingIn(true);
+
     try {
       const { data, error } = await signInWithOAuth("facebook");
-
       if (error) {
         console.error("Facebook login error:", error);
         showError((error as any)?.message || "Error retrieving session");
@@ -95,7 +111,7 @@ export const LoginScreen = () => {
         useUserStore.getState().setUser({
           id: session.user.id,
           email: session.user.email ?? "",
-          fullName: session.user.user_metadata?.fullname ?? "",
+          fullName: session.user.user_metadata?.full_name ?? "",
         });
         showSuccess("Welcome!");
         router.push("/(tabs)");
@@ -105,6 +121,8 @@ export const LoginScreen = () => {
     } catch (err: any) {
       console.error("Facebook login error:", err);
       showError("Error retrieving session: " + (err?.message || String(err)));
+    } finally {
+      setIsFacebookLoggingIn(false);
     }
   };
 
@@ -174,20 +192,25 @@ export const LoginScreen = () => {
         </Pressable>
 
         <PrimaryButton
-          title="Sign In"
+          title={isLoggingIn ? "Signing In..." : "Sign In"}
           onPress={handleLogin}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
+          isLoading={isLoggingIn}
+          disabled={isLoggingIn}
         />
 
-        {/* Facebook OAuth login */}
         <FacebookButton
-          title="Continue with Facebook"
+          title={
+            isFacebookLoggingIn ? "Connecting..." : "Continue with Facebook"
+          }
           onPress={handleFacebookLogin}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
+          isLoading={isFacebookLoggingIn}
+          disabled={isFacebookLoggingIn}
         />
 
         <DividerWithText text="Don't have an account?" />

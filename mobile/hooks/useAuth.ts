@@ -54,7 +54,7 @@ export function useAuth() {
             password,
             options: {
               emailRedirectTo: redirectTo,
-              data: { fullname: options?.fullName },
+              data: { full_name: options?.fullName },
             },
           });
 

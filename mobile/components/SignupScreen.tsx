@@ -24,6 +24,8 @@ import { usePressAndFocusAnimations } from "../hooks/useAnimations";
 export const SignupScreen = () => {
   const router = useRouter();
 
+  const [isSigningUp, setIsSigningUp] = useState(false);
+
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -50,7 +52,11 @@ export const SignupScreen = () => {
   // Animations handled by shared hook
 
   const handleSignup = async () => {
+    // Prevent multiple clicks
+    if (isSigningUp) return;
+
     try {
+      // Basic validation
       if (!fullName.trim()) {
         showError("Please enter your full name.");
         return;
@@ -79,6 +85,8 @@ export const SignupScreen = () => {
         return;
       }
 
+      setIsSigningUp(true);
+
       // Use shared auth hook which encapsulates retry logic
       const { data, error } = await signUp(email, password, { fullName });
 
@@ -105,6 +113,8 @@ export const SignupScreen = () => {
     } catch (err: any) {
       console.error("Signup exception:", err);
       showError("Error creating account: " + (err?.message || String(err)));
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
@@ -214,16 +224,22 @@ export const SignupScreen = () => {
         </Text>
 
         <PrimaryButton
-          title="Create Account"
+          title={isSigningUp ? "Creating Account..." : "Create Account"}
           onPress={handleSignup}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
+          isLoading={isSigningUp}
+          disabled={isSigningUp}
         />
 
         <View style={styles.loginLinkWrapper}>
           <Text style={styles.loginLinkText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => router.replace("/login")}>
+          <TouchableOpacity
+            onPress={() => !isSigningUp && router.replace("/login")}
+            disabled={isSigningUp}
+            style={isSigningUp && { opacity: 0.5 }}
+          >
             <Text style={styles.loginLinkButton}>Sign In</Text>
           </TouchableOpacity>
         </View>
