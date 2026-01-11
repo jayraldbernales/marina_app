@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { showInfo } from "./toast"; // 👈 add this
+import { showInfo } from "./toast";
 
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl as string;
 const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey as string;
@@ -28,7 +28,6 @@ const secureStoreAdapter = {
       const useAsync = typeof value === "string" && value.length > 2000;
 
       if (useAsync) {
-        showInfo("Large session detected — using AsyncStorage instead.");
         await AsyncStorage.setItem(key, value);
         return;
       }
@@ -59,4 +58,31 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: secureStoreAdapter,
   },
+});
+
+// Enforce mobile-only access: only profiles with role === 'user' are allowed to stay signed in
+supabase.auth.onAuthStateChange(async (_event, session) => {
+  if (session?.user) {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (error || !data) {
+        console.error("Error fetching profile:", error);
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (data.role !== "user") {
+        console.warn("Unauthorized role for mobile app:", data.role);
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.error("Error checking role on auth state change:", err);
+      await supabase.auth.signOut();
+    }
+  }
 });

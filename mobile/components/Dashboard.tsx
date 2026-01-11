@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
+import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
 
 const categories: {
   name: string;
@@ -111,6 +112,12 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const BuyerDashboard = () => {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setTimeout(() => setLoading(false), 1200);
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState("");
   const navigation = useNavigation<NavigationProp>();
 
@@ -134,6 +141,9 @@ const BuyerDashboard = () => {
     // TODO: Filter products or navigate
   };
 
+  if (loading) {
+    return <BuyerDashboardSkeleton />;
+  }
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={buyerDashboardStyles.container}>

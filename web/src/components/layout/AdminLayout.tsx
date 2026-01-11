@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { AdminSidebar } from "./AdminSidebar";
 import { Header } from "./Header";
@@ -18,45 +18,20 @@ const pageTitles: Record<string, string> = {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const location = useLocation();
-  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [collapsed, setCollapsed] = useState(false);
 
-  const title = pageTitles[location.pathname] || "Admin Dashboard";
+  const title = pageTitles[location.pathname] ?? "Admin Dashboard"; // Fallback for unmatched paths
 
-  useEffect(() => {
-    const handleResize = () => {
-      const sidebar = document.querySelector("aside");
-      if (sidebar) {
-        setSidebarWidth(sidebar.offsetWidth);
-      }
-    };
-
-    handleResize();
-
-    const observer = new MutationObserver(handleResize);
-    const sidebar = document.querySelector("aside");
-    if (sidebar) {
-      observer.observe(sidebar, {
-        attributes: true,
-        attributeFilter: ["class"],
-      });
-    }
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
+  const handleToggle = () => setCollapsed((prev) => !prev);
 
   return (
-    <div className="min-h-screen bg-background">
-      <AdminSidebar />
-      <div
-        className="transition-all duration-300 ease-out"
-        style={{ marginLeft: sidebarWidth }}
-      >
+    <div className="flex h-screen bg-background overflow-hidden">
+      <AdminSidebar collapsed={collapsed} onToggle={handleToggle} />
+      <div className="flex-1 flex flex-col overflow-hidden">
         <Header title={title} />
-        <main className="p-6 animate-fade-in">{children}</main>
+        <main className="flex-1 p-6 overflow-y-auto animate-fade-in">
+          {children}
+        </main>
       </div>
     </div>
   );

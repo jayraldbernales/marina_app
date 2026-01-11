@@ -16,7 +16,7 @@ import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
 import { useRouter } from "expo-router";
-import { showError, showSuccess, showInfo } from "../lib/toast";
+import { showError, showInfo } from "../lib/toast";
 import { validatePassword } from "../lib/validation";
 import { useAuth } from "../hooks/useAuth";
 import { usePressAndFocusAnimations } from "../hooks/useAnimations";

@@ -1,13 +1,5 @@
 import React, { useState, useRef } from "react";
-import {
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  Platform,
-  Animated,
-  Easing,
-} from "react-native";
+import { Text, TextInput, Pressable, StyleSheet, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "../constants";
 import { PrimaryButton } from "../components/ui/buttons/PrimaryButton";
@@ -18,8 +10,9 @@ import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 import { useRouter } from "expo-router";
-import { showError, showSuccess } from "../lib/toast";
+import { showError } from "../lib/toast";
 import { useUserStore } from "../store/userStore";
+import { supabase } from "../lib/supabase";
 
 import { useAuth } from "../hooks/useAuth";
 import { usePressAndFocusAnimations } from "../hooks/useAnimations";
@@ -77,13 +70,32 @@ export const LoginScreen = () => {
         return;
       }
 
+      // Ensure only 'user' role can login on mobile
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+
+      if (profileError) {
+        console.error("Error fetching profile:", profileError);
+        await supabase.auth.signOut();
+        showError("Error retrieving profile after login.");
+        return;
+      }
+
+      if (profileData?.role !== "user") {
+        await supabase.auth.signOut();
+        showError("Access denied: only users can sign in on the mobile app.");
+        return;
+      }
+
       useUserStore.getState().setUser({
         id: user.id,
         email: user.email ?? "",
         fullName: user.user_metadata?.full_name ?? "",
       });
 
-      showSuccess("Welcome!");
       router.push("/(tabs)");
     } catch (err: any) {
       console.error(err);
@@ -108,12 +120,32 @@ export const LoginScreen = () => {
 
       const session = (data as any)?.session;
       if (session?.user) {
+        // Ensure only 'user' role can login on mobile (OAuth)
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .single();
+
+        if (profileError) {
+          console.error("Error fetching profile:", profileError);
+          await supabase.auth.signOut();
+          showError("Error retrieving profile after login.");
+          return;
+        }
+
+        if (profileData?.role !== "user") {
+          await supabase.auth.signOut();
+          showError("Access denied: only users can sign in on the mobile app.");
+          return;
+        }
+
         useUserStore.getState().setUser({
           id: session.user.id,
           email: session.user.email ?? "",
           fullName: session.user.user_metadata?.full_name ?? "",
         });
-        showSuccess("Welcome!");
+
         router.push("/(tabs)");
       } else {
         showError("Could not retrieve session after login.");

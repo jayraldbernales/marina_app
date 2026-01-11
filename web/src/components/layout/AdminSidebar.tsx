@@ -11,7 +11,6 @@ import {
   Anchor,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
 
 interface NavItem {
   title: string;
@@ -27,14 +26,18 @@ const adminNavItems: NavItem[] = [
   { title: "Reports", href: "/admin/reports", icon: BarChart3 },
 ];
 
-export function AdminSidebar() {
+interface AdminSidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+export function AdminSidebar({ collapsed, onToggle }: AdminSidebarProps) {
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300 ease-out flex flex-col",
+        "h-screen bg-card border-r border-border transition-all duration-300 ease-out flex flex-col",
         collapsed ? "w-16" : "w-64"
       )}
     >
@@ -56,13 +59,11 @@ export function AdminSidebar() {
           )}
         </div>
       </div>
-
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin">
         {adminNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
-
           return (
             <Link
               key={item.href}
@@ -84,14 +85,13 @@ export function AdminSidebar() {
           );
         })}
       </nav>
-
       {/* Bottom Actions */}
       <div className="p-3 border-t border-border space-y-2">
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full justify-center text-muted-foreground hover:text-foreground"
+          onClick={onToggle}
+          className="w-full justify-center text-muted-foreground hover:bg-muted"
         >
           {collapsed ? (
             <ChevronRight className="w-4 h-4" />

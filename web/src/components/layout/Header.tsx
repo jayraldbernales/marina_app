@@ -34,8 +34,16 @@ export function Header({ title }: HeaderProps) {
   const displayName = user?.user_metadata?.full_name || user?.email || "User";
 
   const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
+    try {
+      const res = await logout();
+      if (!res.success) {
+        console.error("Logout failed:", res.error);
+      }
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      navigate("/login", { replace: true });
+    }
   };
 
   return (
@@ -44,7 +52,7 @@ export function Header({ title }: HeaderProps) {
 
       <div className="flex items-center gap-4">
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="relative hover:bg-muted">
           <Bell className="w-5 h-5 text-muted-foreground" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-coral rounded-full" />
         </Button>
@@ -52,7 +60,10 @@ export function Header({ title }: HeaderProps) {
         {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 px-2">
+            <Button
+              variant="ghost"
+              className="flex items-center gap-2 hover:bg-muted px-2"
+            >
               <Avatar className="w-8 h-8">
                 <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                   {getInitials(displayName)}
@@ -77,16 +88,17 @@ export function Header({ title }: HeaderProps) {
             <DropdownMenuSeparator />
 
             <DropdownMenuItem>Profile Settings</DropdownMenuItem>
-            <DropdownMenuItem>Preferences</DropdownMenuItem>
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={handleLogout}
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Log out
+            <DropdownMenuItem asChild>
+              <button
+                className="text-destructive flex items-center w-full text-left px-2 py-1"
+                onClick={handleLogout}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Log out
+              </button>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
