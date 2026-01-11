@@ -12,7 +12,7 @@ export const cartScreenStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#cce3de",
   },
-  headerBackBtn: { marginRight: 12 },
+  headerBackBtn: { marginRight: 12, color: COLORS.light.primary },
   headerTitleCart: {
     fontSize: 20,
     fontWeight: "bold",
@@ -140,7 +140,7 @@ export const cartScreenStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
+    padding: 12,
   },
   checkoutBtn: {
     backgroundColor: COLORS.light.primary,

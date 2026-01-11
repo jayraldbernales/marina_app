@@ -16,107 +16,106 @@ import { AuthCard } from "../components/ui/cards/AuthCard";
 import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
 import { useRouter } from "expo-router";
-import * as AuthSession from "expo-auth-session";
-import { supabase } from "../lib/supabase";
+import { showError, showInfo } from "../lib/toast";
+import { validatePassword } from "../lib/validation";
+import { useAuth } from "../hooks/useAuth";
+import { usePressAndFocusAnimations } from "../hooks/useAnimations";
 
 export const SignupScreen = () => {
   const router = useRouter();
+
+  const [isSigningUp, setIsSigningUp] = useState(false);
+
   // Form state
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Name
+  const [fullName, setFullName] = useState("");
+  const [nameFocused, setNameFocused] = useState(false);
+
   // Interaction states
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
-  //Name
-  const [fullName, setFullName] = useState("");
-  const [nameFocused, setNameFocused] = useState(false);
+  const {
+    buttonScale,
+    focusAnim,
+    animatePressIn,
+    animatePressOut,
+    animateFocus,
+  } = usePressAndFocusAnimations();
+  const { signUp } = useAuth();
 
-  // Animations
-  const buttonScale = new Animated.Value(1);
-  const focusAnim = new Animated.Value(0);
+  // Animations handled by shared hook
 
   const handleSignup = async () => {
+    // Prevent multiple clicks
+    if (isSigningUp) return;
+
     try {
-      if (!email || !password) {
-        alert("Please enter email and password.");
+      // Basic validation
+      if (!fullName.trim()) {
+        showError("Please enter your full name.");
         return;
       }
+      if (!email.trim()) {
+        showError("Please enter your email.");
+        return;
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showError("Please enter a valid email address.");
+        return;
+      }
+
+      // Validate password using shared util
+      const passwordErrors = validatePassword(password);
+      if (passwordErrors.length > 0) {
+        showError(passwordErrors[0]);
+        return;
+      }
+
       if (password !== confirmPassword) {
-        alert("Passwords do not match.");
+        showError("Passwords do not match.");
         return;
       }
 
-      // Build redirect URI similarly to Login flow so email links return
-      // to the app and can be exchanged for a session.
-      let redirectTo: string;
-      if (__DEV__) {
-        redirectTo = AuthSession.makeRedirectUri({ useProxy: true } as any);
-      } else {
-        redirectTo = AuthSession.makeRedirectUri({
-          scheme: "marina",
-          path: "/auth/callback",
-          preferLocalhost: false,
-        });
-      }
+      setIsSigningUp(true);
 
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectTo,
-          data: {
-            fullname: fullName,
-          },
-        },
-      });
+      // Use shared auth hook which encapsulates retry logic
+      const { data, error } = await signUp(email, password, { fullName });
 
       if (error) {
-        alert(error.message);
+        const errorStr = (error.message || "").toLowerCase();
+        if (errorStr.includes("already registered")) {
+          showError(
+            "This email is already registered. Please sign in instead."
+          );
+        } else if (errorStr.includes("invalid email")) {
+          showError("Please enter a valid email address.");
+        } else if (errorStr.includes("smtp") || errorStr.includes("email")) {
+          showError("Email service is having issues. Please try again later.");
+        } else {
+          showError(
+            error.message || "Failed to create account. Please try again."
+          );
+        }
         return;
       }
 
-      // If a session was returned, user is already signed in. Otherwise
-      // Supabase has sent a confirmation email and we should prompt user
-      // to check their inbox.
-      if (data?.session) {
-        router.push("/(tabs)");
-      } else {
-        alert("Check your email to confirm your account.\nThen sign in.");
-        router.replace("/login");
-      }
+      showInfo("Account created! Check your email to confirm.");
+      router.replace("/login");
     } catch (err: any) {
-      console.error(err);
-      alert("Error creating account: " + (err?.message ?? err));
+      console.error("Signup exception:", err);
+      showError("Error creating account: " + (err?.message || String(err)));
+    } finally {
+      setIsSigningUp(false);
     }
-  };
-
-  const animatePressIn = () => {
-    Animated.spring(buttonScale, {
-      toValue: 0.98,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const animatePressOut = () => {
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const animateFocus = (focused: boolean) => {
-    Animated.timing(focusAnim, {
-      toValue: focused ? 1 : 0,
-      duration: 150,
-      easing: Easing.ease,
-      useNativeDriver: false,
-    }).start();
   };
 
   return (
@@ -136,7 +135,6 @@ export const SignupScreen = () => {
       />
 
       <AuthCard title="Join MARINA" subtitle="Start your seafood journey today">
-        {/* Name Input */}
         <TextInputWithIcon
           iconName="person-outline"
           placeholder="Enter your full name"
@@ -156,7 +154,6 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Email Input */}
         <TextInputWithIcon
           iconName="mail-outline"
           placeholder="Enter your email"
@@ -177,7 +174,6 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Password Input */}
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Enter your password"
@@ -199,7 +195,7 @@ export const SignupScreen = () => {
             animateFocus(false);
           }}
         />
-        {/* Confirm Password Input */}
+
         <TextInputWithIcon
           iconName="lock-closed-outline"
           placeholder="Confirm your password"
@@ -222,23 +218,28 @@ export const SignupScreen = () => {
           }}
         />
 
-        {/* Divider */}
         <Text style={styles.termsText}>
           By creating an account, you agree to our Terms of Service and Privacy
           Policy.
         </Text>
 
         <PrimaryButton
-          title="Create Account"
+          title={isSigningUp ? "Creating Account..." : "Create Account"}
           onPress={handleSignup}
           buttonScale={buttonScale}
           onPressIn={animatePressIn}
           onPressOut={animatePressOut}
+          isLoading={isSigningUp}
+          disabled={isSigningUp}
         />
 
         <View style={styles.loginLinkWrapper}>
           <Text style={styles.loginLinkText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => router.replace("/login")}>
+          <TouchableOpacity
+            onPress={() => !isSigningUp && router.replace("/login")}
+            disabled={isSigningUp}
+            style={isSigningUp && { opacity: 0.5 }}
+          >
             <Text style={styles.loginLinkButton}>Sign In</Text>
           </TouchableOpacity>
         </View>
@@ -252,15 +253,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
-  },
-  forgotPasswordButton: {
-    alignSelf: "flex-end",
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    color: COLORS.light.oceanMedium,
-    fontWeight: "500",
-    fontSize: 12,
   },
   termsText: {
     fontSize: 12,

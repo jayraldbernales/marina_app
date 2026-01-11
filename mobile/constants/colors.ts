@@ -1,10 +1,3 @@
-/**
- * Complete Ocean Theme Color System
- * Converted from Tailwind CSS config to React Native
- * All colors preserved in original HSL format
- */
-
-// Light Mode Colors
 export const LIGHT_COLORS = {
   // Core
   background: "#D3EAF2",
@@ -61,6 +54,7 @@ export const COMMON_COLORS = {
   transparent: "transparent",
   facebook: "#1877F2",
   gray: "#F5F2F2",
+  yellow: "#ca8a04",
 } as const;
 
 // Combined color system

@@ -8,6 +8,8 @@ interface FacebookButtonProps {
   buttonScale?: Animated.Value;
   onPressIn?: () => void;
   onPressOut?: () => void;
+  isLoading?: boolean;
+  disabled?: boolean;
 }
 
 export const FacebookButton = ({

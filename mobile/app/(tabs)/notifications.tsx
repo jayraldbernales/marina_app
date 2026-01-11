@@ -1,3 +1,3 @@
-import CartScreen from "@/components/CartScreen";
+import NotificationScreen from "@/components/NotificationScreen";
 
-export default CartScreen;
+export default NotificationScreen;

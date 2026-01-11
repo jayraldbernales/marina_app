@@ -84,11 +84,10 @@ const CartScreen = () => {
   };
 
   const removeItem = (id: number) => {
-    updateQuantity(id, 0); // DRY: Reuse update logic
+    updateQuantity(id, 0);
   };
 
   const handleCheckout = () => {
-    // TODO: Validate address/payment; integrate Stripe/API
     console.log("Proceed to checkout");
     navigation.navigate("OrderTracking");
   };
@@ -107,7 +106,11 @@ const CartScreen = () => {
               style={cartScreenStyles.headerBackBtn}
               accessibilityLabel="Back to dashboard"
             >
-              <Ionicons name="arrow-back" size={24} color="#005f73" />
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={COLORS.light.primary}
+              />
             </TouchableOpacity>
             <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           </View>
@@ -144,14 +147,18 @@ const CartScreen = () => {
             style={cartScreenStyles.headerBackBtn}
             accessibilityLabel="Back to dashboard"
           >
-            <Ionicons name="arrow-back" size={24} color="#005f73" />
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={COLORS.light.primary}
+            />
           </TouchableOpacity>
           <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           <Text style={cartScreenStyles.headerItemsCount}>
             {cartItems.length} items
           </Text>
         </View>
-        <ScrollView style={{ padding: 16, marginBottom: 80, paddingTop: 10 }}>
+        <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
           {/* Cart Items */}
           {cartItems.map((item) => (
             <View key={item.id} style={cartScreenStyles.cartCard}>
