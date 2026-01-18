@@ -1,13 +1,5 @@
 import React, { useState, useRef } from "react";
-import {
-  Text,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  Platform,
-  Animated,
-  Easing,
-} from "react-native";
+import { Text, TextInput, Pressable, StyleSheet, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "../constants";
 import { PrimaryButton } from "../components/ui/buttons/PrimaryButton";
@@ -18,9 +10,8 @@ import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 import { useRouter } from "expo-router";
-import { showError, showSuccess } from "../lib/toast";
+import { showError } from "../lib/toast";
 import { useUserStore } from "../store/userStore";
-
 import { useAuth } from "../hooks/useAuth";
 import { usePressAndFocusAnimations } from "../hooks/useAnimations";
 
@@ -83,7 +74,6 @@ export const LoginScreen = () => {
         fullName: user.user_metadata?.full_name ?? "",
       });
 
-      showSuccess("Welcome!");
       router.push("/(tabs)");
     } catch (err: any) {
       console.error(err);
@@ -113,7 +103,7 @@ export const LoginScreen = () => {
           email: session.user.email ?? "",
           fullName: session.user.user_metadata?.full_name ?? "",
         });
-        showSuccess("Welcome!");
+
         router.push("/(tabs)");
       } else {
         showError("Could not retrieve session after login.");
@@ -124,6 +114,10 @@ export const LoginScreen = () => {
     } finally {
       setIsFacebookLoggingIn(false);
     }
+  };
+
+  const navigateToForgotPassword = () => {
+    router.push("/forgot-password");
   };
 
   return (
@@ -183,6 +177,7 @@ export const LoginScreen = () => {
         />
 
         <Pressable
+          onPress={navigateToForgotPassword}
           style={({ pressed }) => [
             styles.forgotPasswordButton,
             pressed && { opacity: 0.6 },

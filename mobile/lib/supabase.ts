@@ -28,7 +28,6 @@ const secureStoreAdapter = {
       const useAsync = typeof value === "string" && value.length > 2000;
 
       if (useAsync) {
-        showInfo("Large session detected — using AsyncStorage instead.");
         await AsyncStorage.setItem(key, value);
         return;
       }

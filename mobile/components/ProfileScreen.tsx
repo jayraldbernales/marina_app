@@ -37,14 +37,14 @@ const ProfileTab = () => {
       title: "My Shop",
       subtitle: "Manage your store",
       icon: "storefront-outline" as const,
-      onPress: () => router.push("/(seller-tabs)"),
+      onPress: () => router.push("/registration/welcome-vendor"),
     },
     {
       id: 4,
       title: "Delivery Center",
       subtitle: "Manage deliveries",
       icon: "bicycle-outline" as const,
-      onPress: () => router.push("/(rider-tabs)"),
+      onPress: () => router.push("/registration/welcome-rider"),
     },
   ];
   const supportMenus = [
@@ -53,14 +53,14 @@ const ProfileTab = () => {
       title: "Support and Help",
       subtitle: "Get assistance",
       icon: "help-circle-outline" as const,
-      onPress: () => console.log("Navigate to Support"),
+      onPress: () => router.push("/(seller-tabs)"),
     },
     {
       id: 6,
       title: "About",
       subtitle: "App information and terms",
       icon: "information-circle-outline" as const,
-      onPress: () => console.log("Navigate to About"),
+      onPress: () => router.push("/(rider-tabs)"),
     },
   ];
   const logOutMenus = [

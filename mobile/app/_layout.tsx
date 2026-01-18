@@ -17,10 +17,16 @@ export default function Layout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
           <Stack.Screen name="signup" />
+          <Stack.Screen
+            name="forgot-password"
+            options={{ headerShown: true }}
+          />
+          <Stack.Screen name="reset-password" options={{ headerShown: true }} />
           <Stack.Screen name="terms" options={{ headerShown: true }} />
           <Stack.Screen name="privacy" options={{ headerShown: true }} />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="(seller-tabs)" />
+          <Stack.Screen name="(rider-tabs)" />
         </Stack>
       </View>
     </>
