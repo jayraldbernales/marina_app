@@ -13,6 +13,9 @@ import { useNavigation, router } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
 import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
+import { supabase } from "../lib/supabase";
+
+// -------------------- DATA --------------------
 
 const categories: {
   name: string;
@@ -67,26 +70,6 @@ const featuredProducts = [
     image: require("@/assets/img/shrimp.jpg"),
     freshness: "Caught Today",
   },
-  {
-    id: 5,
-    name: "Mayamaya",
-    price: 650,
-    unit: "kg",
-    vendor: "Ocean Harvest",
-    rating: 4.9,
-    image: require("@/assets/img/mayamaya.jpg"),
-    freshness: "Caught Today",
-  },
-  {
-    id: 6,
-    name: "Bangus",
-    price: 480,
-    unit: "kg",
-    vendor: "Maria's Catch",
-    rating: 4.8,
-    image: require("@/assets/img/bangus.jpg"),
-    freshness: "Caught Today",
-  },
 ];
 
 const promos = [
@@ -104,24 +87,97 @@ const promos = [
   },
 ];
 
-// Types now reference defined constants
+// -------------------- TYPES --------------------
+
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 type RootStackParamList = {
   ProductDetail: { product: (typeof featuredProducts)[0] };
 };
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// -------------------- HELPERS --------------------
+
+const getGreeting = (fullName?: string) => {
+  const hour = new Date().getHours();
+  let greeting = "";
+
+  if (hour >= 5 && hour < 12) {
+    greeting = "Good Morning";
+  } else if (hour >= 12 && hour < 17) {
+    greeting = "Good Afternoon";
+  } else if (hour >= 17 && hour < 22) {
+    greeting = "Good Evening";
+  } else {
+    greeting = "Good Night";
+  }
+
+  if (fullName && fullName.trim()) {
+    const firstName = fullName.trim().split(" ")[0];
+    return `${greeting}, ${firstName}!`;
+  }
+
+  return `${greeting}!`;
+};
+
+// -------------------- COMPONENT --------------------
+
 const BuyerDashboard = () => {
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setTimeout(() => setLoading(false), 1200);
-  }, []);
-
   const [searchQuery, setSearchQuery] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [greeting, setGreeting] = useState("");
+
   const navigation = useNavigation<NavigationProp>();
 
-  // Handlers
+  useEffect(() => {
+    const init = async () => {
+      await fetchUserProfile();
+      setTimeout(() => setLoading(false), 800);
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    // Update greeting whenever fullName changes
+    setGreeting(getGreeting(fullName));
+
+    // Update greeting every minute to handle time changes
+    const interval = setInterval(() => {
+      setGreeting(getGreeting(fullName));
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [fullName]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setFullName("");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (error) {
+        console.error("Error fetching profile:", error);
+        setFullName("");
+      } else {
+        setFullName(data?.full_name || "");
+      }
+    } catch (error) {
+      console.error("Error in fetchUserProfile:", error);
+      setFullName("");
+    }
+  };
+
   const handleProductPress = (product: (typeof featuredProducts)[0]) => {
     navigation.navigate("ProductDetail", { product });
   };
@@ -144,6 +200,7 @@ const BuyerDashboard = () => {
   if (loading) {
     return <BuyerDashboardSkeleton />;
   }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={buyerDashboardStyles.container}>
@@ -151,27 +208,25 @@ const BuyerDashboard = () => {
         <View style={buyerDashboardStyles.header}>
           <View style={buyerDashboardStyles.headerTop}>
             <View>
-              <Text style={buyerDashboardStyles.headerTitle}>
-                Good Morning!
-              </Text>
+              <Text style={buyerDashboardStyles.headerTitle}>{greeting}</Text>
               <Text style={buyerDashboardStyles.headerSubtitle}>
                 What's fresh today?
               </Text>
             </View>
-            <View style={{ flexDirection: "row" }}>
-              <TouchableOpacity
-                style={buyerDashboardStyles.chatButton}
-                onPress={() => router.push("/buyer/chat")}
-                accessibilityLabel="Open chat"
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={25}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-            </View>
+
+            <TouchableOpacity
+              style={buyerDashboardStyles.chatButton}
+              onPress={() => router.push("/buyer/chat")}
+              accessibilityLabel="Open chat"
+            >
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={25}
+                color="#fff"
+              />
+            </TouchableOpacity>
           </View>
+
           {/* Search Bar */}
           <View style={buyerDashboardStyles.searchBarContainer}>
             <Feather
@@ -191,6 +246,7 @@ const BuyerDashboard = () => {
             />
           </View>
         </View>
+
         <ScrollView
           style={buyerDashboardStyles.scrollArea}
           contentContainerStyle={{ paddingBottom: 20 }}
@@ -225,6 +281,7 @@ const BuyerDashboard = () => {
               </View>
             ))}
           </View>
+
           {/* Categories */}
           <Text style={buyerDashboardStyles.sectionTitle}>Categories</Text>
 

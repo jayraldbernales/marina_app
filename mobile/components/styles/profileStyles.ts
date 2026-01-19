@@ -70,8 +70,9 @@ export const profileStyles = StyleSheet.create({
   },
   userEmail: {
     fontSize: 14,
-    color: COLORS.light.accent,
+    color: COLORS.light.muted,
     marginBottom: 8,
+    marginLeft: 4,
     opacity: 0.95,
   },
   actionButtons: {

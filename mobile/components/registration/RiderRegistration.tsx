@@ -1,579 +1,991 @@
 // components/registration/RiderRegistration.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Image,
+  SafeAreaView,
   StyleSheet,
-  Switch,
+  Alert,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { Picker } from "@react-native-picker/picker";
 import { supabase } from "../../lib/supabase";
 import { COLORS } from "../../constants";
-import { profileStyles } from "../../components/styles/profileStyles"; // Reuse
-import {
-  pickImageAsync,
-  uploadImageToSupabase,
-} from "../../lib/registrationUtils";
-import { showError, showSuccess } from "../../lib/toast";
+import AddressForm from "./AddressForm";
 
-enum Step {
-  PersonalInfo = 1,
-  VehicleInfo = 2,
-  Verification = 3,
-  Confirmation = 4,
-}
+const RiderRegistration = () => {
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedConsent, setAcceptedConsent] = useState(false);
 
-type FormData = {
-  name: string;
-  mobileNumber: string;
-  email: string;
-  password: string; // Added for auth
-  address: string;
-  emergencyContactPerson: string;
-  emergencyContactNumber: string;
-  vehicleType: string;
-  vehiclePlateNumber: string;
-  proofIdUri?: string;
-  driversLicenseUri?: string;
-  selfieWithIdUri?: string;
-  motorcycleRegistrationUri?: string;
-  termsAccepted: boolean;
-  consentAccepted: boolean;
-};
+  // Step 1: Personal Information
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [address, setAddress] = useState("");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactNumber, setEmergencyContactNumber] = useState("");
 
-const RiderRegistrationScreen = () => {
-  const router = useRouter();
-  const [step, setStep] = useState<Step>(Step.PersonalInfo);
-  const [formData, setFormData] = useState<FormData>({
-    name: "",
-    mobileNumber: "",
-    email: "",
-    password: "",
-    address: "",
-    emergencyContactPerson: "",
-    emergencyContactNumber: "",
-    vehicleType: "",
-    vehiclePlateNumber: "",
-    termsAccepted: false,
-    consentAccepted: false,
-  });
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>(
-    {}
+  // Step 2: Vehicle Information
+  const [vehicleType, setVehicleType] = useState("");
+  const [plateNumber, setPlateNumber] = useState("");
+
+  // Step 3: Verification (removed ID type and valid ID)
+  const [driversLicenseImage, setDriversLicenseImage] = useState<string | null>(
+    null,
   );
-  const [loading, setLoading] = useState(false);
+  const [selfieWithIdImage, setSelfieWithIdImage] = useState<string | null>(
+    null,
+  );
+  const [motorcycleRegistrationImage, setMotorcycleRegistrationImage] =
+    useState<string | null>(null);
 
-  const validateStep = (): boolean => {
-    const newErrors: typeof errors = {};
-    switch (step) {
-      case Step.PersonalInfo:
-        if (!formData.name.trim()) newErrors.name = "Name is required";
-        if (
-          !formData.mobileNumber.trim() ||
-          !/^\+63\d{10}$/.test(formData.mobileNumber)
-        )
-          newErrors.mobileNumber = "Format: +63 followed by 10 digits";
-        if (!formData.email.trim() || !/\S+@\S+\.\S+/.test(formData.email))
-          newErrors.email = "Valid email is required";
-        if (formData.password.length < 8)
-          newErrors.password = "Password must be at least 8 characters";
-        if (!formData.address.trim()) newErrors.address = "Address is required";
-        if (!formData.emergencyContactPerson.trim())
-          newErrors.emergencyContactPerson =
-            "Emergency contact person is required";
-        if (
-          !formData.emergencyContactNumber.trim() ||
-          !/^\+63\d{10}$/.test(formData.emergencyContactNumber)
-        )
-          newErrors.emergencyContactNumber =
-            "Format: +63 followed by 10 digits";
-        break;
-      case Step.VehicleInfo:
-        if (!formData.vehicleType.trim())
-          newErrors.vehicleType = "Vehicle type is required";
-        if (!formData.vehiclePlateNumber.trim())
-          newErrors.vehiclePlateNumber = "Plate number is required";
-        break;
-      case Step.Verification:
-        if (!formData.proofIdUri)
-          newErrors.proofIdUri = "Proof of ID is required";
-        if (!formData.driversLicenseUri)
-          newErrors.driversLicenseUri = "Driver’s license is required";
-        if (!formData.selfieWithIdUri)
-          newErrors.selfieWithIdUri = "Selfie with ID is required";
-        break;
-      case Step.Confirmation:
-        if (!formData.termsAccepted)
-          newErrors.termsAccepted = "You must accept the terms";
-        if (!formData.consentAccepted)
-          newErrors.consentAccepted = "You must accept the consent";
-        break;
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  // Address fields for validation
+  const [addressFields, setAddressFields] = useState({
+    barangay: "",
+    purok: "",
+  });
+
+  // Error states (removed idType and validId errors)
+  const [errors, setErrors] = useState({
+    fullName: false,
+    email: false,
+    mobile: false,
+    barangay: false,
+    purok: false,
+    emergencyContactName: false,
+    emergencyContactNumber: false,
+    vehicleType: false,
+    plateNumber: false,
+    driversLicense: false,
+    selfieWithId: false,
+  });
+
+  // Vehicle Type Options
+  const VEHICLE_TYPES = [
+    { label: "-- Select Vehicle Type --", value: "" },
+    { label: "Motorcycle", value: "MOTORCYCLE" },
+    { label: "Bicycle", value: "BICYCLE" },
+    { label: "E-Bike", value: "EBIKE" },
+    { label: "Tricycle", value: "TRICYCLE" },
+  ];
+
+  // Vehicle Type Labels
+  const VEHICLE_TYPE_LABELS: Record<string, string> = {
+    MOTORCYCLE: "Motorcycle",
+    BICYCLE: "Bicycle",
+    EBIKE: "E-Bike",
+    TRICYCLE: "Tricycle",
   };
 
-  const handleNextStep = () => {
-    if (validateStep()) {
-      if (step < Step.Confirmation) {
-        setStep((prev) => (prev + 1) as Step);
-      } else {
-        handleSubmit();
+  // Memoized address form errors object
+  const addressFormErrors = useMemo(
+    () => ({
+      municipality: false,
+      barangay: errors.barangay,
+      purok: errors.purok,
+    }),
+    [errors.barangay, errors.purok],
+  );
+
+  // Memoized callback functions
+  const handleAddressChange = useCallback((newAddress: string) => {
+    setAddress(newAddress);
+  }, []);
+
+  const handleAddressErrorsChange = useCallback((addressErrors: any) => {
+    setErrors((prev) => ({ ...prev, ...addressErrors }));
+  }, []);
+
+  const handleAddressFieldsUpdate = useCallback(
+    (barangayValue: string, purokValue: string) => {
+      setAddressFields({
+        barangay: barangayValue,
+        purok: purokValue,
+      });
+    },
+    [],
+  );
+
+  // Fetch user email from auth
+  useEffect(() => {
+    const fetchUserEmail = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user?.email) {
+          setEmail(session.user.email);
+        }
+      } catch (error) {
+        console.error("Error fetching user email:", error);
+      }
+    };
+    fetchUserEmail();
+  }, []);
+
+  // Validation functions (updated validateStep3)
+  const validateStep1 = useCallback(() => {
+    const isBarangayEmpty = !addressFields.barangay.trim();
+    const isPurokEmpty = !addressFields.purok.trim();
+
+    const newErrors = {
+      ...errors,
+      fullName: !fullName.trim(),
+      email: !email.trim(),
+      mobile: !mobile.trim(),
+      barangay: isBarangayEmpty,
+      purok: isPurokEmpty,
+      emergencyContactName: !emergencyContactName.trim(),
+      emergencyContactNumber: !emergencyContactNumber.trim(),
+    };
+
+    setErrors(newErrors);
+
+    const hasErrors =
+      newErrors.fullName ||
+      newErrors.email ||
+      newErrors.mobile ||
+      newErrors.barangay ||
+      newErrors.purok ||
+      newErrors.emergencyContactName ||
+      newErrors.emergencyContactNumber;
+
+    return !hasErrors;
+  }, [
+    fullName,
+    email,
+    mobile,
+    addressFields,
+    emergencyContactName,
+    emergencyContactNumber,
+    errors,
+  ]);
+
+  const validateStep2 = useCallback(() => {
+    const newErrors = {
+      ...errors,
+      vehicleType: !vehicleType.trim(),
+      plateNumber: !plateNumber.trim(),
+    };
+
+    setErrors(newErrors);
+
+    return !newErrors.vehicleType && !newErrors.plateNumber;
+  }, [vehicleType, plateNumber, errors]);
+
+  const validateStep3 = useCallback(() => {
+    const newErrors = {
+      ...errors,
+      driversLicense: !driversLicenseImage,
+      selfieWithId: !selfieWithIdImage,
+    };
+
+    setErrors(newErrors);
+
+    return !newErrors.driversLicense && !newErrors.selfieWithId;
+  }, [driversLicenseImage, selfieWithIdImage, errors]);
+
+  // Navigation handlers
+  const handleNext = useCallback(() => {
+    if (step === 1) {
+      if (validateStep1()) {
+        setStep(2);
+      }
+    } else if (step === 2) {
+      if (validateStep2()) {
+        setStep(3);
+      }
+    } else if (step === 3) {
+      if (validateStep3()) {
+        setStep(4);
       }
     }
-  };
+  }, [step, validateStep1, validateStep2, validateStep3]);
 
-  const handlePrevStep = () => {
-    if (step > Step.PersonalInfo) {
-      setStep((prev) => (prev - 1) as Step);
+  const handleBack = useCallback(() => {
+    if (step > 1) {
+      setStep((step - 1) as 1 | 2 | 3 | 4);
     }
-  };
+  }, [step]);
 
-  const handleImagePick = async (
-    field:
-      | "proofIdUri"
-      | "driversLicenseUri"
-      | "selfieWithIdUri"
-      | "motorcycleRegistrationUri",
-    allowCamera = false
-  ) => {
-    const uri = await pickImageAsync(allowCamera);
-    if (uri) {
-      setFormData((prev) => ({ ...prev, [field]: uri }));
+  // Camera handler
+  const openCamera = useCallback(
+    async (
+      setter: (uri: string) => void,
+      type: "photo" | "document" = "photo",
+    ) => {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Camera access is required.");
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        quality: type === "document" ? 1 : 0.85,
+        allowsEditing: type === "photo",
+        aspect: type === "document" ? [4, 3] : [1, 1],
+      });
+
+      if (!result.canceled) {
+        setter(result.assets[0].uri);
+      }
+    },
+    [],
+  );
+
+  // Submit registration
+  const handleSubmit = useCallback(async () => {
+    if (!acceptedTerms || !acceptedConsent) {
+      Alert.alert(
+        "Agreement Required",
+        "Please accept the Terms & Conditions and Privacy Policy.",
+      );
+      return;
     }
-  };
 
-  const handleSubmit = async () => {
-    setLoading(true);
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-      });
-      if (authError) throw authError;
-      if (!user) throw new Error("User creation failed");
-
-      const userId = user.id;
-
-      const proofIdUrl = formData.proofIdUri
-        ? await uploadImageToSupabase(formData.proofIdUri, userId, "proof-id")
-        : null;
-      if (!proofIdUrl) throw new Error("Proof ID upload failed");
-      const licenseUrl = formData.driversLicenseUri
-        ? await uploadImageToSupabase(
-            formData.driversLicenseUri,
-            userId,
-            "drivers-license"
-          )
-        : null;
-      if (!licenseUrl) throw new Error("License upload failed");
-      const selfieUrl = formData.selfieWithIdUri
-        ? await uploadImageToSupabase(
-            formData.selfieWithIdUri,
-            userId,
-            "selfie-with-id"
-          )
-        : null;
-      if (!selfieUrl) throw new Error("Selfie upload failed");
-      const registrationUrl = formData.motorcycleRegistrationUri
-        ? await uploadImageToSupabase(
-            formData.motorcycleRegistrationUri,
-            userId,
-            "motorcycle-registration"
-          )
-        : null;
-
-      const { error: dbError } = await supabase.from("riders").insert({
-        user_id: userId,
-        name: formData.name,
-        mobile_number: formData.mobileNumber,
-        email: formData.email,
-        address: formData.address,
-        emergency_contact_person: formData.emergencyContactPerson,
-        emergency_contact_number: formData.emergencyContactNumber,
-        vehicle_type: formData.vehicleType,
-        vehicle_plate_number: formData.vehiclePlateNumber,
-        proof_id_url: proofIdUrl,
-        drivers_license_url: licenseUrl,
-        selfie_url: selfieUrl,
-        motorcycle_registration_url: registrationUrl,
-        status: "pending",
-      });
-      if (dbError) throw dbError;
-
-      showSuccess("Registration submitted successfully! Awaiting approval.");
-      router.replace("/login");
-    } catch (err: any) {
-      showError(err.message || "Registration failed. Please try again.");
-    } finally {
-      setLoading(false);
+      // Here you would submit to your backend
+      Alert.alert(
+        "Registration Submitted",
+        "Your rider registration has been submitted for review. You'll receive a notification once approved by the admin.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.replace("/(tabs)"),
+          },
+        ],
+      );
+    } catch (error) {
+      Alert.alert("Error", "Failed to submit registration. Please try again.");
     }
-  };
+  }, [acceptedTerms, acceptedConsent]);
 
-  const renderStepper = () => (
-    <View style={styles.stepper}>
-      {[1, 2, 3, 4].map((s) => (
-        <View
-          key={s}
-          style={[styles.stepDot, step >= s ? styles.activeStepDot : null]}
-        />
-      ))}
-    </View>
-  );
-
-  const renderPersonalInfo = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Step 1: Personal Information</Text>
-      <TextInput
-        style={[styles.input, errors.name ? styles.inputError : null]}
-        placeholder="Name"
-        value={formData.name}
-        onChangeText={(v) => setFormData((p) => ({ ...p, name: v }))}
-      />
-      {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
-      <TextInput
-        style={[styles.input, errors.mobileNumber ? styles.inputError : null]}
-        placeholder="Mobile Number (e.g., +639123456789)"
-        keyboardType="phone-pad"
-        value={formData.mobileNumber}
-        onChangeText={(v) => setFormData((p) => ({ ...p, mobileNumber: v }))}
-      />
-      {errors.mobileNumber && (
-        <Text style={styles.errorText}>{errors.mobileNumber}</Text>
-      )}
-      <TextInput
-        style={[styles.input, errors.email ? styles.inputError : null]}
-        placeholder="Email Address"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={formData.email}
-        onChangeText={(v) => setFormData((p) => ({ ...p, email: v }))}
-      />
-      {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-      <TextInput
-        style={[styles.input, errors.password ? styles.inputError : null]}
-        placeholder="Password"
-        secureTextEntry
-        value={formData.password}
-        onChangeText={(v) => setFormData((p) => ({ ...p, password: v }))}
-      />
-      {errors.password && (
-        <Text style={styles.errorText}>{errors.password}</Text>
-      )}
-      <TextInput
-        style={[styles.input, errors.address ? styles.inputError : null]}
-        placeholder="Address"
-        value={formData.address}
-        onChangeText={(v) => setFormData((p) => ({ ...p, address: v }))}
-      />
-      {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
-      <TextInput
-        style={[
-          styles.input,
-          errors.emergencyContactPerson ? styles.inputError : null,
-        ]}
-        placeholder="Emergency Contact Person"
-        value={formData.emergencyContactPerson}
-        onChangeText={(v) =>
-          setFormData((p) => ({ ...p, emergencyContactPerson: v }))
-        }
-      />
-      {errors.emergencyContactPerson && (
-        <Text style={styles.errorText}>{errors.emergencyContactPerson}</Text>
-      )}
-      <TextInput
-        style={[
-          styles.input,
-          errors.emergencyContactNumber ? styles.inputError : null,
-        ]}
-        placeholder="Emergency Contact Number (e.g., +639123456789)"
-        keyboardType="phone-pad"
-        value={formData.emergencyContactNumber}
-        onChangeText={(v) =>
-          setFormData((p) => ({ ...p, emergencyContactNumber: v }))
-        }
-      />
-      {errors.emergencyContactNumber && (
-        <Text style={styles.errorText}>{errors.emergencyContactNumber}</Text>
-      )}
-    </View>
-  );
-
-  const renderVehicleInfo = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Step 2: Vehicle Information</Text>
-      <TextInput
-        style={[styles.input, errors.vehicleType ? styles.inputError : null]}
-        placeholder="Vehicle Type"
-        value={formData.vehicleType}
-        onChangeText={(v) => setFormData((p) => ({ ...p, vehicleType: v }))}
-      />
-      {errors.vehicleType && (
-        <Text style={styles.errorText}>{errors.vehicleType}</Text>
-      )}
-      <TextInput
-        style={[
-          styles.input,
-          errors.vehiclePlateNumber ? styles.inputError : null,
-        ]}
-        placeholder="Vehicle Plate Number"
-        value={formData.vehiclePlateNumber}
-        onChangeText={(v) =>
-          setFormData((p) => ({ ...p, vehiclePlateNumber: v }))
-        }
-      />
-      {errors.vehiclePlateNumber && (
-        <Text style={styles.errorText}>{errors.vehiclePlateNumber}</Text>
-      )}
-    </View>
-  );
-
-  const renderVerification = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Step 3: Verification</Text>
-      <TouchableOpacity
-        style={styles.uploadButton}
-        onPress={() => handleImagePick("proofIdUri")}
-      >
-        <Text style={styles.uploadText}>
-          Proof of Identification (National ID etc.)
-        </Text>
-      </TouchableOpacity>
-      {formData.proofIdUri && (
-        <Image
-          source={{ uri: formData.proofIdUri }}
-          style={styles.imagePreview}
-        />
-      )}
-      {errors.proofIdUri && (
-        <Text style={styles.errorText}>{errors.proofIdUri}</Text>
-      )}
-      <TouchableOpacity
-        style={styles.uploadButton}
-        onPress={() => handleImagePick("driversLicenseUri")}
-      >
-        <Text style={styles.uploadText}>Upload Driver’s License</Text>
-      </TouchableOpacity>
-      {formData.driversLicenseUri && (
-        <Image
-          source={{ uri: formData.driversLicenseUri }}
-          style={styles.imagePreview}
-        />
-      )}
-      {errors.driversLicenseUri && (
-        <Text style={styles.errorText}>{errors.driversLicenseUri}</Text>
-      )}
-      <TouchableOpacity
-        style={styles.uploadButton}
-        onPress={() => handleImagePick("selfieWithIdUri", true)}
-      >
-        <Text style={styles.uploadText}>Selfie with ID</Text>
-      </TouchableOpacity>
-      {formData.selfieWithIdUri && (
-        <Image
-          source={{ uri: formData.selfieWithIdUri }}
-          style={styles.imagePreview}
-        />
-      )}
-      {errors.selfieWithIdUri && (
-        <Text style={styles.errorText}>{errors.selfieWithIdUri}</Text>
-      )}
-      <TouchableOpacity
-        style={styles.uploadButton}
-        onPress={() => handleImagePick("motorcycleRegistrationUri")}
-      >
-        <Text style={styles.uploadText}>Optional: Motorcycle Registration</Text>
-      </TouchableOpacity>
-      {formData.motorcycleRegistrationUri && (
-        <Image
-          source={{ uri: formData.motorcycleRegistrationUri }}
-          style={styles.imagePreview}
-        />
-      )}
-    </View>
-  );
-
-  const renderConfirmation = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Step 4: Confirmation</Text>
-      <View style={styles.checkboxRow}>
-        <Switch
-          value={formData.termsAccepted}
-          onValueChange={(v) =>
-            setFormData((p) => ({ ...p, termsAccepted: v }))
-          }
-        />
-        <Text style={styles.checkboxLabel}>
-          I accept the Terms & Conditions
-        </Text>
+  // Render image preview or upload button
+  const renderUploadSection = useCallback(
+    (
+      label: string,
+      image: string | null,
+      setImage: (uri: string) => void,
+      errorField: boolean,
+      type: "photo" | "document" = "photo",
+      instructions?: string,
+    ) => (
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>{label}</Text>
+        <TouchableOpacity
+          style={[styles.uploadCard, errorField && styles.inputError]}
+          onPress={() => openCamera(setImage, type)}
+        >
+          {image ? (
+            <View style={styles.imagePreviewContainer}>
+              <Image source={{ uri: image }} style={styles.imagePreview} />
+              <View style={styles.imageOverlay}>
+                <Ionicons name="camera-outline" size={24} color="#fff" />
+                <Text style={styles.imageOverlayText}>Retake Photo</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.uploadContent}>
+              <Ionicons
+                name={
+                  type === "document" ? "document-outline" : "camera-outline"
+                }
+                size={32}
+                color={errorField ? "#ef4444" : COLORS.light.primary}
+              />
+              <Text
+                style={[
+                  styles.uploadText,
+                  errorField && styles.uploadTextError,
+                ]}
+              >
+                Capture {label}
+              </Text>
+              {instructions && (
+                <Text style={styles.uploadSubtext}>{instructions}</Text>
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+        {errorField && (
+          <Text style={styles.errorText}>{label} is required</Text>
+        )}
       </View>
-      {errors.termsAccepted && (
-        <Text style={styles.errorText}>{errors.termsAccepted}</Text>
-      )}
-      <View style={styles.checkboxRow}>
-        <Switch
-          value={formData.consentAccepted}
-          onValueChange={(v) =>
-            setFormData((p) => ({ ...p, consentAccepted: v }))
-          }
-        />
-        <Text style={styles.checkboxLabel}>
-          I agree to the Agreement and Consent
-        </Text>
-      </View>
-      {errors.consentAccepted && (
-        <Text style={styles.errorText}>{errors.consentAccepted}</Text>
-      )}
-    </View>
+    ),
+    [openCamera],
   );
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-    >
-      {renderStepper()}
-      {step === Step.PersonalInfo && renderPersonalInfo()}
-      {step === Step.VehicleInfo && renderVehicleInfo()}
-      {step === Step.Verification && renderVerification()}
-      {step === Step.Confirmation && renderConfirmation()}
-      <View style={styles.navigationButtons}>
-        {step > Step.PersonalInfo && (
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handlePrevStep}
-            disabled={loading}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color={COLORS.light.primary}
-            />
-            <Text style={styles.buttonText}>Back</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={styles.nextButton}
-          onPress={handleNextStep}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading
-              ? "Submitting..."
-              : step === Step.Confirmation
-                ? "Register"
-                : "Next"}
-          </Text>
-          <Ionicons name="arrow-forward" size={24} color="#fff" />
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.headerBar}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Rider Registration</Text>
       </View>
-    </ScrollView>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* STEP 1: Personal Information */}
+        {step === 1 && (
+          <>
+            <Text style={styles.stepTitle}>Personal Information</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Full Name *</Text>
+              <TextInput
+                style={[styles.input, errors.fullName && styles.inputError]}
+                placeholder="Enter your full name"
+                value={fullName}
+                onChangeText={(text) => {
+                  setFullName(text);
+                  setErrors((prev) => ({ ...prev, fullName: false }));
+                }}
+              />
+              {errors.fullName && (
+                <Text style={styles.errorText}>Full name is required</Text>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address *</Text>
+              <TextInput
+                style={[styles.input, errors.email && styles.inputError]}
+                placeholder="Your registered email"
+                value={email}
+                editable={false}
+                selectTextOnFocus={false}
+              />
+              <Text style={styles.helperText}>
+                Email is taken from your account and cannot be changed
+              </Text>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Mobile Number *</Text>
+              <TextInput
+                style={[styles.input, errors.mobile && styles.inputError]}
+                placeholder="09XX XXX XXXX"
+                value={mobile}
+                onChangeText={(text) => {
+                  setMobile(text);
+                  setErrors((prev) => ({ ...prev, mobile: false }));
+                }}
+                keyboardType="phone-pad"
+                maxLength={11}
+              />
+              {errors.mobile && (
+                <Text style={styles.errorText}>Mobile number is required</Text>
+              )}
+            </View>
+
+            {/* Address Form */}
+            <AddressForm
+              address={address}
+              onChange={handleAddressChange}
+              errors={addressFormErrors}
+              onErrorsChange={handleAddressErrorsChange}
+              onFieldsChange={handleAddressFieldsUpdate}
+              initialBarangay={addressFields.barangay}
+              initialPurok={addressFields.purok}
+            />
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Emergency Contact Person *</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.emergencyContactName && styles.inputError,
+                ]}
+                placeholder="Full name of emergency contact"
+                value={emergencyContactName}
+                onChangeText={(text) => {
+                  setEmergencyContactName(text);
+                  setErrors((prev) => ({
+                    ...prev,
+                    emergencyContactName: false,
+                  }));
+                }}
+              />
+              {errors.emergencyContactName && (
+                <Text style={styles.errorText}>
+                  Emergency contact person is required
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Emergency Contact Number *</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.emergencyContactNumber && styles.inputError,
+                ]}
+                placeholder="09XX XXX XXXX"
+                value={emergencyContactNumber}
+                onChangeText={(text) => {
+                  setEmergencyContactNumber(text);
+                  setErrors((prev) => ({
+                    ...prev,
+                    emergencyContactNumber: false,
+                  }));
+                }}
+                keyboardType="phone-pad"
+                maxLength={11}
+              />
+              {errors.emergencyContactNumber && (
+                <Text style={styles.errorText}>
+                  Emergency contact number is required
+                </Text>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* STEP 2: Vehicle Information */}
+        {step === 2 && (
+          <>
+            <Text style={styles.stepTitle}>Vehicle Information</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Vehicle Type *</Text>
+              <View
+                style={[
+                  styles.dropdownWrapper,
+                  errors.vehicleType && styles.inputError,
+                ]}
+              >
+                <Picker
+                  selectedValue={vehicleType}
+                  onValueChange={(value) => {
+                    setVehicleType(value);
+                    setErrors((prev) => ({ ...prev, vehicleType: false }));
+                  }}
+                  style={styles.picker}
+                >
+                  {VEHICLE_TYPES.map((type) => (
+                    <Picker.Item
+                      key={type.value}
+                      label={type.label}
+                      value={type.value}
+                    />
+                  ))}
+                </Picker>
+              </View>
+              {errors.vehicleType && (
+                <Text style={styles.errorText}>Please select vehicle type</Text>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Vehicle Plate Number *</Text>
+              <TextInput
+                style={[styles.input, errors.plateNumber && styles.inputError]}
+                placeholder="Enter plate number"
+                value={plateNumber}
+                onChangeText={(text) => {
+                  setPlateNumber(text);
+                  setErrors((prev) => ({ ...prev, plateNumber: false }));
+                }}
+                autoCapitalize="characters"
+              />
+              {errors.plateNumber && (
+                <Text style={styles.errorText}>Plate number is required</Text>
+              )}
+              <Text style={styles.helperText}>
+                For bicycles/e-bikes: Enter frame number or "N/A"
+              </Text>
+            </View>
+          </>
+        )}
+
+        {/* STEP 3: Verification */}
+        {step === 3 && (
+          <>
+            <Text style={styles.stepTitle}>Verification</Text>
+
+            <Text style={styles.sectionDescription}>
+              Please provide the following documents for verification:
+            </Text>
+
+            {renderUploadSection(
+              "Driver's License *",
+              driversLicenseImage,
+              setDriversLicenseImage,
+              errors.driversLicense,
+              "document",
+              "Front and back if applicable",
+            )}
+
+            {renderUploadSection(
+              "Selfie with ID *",
+              selfieWithIdImage,
+              setSelfieWithIdImage,
+              errors.selfieWithId,
+              "photo",
+              "Hold your Driver's License next to your face",
+            )}
+
+            {renderUploadSection(
+              "Motorcycle Registration (Optional)",
+              motorcycleRegistrationImage,
+              setMotorcycleRegistrationImage,
+              false,
+              "document",
+              "Optional but recommended for verification",
+            )}
+          </>
+        )}
+
+        {/* STEP 4: Confirmation */}
+        {step === 4 && (
+          <>
+            <Text style={styles.stepTitle}>Review & Submit</Text>
+
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Registration Summary</Text>
+
+              <View style={styles.summarySection}>
+                <Text style={styles.summarySectionTitle}>
+                  Personal Information
+                </Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Full Name:</Text>
+                  <Text style={styles.summaryValue}>{fullName}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Email:</Text>
+                  <Text style={styles.summaryValue}>{email}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Mobile:</Text>
+                  <Text style={styles.summaryValue}>{mobile}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Address:</Text>
+                  <Text style={styles.summaryValue} numberOfLines={2}>
+                    {address || "Not specified"}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Emergency Contact:</Text>
+                  <Text style={styles.summaryValue}>
+                    {emergencyContactName} ({emergencyContactNumber})
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.summarySection}>
+                <Text style={styles.summarySectionTitle}>
+                  Vehicle Information
+                </Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Vehicle Type:</Text>
+                  <Text style={styles.summaryValue}>
+                    {VEHICLE_TYPE_LABELS[vehicleType] || "Not selected"}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Plate Number:</Text>
+                  <Text style={styles.summaryValue}>{plateNumber}</Text>
+                </View>
+              </View>
+
+              <View style={styles.summarySection}>
+                <Text style={styles.summarySectionTitle}>Documents</Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Required Documents:</Text>
+                  <Text style={styles.summaryValue}>
+                    {[
+                      driversLicenseImage && "Driver's License",
+                      selfieWithIdImage && "Selfie with ID",
+                      motorcycleRegistrationImage && "Registration",
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "None"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.checkboxCard}
+              onPress={() => setAcceptedTerms(!acceptedTerms)}
+            >
+              <Ionicons
+                name={acceptedTerms ? "checkbox" : "square-outline"}
+                size={22}
+                color={COLORS.light.primary}
+              />
+              <Text style={styles.checkboxText}>
+                I agree to the{" "}
+                <Text
+                  style={styles.linkText}
+                  onPress={() => router.push("/terms")}
+                >
+                  Terms & Conditions
+                </Text>
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.checkboxCard}
+              onPress={() => setAcceptedConsent(!acceptedConsent)}
+            >
+              <Ionicons
+                name={acceptedConsent ? "checkbox" : "square-outline"}
+                size={22}
+                color={COLORS.light.primary}
+              />
+              <Text style={styles.checkboxText}>
+                I agree to the{" "}
+                <Text
+                  style={styles.linkText}
+                  onPress={() => router.push("/privacy")}
+                >
+                  Privacy Policy
+                </Text>{" "}
+                and consent to data processing
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* Progress Indicator */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[styles.progressFill, { width: `${(step / 4) * 100}%` }]}
+            />
+          </View>
+          <Text style={styles.progressText}>Step {step} of 4</Text>
+        </View>
+
+        {/* Navigation Buttons */}
+        <View style={styles.buttonContainer}>
+          {step > 1 && (
+            <TouchableOpacity
+              style={[styles.button, styles.backButton]}
+              onPress={handleBack}
+            >
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+          )}
+
+          {step < 4 ? (
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.nextButton,
+                step > 1 && styles.nextButtonHalf,
+              ]}
+              onPress={handleNext}
+            >
+              <Text style={styles.buttonText}>Next</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.submitButton,
+                !(acceptedTerms && acceptedConsent) && styles.disabledButton,
+              ]}
+              disabled={!(acceptedTerms && acceptedConsent)}
+              onPress={handleSubmit}
+            >
+              <Text style={styles.buttonText}>Submit Registration</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
+export default RiderRegistration;
+
+/* ================= STYLES ================= */
 const styles = StyleSheet.create({
-  // Same as VendorRegistration styles above
-  container: {
-    padding: 20,
-    backgroundColor: "#fff",
-  },
-  stepper: {
+  container: { flex: 1, backgroundColor: COLORS.light.background },
+  headerBar: {
     flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 20,
+    alignItems: "center",
+    paddingTop: 48,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: COLORS.common.white,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0f2ed",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  stepDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#ddd",
-    marginHorizontal: 5,
-  },
-  activeStepDot: {
-    backgroundColor: COLORS.light.primary,
-  },
-  stepContainer: {
-    marginBottom: 20,
-  },
-  stepTitle: {
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 15,
-    color: "#000",
+    color: COLORS.light.primary,
+    marginLeft: 12,
+  },
+  progressContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: "#e0f2ed",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: COLORS.light.primary,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    marginTop: 6,
+    textAlign: "center",
+    fontWeight: "500",
+  },
+  content: { padding: 16, paddingBottom: 32 },
+  stepTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+    marginBottom: 16,
+  },
+  sectionDescription: {
+    fontSize: 14,
+    color: COLORS.light.oceanMedium,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginBottom: 8,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
-    fontSize: 16,
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: "#cce3de",
+    fontSize: 15,
+    color: COLORS.light.primary,
   },
   inputError: {
-    borderColor: "red",
+    borderColor: "#ef4444",
+    borderWidth: 1.5,
   },
   errorText: {
-    color: "red",
-    fontSize: 12,
-    marginBottom: 10,
+    color: "#ef4444",
+    fontSize: 11,
+    marginTop: 4,
   },
-  uploadButton: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
+  helperText: {
+    fontSize: 11,
+    color: COLORS.light.oceanMedium,
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  dropdownWrapper: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#cce3de",
+    overflow: "hidden",
+  },
+  picker: {
+    height: 50,
+  },
+  uploadCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#cce3de",
+    borderStyle: "dashed",
+    overflow: "hidden",
+  },
+  uploadContent: {
+    padding: 20,
     alignItems: "center",
   },
   uploadText: {
-    fontSize: 16,
-    color: "#666",
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+  },
+  uploadTextError: {
+    color: "#ef4444",
+  },
+  uploadSubtext: {
+    marginTop: 4,
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    textAlign: "center",
+  },
+  imagePreviewContainer: {
+    position: "relative",
+    width: "100%",
+    height: 140,
   },
   imagePreview: {
     width: "100%",
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 10,
+    height: "100%",
+    resizeMode: "cover",
   },
-  checkboxRow: {
-    flexDirection: "row",
+  imageOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 10,
   },
-  checkboxLabel: {
-    marginLeft: 10,
+  imageOverlayText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 6,
+  },
+  summaryCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e0f2ed",
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+    marginBottom: 16,
+  },
+  summarySection: {
+    marginBottom: 16,
+  },
+  summarySectionTitle: {
     fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.oceanMedium,
+    marginBottom: 8,
   },
-  navigationButtons: {
+  summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: COLORS.light.oceanMedium,
+    fontWeight: "500",
+  },
+  summaryValue: {
+    fontSize: 13,
+    color: COLORS.light.primary,
+    fontWeight: "600",
+    flex: 1,
+    textAlign: "right",
+    marginLeft: 12,
+  },
+  checkboxCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#e0f2ed",
+  },
+  checkboxText: {
+    marginLeft: 12,
+    fontSize: 13,
+    color: COLORS.light.oceanMedium,
+    lineHeight: 18,
+    flex: 1,
+  },
+  linkText: {
+    color: COLORS.light.primary,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  noticeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#e8f5f1",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  noticeText: {
+    marginLeft: 10,
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    lineHeight: 17,
+    flex: 1,
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 4,
+  },
+  button: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
   },
   backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
+    backgroundColor: COLORS.common.white,
+    borderWidth: 0.5,
+    borderColor: COLORS.light.primary,
+    flex: 1,
+  },
+  backButtonText: {
+    color: COLORS.light.primary,
+    fontWeight: "600",
+    fontSize: 15,
   },
   nextButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
     backgroundColor: COLORS.light.primary,
-    borderRadius: 8,
+    flex: 1,
+  },
+  nextButtonHalf: {
+    borderWidth: 0.5,
+    flex: 1,
+  },
+  submitButton: {
+    backgroundColor: COLORS.light.primary,
+    flex: 1,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   buttonText: {
-    marginHorizontal: 8,
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#fff", // Adjust for back button if needed
+    color: COLORS.common.white,
+    fontWeight: "600",
+    fontSize: 15,
   },
 });
-export default RiderRegistrationScreen;

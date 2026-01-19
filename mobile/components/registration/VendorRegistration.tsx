@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabase";
 import {
   View,
   Text,
@@ -9,14 +10,13 @@ import {
   StyleSheet,
   Alert,
   Image,
-  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location"; // Added for location services
 import { Picker } from "@react-native-picker/picker";
 import { COLORS } from "../../constants";
+import AddressForm from "./AddressForm";
 
 const VendorRegistration = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -33,17 +33,25 @@ const VendorRegistration = () => {
   const [address, setAddress] = useState("");
   const [mobile, setMobile] = useState("");
   const [gcash, setGcash] = useState("");
+
+  // Add separate state for address fields to track them individually
+  const [addressFields, setAddressFields] = useState({
+    barangay: "",
+    purok: "",
+  });
+
   const [errors, setErrors] = useState({
     shopName: false,
     email: false,
-    address: false,
+    municipality: false,
+    barangay: false,
+    purok: false,
     mobile: false,
     gcash: false,
     idType: false,
     validId: false,
     selfie: false,
   });
-  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
   const ID_OPTIONS = [
     { label: "-- Select ID Type--", value: "" },
@@ -53,7 +61,7 @@ const VendorRegistration = () => {
     { label: "Barangay ID", value: "BARANGAY_ID" },
     { label: "Fisherfolk ID", value: "FISHERFOLK_ID" },
     { label: "UMID (SSS / GSIS)", value: "UMID" },
-    { label: "Voter’s ID / Voter’s Certificate", value: "VOTERS_ID" },
+    { label: "Voter’s ID / Voter's Certificate", value: "VOTERS_ID" },
     { label: "PhilHealth ID", value: "PHILHEALTH_ID" },
     { label: "Postal ID", value: "POSTAL_ID" },
   ];
@@ -70,19 +78,48 @@ const VendorRegistration = () => {
     POSTAL_ID: "Postal ID",
   };
 
+  // Add this to your imports
+
+  // Add this useEffect
+  useEffect(() => {
+    const fetchUserEmail = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        setEmail(session.user.email);
+      }
+    };
+    fetchUserEmail();
+  }, []);
+
+  // In your email field:
+
   const validateStep1 = () => {
+    const isBarangayEmpty = !addressFields.barangay.trim();
+    const isPurokEmpty = !addressFields.purok.trim();
+
     const newErrors = {
       ...errors,
       shopName: !shopName.trim(),
       email: !email.trim(),
-      address: !address.trim(),
+      barangay: isBarangayEmpty,
+      purok: isPurokEmpty,
       mobile: !mobile.trim(),
       gcash: !gcash.trim(),
     };
+
     setErrors(newErrors);
-    return !Object.values(newErrors)
-      .slice(0, 5)
-      .some((error) => error);
+
+    const hasErrors =
+      newErrors.shopName ||
+      newErrors.email ||
+      newErrors.barangay ||
+      newErrors.purok ||
+      newErrors.mobile ||
+      newErrors.gcash;
+
+    return !hasErrors;
   };
 
   const validateStep2 = () => {
@@ -129,59 +166,25 @@ const VendorRegistration = () => {
     }
   };
 
-  // New function to fetch and set address from current location
-  const fetchCurrentLocation = async () => {
-    try {
-      setIsFetchingLocation(true);
-      setErrors({ ...errors, address: false }); // Clear address error if present
+  // Handle address change from AddressForm
+  const handleAddressChange = (newAddress: string) => {
+    setAddress(newAddress);
+  };
 
-      // Request foreground location permissions
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "Location access is required to auto-fill your address. You can still enter it manually.",
-        );
-        return;
-      }
+  // Handle errors AND field values from AddressForm
+  const handleAddressErrorsChange = (addressErrors: any) => {
+    setErrors((prev) => ({ ...prev, ...addressErrors }));
+  };
 
-      // Get current position
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      // Reverse geocode to get address details
-      const [addressData] = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-
-      // Format the address into a readable string, handling potential null fields
-      const formattedAddress = [
-        addressData.street ?? "",
-        addressData.district ?? "",
-        addressData.city ?? "",
-        addressData.region ?? "",
-        addressData.postalCode ?? "",
-        addressData.country ?? "",
-      ]
-        .filter(Boolean) // Remove empty strings
-        .join(", ");
-
-      if (!formattedAddress) {
-        throw new Error("Unable to fetch address details.");
-      }
-
-      setAddress(formattedAddress);
-    } catch (error) {
-      console.error("Location fetch error:", error); // Log for debugging; in production, use a proper logging service
-      Alert.alert(
-        "Error",
-        "Could not fetch your location. Please ensure location services are enabled or enter the address manually.",
-      );
-    } finally {
-      setIsFetchingLocation(false);
-    }
+  // NEW FUNCTION: Update address fields when AddressForm changes
+  const handleAddressFieldsUpdate = (
+    barangayValue: string,
+    purokValue: string,
+  ) => {
+    setAddressFields({
+      barangay: barangayValue,
+      purok: purokValue,
+    });
   };
 
   return (
@@ -204,7 +207,7 @@ const VendorRegistration = () => {
               <Text style={styles.inputLabel}>Shop Name *</Text>
               <TextInput
                 style={[styles.input, errors.shopName && styles.inputError]}
-                placeholder="e.g., Fresh Catch Seafood"
+                placeholder="e.g., Shop Name"
                 value={shopName}
                 onChangeText={(text) => {
                   setShopName(text);
@@ -218,66 +221,16 @@ const VendorRegistration = () => {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address *</Text>
+
               <TextInput
                 style={[styles.input, errors.email && styles.inputError]}
-                placeholder="your.email@example.com"
+                placeholder="Your registered email"
                 value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  setErrors({ ...errors, email: false });
-                }}
-                keyboardType="email-address"
-                autoCapitalize="none"
+                editable={false} // USER CANNOT EDIT
+                selectTextOnFocus={false} // Can't even select/copy
               />
               {errors.email && (
                 <Text style={styles.errorText}>Email is required</Text>
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <View style={styles.inputLabelRow}>
-                <Text style={styles.inputLabel}>Address *</Text>
-                <TouchableOpacity
-                  style={styles.locationButton}
-                  onPress={fetchCurrentLocation}
-                  disabled={isFetchingLocation}
-                >
-                  {isFetchingLocation ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={COLORS.light.primary}
-                    />
-                  ) : (
-                    <Ionicons
-                      name="location-outline"
-                      size={16}
-                      color={COLORS.light.primary}
-                    />
-                  )}
-                  <Text style={styles.locationButtonText}>
-                    {isFetchingLocation
-                      ? "Fetching..."
-                      : "Use Current Location"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.textArea,
-                  errors.address && styles.inputError,
-                ]}
-                placeholder="Complete address"
-                value={address}
-                onChangeText={(text) => {
-                  setAddress(text);
-                  setErrors({ ...errors, address: false });
-                }}
-                multiline
-                numberOfLines={2}
-              />
-              {errors.address && (
-                <Text style={styles.errorText}>Address is required</Text>
               )}
             </View>
 
@@ -319,8 +272,26 @@ const VendorRegistration = () => {
                 This will be used for receiving payments
               </Text>
             </View>
+
+            {/* Address Form Card - Placed below GCash */}
+            <AddressForm
+              address={address}
+              onChange={handleAddressChange}
+              errors={{
+                municipality: errors.municipality,
+                barangay: errors.barangay,
+                purok: errors.purok,
+              }}
+              onErrorsChange={handleAddressErrorsChange}
+              onFieldsChange={handleAddressFieldsUpdate}
+              // ADD THESE PROPS TO PASS INITIAL VALUES
+              initialBarangay={addressFields.barangay}
+              initialPurok={addressFields.purok}
+            />
           </>
         )}
+
+        {/* Rest of your component remains the same... */}
 
         {/* STEP 2 */}
         {step === 2 && (
@@ -502,6 +473,16 @@ const VendorRegistration = () => {
                 <Text style={styles.summaryValue}>{mobile}</Text>
               </View>
               <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>GCash:</Text>
+                <Text style={styles.summaryValue}>{gcash}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Address:</Text>
+                <Text style={styles.summaryValue} numberOfLines={2}>
+                  {address || "Not specified"}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>ID Type:</Text>
                 <Text style={styles.summaryValue}>
                   {ID_TYPE_LABELS[idType] ?? "Not selected"}
@@ -518,45 +499,46 @@ const VendorRegistration = () => {
 
             <TouchableOpacity
               style={styles.checkboxCard}
-              onPress={() => setAcceptedTerms(!acceptedTerms)}
+              onPress={() => setAcceptedTerms((prev) => !prev)}
             >
               <Ionicons
                 name={acceptedTerms ? "checkbox" : "square-outline"}
-                size={24}
+                size={22}
                 color={COLORS.light.primary}
               />
+
               <Text style={styles.checkboxText}>
-                I agree to the Terms & Conditions and understand that my shop
-                will be listed on the marketplace
+                I agree to the{" "}
+                <Text
+                  style={styles.linkText}
+                  onPress={() => router.push("/terms")}
+                >
+                  Terms & Conditions
+                </Text>
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.checkboxCard}
-              onPress={() => setAcceptedConsent(!acceptedConsent)}
+              onPress={() => setAcceptedConsent((prev) => !prev)}
             >
               <Ionicons
                 name={acceptedConsent ? "checkbox" : "square-outline"}
-                size={24}
+                size={22}
                 color={COLORS.light.primary}
               />
+
               <Text style={styles.checkboxText}>
-                I consent to the verification and processing of my personal data
-                for seller registration purposes
+                I agree to the{" "}
+                <Text
+                  style={styles.linkText}
+                  onPress={() => router.push("/privacy")}
+                >
+                  Privacy Policy
+                </Text>{" "}
+                and consent to data processing
               </Text>
             </TouchableOpacity>
-
-            <View style={styles.noticeCard}>
-              <Ionicons
-                name="information-circle-outline"
-                size={20}
-                color={COLORS.light.primary}
-              />
-              <Text style={styles.noticeText}>
-                Your registration will be reviewed by our team. You'll receive a
-                notification once approved.
-              </Text>
-            </View>
           </>
         )}
 
@@ -675,22 +657,12 @@ const styles = StyleSheet.create({
     color: COLORS.light.primary,
     marginBottom: 6,
   },
-  inputLabelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  locationButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  locationButtonText: {
-    fontSize: 12,
+  linkText: {
     color: COLORS.light.primary,
-    fontWeight: "500",
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
+
   input: {
     backgroundColor: COLORS.common.white,
     borderRadius: 12,

@@ -125,7 +125,7 @@ export const LoginScreen = () => {
       colors={[
         COLORS.light.oceanLight,
         COLORS.light.seafoam,
-        COLORS.light.aquaSoft,
+        COLORS.light.oceanLight,
       ]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}

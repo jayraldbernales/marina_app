@@ -6,7 +6,7 @@ export const buyerDashboardStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.light.background },
   header: {
     backgroundColor: COLORS.light.primary,
-    paddingTop: 64,
+    paddingTop: 50,
     padding: 12,
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,

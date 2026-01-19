@@ -94,7 +94,7 @@ export const SignupScreen = () => {
         const errorStr = (error.message || "").toLowerCase();
         if (errorStr.includes("already registered")) {
           showError(
-            "This email is already registered. Please sign in instead."
+            "This email is already registered. Please sign in instead.",
           );
         } else if (errorStr.includes("invalid email")) {
           showError("Please enter a valid email address.");
@@ -102,7 +102,7 @@ export const SignupScreen = () => {
           showError("Email service is having issues. Please try again later.");
         } else {
           showError(
-            error.message || "Failed to create account. Please try again."
+            error.message || "Failed to create account. Please try again.",
           );
         }
         return;
@@ -123,7 +123,7 @@ export const SignupScreen = () => {
       colors={[
         COLORS.light.oceanLight,
         COLORS.light.seafoam,
-        COLORS.light.aquaSoft,
+        COLORS.light.oceanLight,
       ]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   loginLinkButton: {
-    color: "#00BFFF",
+    color: COLORS.light.primary,
     fontSize: 14,
     fontWeight: "600",
   },
