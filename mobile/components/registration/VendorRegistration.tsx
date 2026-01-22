@@ -23,7 +23,10 @@ const VendorRegistration = () => {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedConsent, setAcceptedConsent] = useState(false);
   const [idType, setIdType] = useState("");
-  const [validIdImage, setValidIdImage] = useState<string | null>(null);
+  const [validIdFrontImage, setValidIdFrontImage] = useState<string | null>(
+    null,
+  );
+  const [validIdBackImage, setValidIdBackImage] = useState<string | null>(null);
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
   const [optionalDoc, setOptionalDoc] = useState<string | null>(null);
 
@@ -49,33 +52,49 @@ const VendorRegistration = () => {
     mobile: false,
     gcash: false,
     idType: false,
-    validId: false,
+    validIdFront: false,
+    validIdBack: false,
     selfie: false,
   });
 
   const ID_OPTIONS = [
     { label: "-- Select ID Type--", value: "" },
     { label: "National ID", value: "NATIONAL_ID" },
-    { label: "Driver’s License (LTO)", value: "DRIVERS_LICENSE" },
+    { label: "Driver's License (LTO)", value: "DRIVERS_LICENSE" },
     { label: "Passport", value: "PASSPORT" },
     { label: "Barangay ID", value: "BARANGAY_ID" },
     { label: "Fisherfolk ID", value: "FISHERFOLK_ID" },
     { label: "UMID (SSS / GSIS)", value: "UMID" },
-    { label: "Voter’s ID / Voter's Certificate", value: "VOTERS_ID" },
+    { label: "Voter's ID / Voter's Certificate", value: "VOTERS_ID" },
     { label: "PhilHealth ID", value: "PHILHEALTH_ID" },
     { label: "Postal ID", value: "POSTAL_ID" },
   ];
 
   const ID_TYPE_LABELS: Record<string, string> = {
     NATIONAL_ID: "Philippine National ID",
-    DRIVERS_LICENSE: "Driver’s License",
+    DRIVERS_LICENSE: "Driver's License",
     PASSPORT: "Passport",
     BARANGAY_ID: "Barangay ID",
     FISHERFOLK_ID: "Fisherfolk ID",
     UMID: "UMID (SSS / GSIS)",
-    VOTERS_ID: "Voter’s ID / Certificate",
+    VOTERS_ID: "Voter's ID / Certificate",
     PHILHEALTH_ID: "PhilHealth ID",
     POSTAL_ID: "Postal ID",
+  };
+
+  // Check if ID type requires back photo
+  const requiresBackPhoto = (type: string) => {
+    const requiresBack = [
+      "NATIONAL_ID",
+      "DRIVERS_LICENSE",
+      "BARANGAY_ID",
+      "FISHERFOLK_ID",
+      "UMID",
+      "VOTERS_ID",
+      "PHILHEALTH_ID",
+      "POSTAL_ID",
+    ];
+    return requiresBack.includes(type);
   };
 
   // Add this to your imports
@@ -123,14 +142,30 @@ const VendorRegistration = () => {
   };
 
   const validateStep2 = () => {
+    // Check if front ID is required
+    const frontRequired = !validIdFrontImage;
+
+    // Check if back ID is required based on ID type
+    const backRequired = requiresBackPhoto(idType) && !validIdBackImage;
+
     const newErrors = {
       ...errors,
       idType: !idType,
-      validId: !validIdImage,
+      validIdFront: frontRequired,
+      validIdBack: backRequired,
       selfie: !selfieImage,
     };
+
     setErrors(newErrors);
-    return !newErrors.idType && !newErrors.validId && !newErrors.selfie;
+
+    // Return true only if all required fields are filled
+    const hasErrors =
+      newErrors.idType ||
+      newErrors.validIdFront ||
+      newErrors.validIdBack ||
+      newErrors.selfie;
+
+    return !hasErrors;
   };
 
   const handleNext = () => {
@@ -219,6 +254,7 @@ const VendorRegistration = () => {
               )}
             </View>
 
+            {/* Replace this entire section: */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address *</Text>
 
@@ -226,9 +262,39 @@ const VendorRegistration = () => {
                 style={[styles.input, errors.email && styles.inputError]}
                 placeholder="Your registered email"
                 value={email}
-                editable={false} // USER CANNOT EDIT
-                selectTextOnFocus={false} // Can't even select/copy
+                editable={false}
+                selectTextOnFocus={false}
               />
+              {errors.email && (
+                <Text style={styles.errorText}>Email is required</Text>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address *</Text>
+              <View
+                style={[
+                  styles.emailContainer,
+                  errors.email && styles.inputError,
+                ]}
+              >
+                <TextInput
+                  style={styles.emailInput}
+                  placeholder="Your registered email"
+                  value={email}
+                  editable={false}
+                  selectTextOnFocus={false}
+                />
+                <Ionicons
+                  name="lock-closed"
+                  size={18}
+                  color="#6b7280"
+                  style={styles.lockIcon}
+                />
+              </View>
+              <Text style={styles.helperText}>
+                Email is taken from your account and cannot be changed
+              </Text>
               {errors.email && (
                 <Text style={styles.errorText}>Email is required</Text>
               )}
@@ -291,8 +357,6 @@ const VendorRegistration = () => {
           </>
         )}
 
-        {/* Rest of your component remains the same... */}
-
         {/* STEP 2 */}
         {step === 2 && (
           <>
@@ -328,21 +392,27 @@ const VendorRegistration = () => {
               )}
             </View>
 
+            {/* Valid ID Front Photo */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Valid ID Photo *</Text>
+              <Text style={styles.inputLabel}>Valid ID Front Photo *</Text>
               <TouchableOpacity
-                style={[styles.uploadCard, errors.validId && styles.inputError]}
-                onPress={() => openCamera(setValidIdImage)}
+                style={[
+                  styles.uploadCard,
+                  errors.validIdFront && styles.inputError,
+                ]}
+                onPress={() => openCamera(setValidIdFrontImage)}
               >
-                {validIdImage ? (
+                {validIdFrontImage ? (
                   <View style={styles.imagePreviewContainer}>
                     <Image
-                      source={{ uri: validIdImage }}
+                      source={{ uri: validIdFrontImage }}
                       style={styles.imagePreview}
                     />
                     <View style={styles.imageOverlay}>
                       <Ionicons name="camera-outline" size={24} color="#fff" />
-                      <Text style={styles.imageOverlayText}>Retake Photo</Text>
+                      <Text style={styles.imageOverlayText}>
+                        Retake Front Photo
+                      </Text>
                     </View>
                   </View>
                 ) : (
@@ -350,26 +420,103 @@ const VendorRegistration = () => {
                     <Ionicons
                       name="camera-outline"
                       size={32}
-                      color={errors.validId ? "#ef4444" : COLORS.light.primary}
+                      color={
+                        errors.validIdFront ? "#ef4444" : COLORS.light.primary
+                      }
                     />
                     <Text
                       style={[
                         styles.uploadText,
-                        errors.validId && styles.uploadTextError,
+                        errors.validIdFront && styles.uploadTextError,
                       ]}
                     >
-                      Capture Valid ID
+                      Capture Front of ID
                     </Text>
                     <Text style={styles.uploadSubtext}>
-                      Make sure all details are clearly visible
+                      Make sure all details on front are clearly visible
                     </Text>
                   </View>
                 )}
               </TouchableOpacity>
-              {errors.validId && (
-                <Text style={styles.errorText}>Valid ID photo is required</Text>
+              {errors.validIdFront && (
+                <Text style={styles.errorText}>Front ID photo is required</Text>
               )}
             </View>
+
+            {/* Valid ID Back Photo - Conditionally rendered */}
+            {requiresBackPhoto(idType) && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Valid ID Back Photo *</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.uploadCard,
+                    errors.validIdBack && styles.inputError,
+                  ]}
+                  onPress={() => openCamera(setValidIdBackImage)}
+                >
+                  {validIdBackImage ? (
+                    <View style={styles.imagePreviewContainer}>
+                      <Image
+                        source={{ uri: validIdBackImage }}
+                        style={styles.imagePreview}
+                      />
+                      <View style={styles.imageOverlay}>
+                        <Ionicons
+                          name="camera-outline"
+                          size={24}
+                          color="#fff"
+                        />
+                        <Text style={styles.imageOverlayText}>
+                          Retake Back Photo
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.uploadContent}>
+                      <Ionicons
+                        name="camera-outline"
+                        size={32}
+                        color={
+                          errors.validIdBack ? "#ef4444" : COLORS.light.primary
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.uploadText,
+                          errors.validIdBack && styles.uploadTextError,
+                        ]}
+                      >
+                        Capture Back of ID
+                      </Text>
+                      <Text style={styles.uploadSubtext}>
+                        Required for{" "}
+                        {ID_TYPE_LABELS[idType] || "selected ID type"}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {errors.validIdBack && (
+                  <Text style={styles.errorText}>
+                    Back ID photo is required
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {/* Note for IDs that don't require back photo */}
+            {idType === "PASSPORT" && (
+              <View style={styles.noticeCard}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color={COLORS.light.primary}
+                />
+                <Text style={styles.noticeText}>
+                  Note: For passport, only the front photo is required as it
+                  contains all necessary information.
+                </Text>
+              </View>
+            )}
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Selfie with ID *</Text>
@@ -385,7 +532,7 @@ const VendorRegistration = () => {
                     />
                     <View style={styles.imageOverlay}>
                       <Ionicons name="camera-outline" size={24} color="#fff" />
-                      <Text style={styles.imageOverlayText}>Retake Photo</Text>
+                      <Text style={styles.imageOverlayText}>Retake Selfie</Text>
                     </View>
                   </View>
                 ) : (
@@ -430,7 +577,9 @@ const VendorRegistration = () => {
                     />
                     <View style={styles.imageOverlay}>
                       <Ionicons name="camera-outline" size={24} color="#fff" />
-                      <Text style={styles.imageOverlayText}>Retake Photo</Text>
+                      <Text style={styles.imageOverlayText}>
+                        Retake Document
+                      </Text>
                     </View>
                   </View>
                 ) : (
@@ -492,7 +641,7 @@ const VendorRegistration = () => {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Documents:</Text>
                 <Text style={styles.summaryValue}>
-                  {optionalDoc ? "3 uploaded" : "2 uploaded"}
+                  {`${validIdFrontImage ? 1 : 0} front, ${validIdBackImage ? 1 : 0} back, ${selfieImage ? 1 : 0} selfie${optionalDoc ? ", 1 optional" : ""}`}
                 </Text>
               </View>
             </View>
@@ -657,6 +806,24 @@ const styles = StyleSheet.create({
     color: COLORS.light.primary,
     marginBottom: 6,
   },
+  emailContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f8f8",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#e0e0e0",
+    paddingHorizontal: 14,
+  },
+  emailInput: {
+    flex: 1,
+    fontSize: 15,
+    color: "#6b7280",
+    paddingVertical: 14,
+  },
+  lockIcon: {
+    marginLeft: 8,
+  },
   linkText: {
     color: COLORS.light.primary,
     fontWeight: "600",
@@ -687,7 +854,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 12,
-    color: COLORS.light.oceanMedium,
+    color: "#6b7280",
     marginTop: 4,
     fontStyle: "italic",
   },

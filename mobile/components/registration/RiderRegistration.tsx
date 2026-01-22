@@ -31,15 +31,19 @@ const RiderRegistration = () => {
   const [address, setAddress] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactNumber, setEmergencyContactNumber] = useState("");
+  const [gcashNumber, setGcashNumber] = useState(""); // Added GCash field
 
   // Step 2: Vehicle Information
   const [vehicleType, setVehicleType] = useState("");
   const [plateNumber, setPlateNumber] = useState("");
 
-  // Step 3: Verification (removed ID type and valid ID)
-  const [driversLicenseImage, setDriversLicenseImage] = useState<string | null>(
-    null,
-  );
+  // Step 3: Verification - Split drivers license into front and back
+  const [driversLicenseFrontImage, setDriversLicenseFrontImage] = useState<
+    string | null
+  >(null);
+  const [driversLicenseBackImage, setDriversLicenseBackImage] = useState<
+    string | null
+  >(null);
   const [selfieWithIdImage, setSelfieWithIdImage] = useState<string | null>(
     null,
   );
@@ -52,7 +56,7 @@ const RiderRegistration = () => {
     purok: "",
   });
 
-  // Error states (removed idType and validId errors)
+  // Error states
   const [errors, setErrors] = useState({
     fullName: false,
     email: false,
@@ -63,7 +67,7 @@ const RiderRegistration = () => {
     emergencyContactNumber: false,
     vehicleType: false,
     plateNumber: false,
-    driversLicense: false,
+    driversLicenseFront: false,
     selfieWithId: false,
   });
 
@@ -71,7 +75,6 @@ const RiderRegistration = () => {
   const VEHICLE_TYPES = [
     { label: "-- Select Vehicle Type --", value: "" },
     { label: "Motorcycle", value: "MOTORCYCLE" },
-    { label: "Bicycle", value: "BICYCLE" },
     { label: "E-Bike", value: "EBIKE" },
     { label: "Tricycle", value: "TRICYCLE" },
   ];
@@ -79,7 +82,6 @@ const RiderRegistration = () => {
   // Vehicle Type Labels
   const VEHICLE_TYPE_LABELS: Record<string, string> = {
     MOTORCYCLE: "Motorcycle",
-    BICYCLE: "Bicycle",
     EBIKE: "E-Bike",
     TRICYCLE: "Tricycle",
   };
@@ -130,7 +132,7 @@ const RiderRegistration = () => {
     fetchUserEmail();
   }, []);
 
-  // Validation functions (updated validateStep3)
+  // Validation functions
   const validateStep1 = useCallback(() => {
     const isBarangayEmpty = !addressFields.barangay.trim();
     const isPurokEmpty = !addressFields.purok.trim();
@@ -183,14 +185,14 @@ const RiderRegistration = () => {
   const validateStep3 = useCallback(() => {
     const newErrors = {
       ...errors,
-      driversLicense: !driversLicenseImage,
+      driversLicenseFront: !driversLicenseFrontImage,
       selfieWithId: !selfieWithIdImage,
     };
 
     setErrors(newErrors);
 
-    return !newErrors.driversLicense && !newErrors.selfieWithId;
-  }, [driversLicenseImage, selfieWithIdImage, errors]);
+    return !newErrors.driversLicenseFront && !newErrors.selfieWithId;
+  }, [driversLicenseFrontImage, selfieWithIdImage, errors]);
 
   // Navigation handlers
   const handleNext = useCallback(() => {
@@ -356,16 +358,32 @@ const RiderRegistration = () => {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address *</Text>
-              <TextInput
-                style={[styles.input, errors.email && styles.inputError]}
-                placeholder="Your registered email"
-                value={email}
-                editable={false}
-                selectTextOnFocus={false}
-              />
+              <View
+                style={[
+                  styles.emailContainer,
+                  errors.email && styles.inputError,
+                ]}
+              >
+                <TextInput
+                  style={styles.emailInput}
+                  placeholder="Your registered email"
+                  value={email}
+                  editable={false}
+                  selectTextOnFocus={false}
+                />
+                <Ionicons
+                  name="lock-closed"
+                  size={18}
+                  color="#6b7280"
+                  style={styles.lockIcon}
+                />
+              </View>
               <Text style={styles.helperText}>
                 Email is taken from your account and cannot be changed
               </Text>
+              {errors.email && (
+                <Text style={styles.errorText}>Email is required</Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -386,16 +404,21 @@ const RiderRegistration = () => {
               )}
             </View>
 
-            {/* Address Form */}
-            <AddressForm
-              address={address}
-              onChange={handleAddressChange}
-              errors={addressFormErrors}
-              onErrorsChange={handleAddressErrorsChange}
-              onFieldsChange={handleAddressFieldsUpdate}
-              initialBarangay={addressFields.barangay}
-              initialPurok={addressFields.purok}
-            />
+            {/* GCash Number - Optional for riders */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>GCash Number (Optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="09XX XXX XXXX"
+                value={gcashNumber}
+                onChangeText={setGcashNumber}
+                keyboardType="phone-pad"
+                maxLength={11}
+              />
+              <Text style={styles.helperText}>
+                Optional: For receiving payments
+              </Text>
+            </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Emergency Contact Person *</Text>
@@ -446,6 +469,17 @@ const RiderRegistration = () => {
                 </Text>
               )}
             </View>
+
+            {/* Address Form */}
+            <AddressForm
+              address={address}
+              onChange={handleAddressChange}
+              errors={addressFormErrors}
+              onErrorsChange={handleAddressErrorsChange}
+              onFieldsChange={handleAddressFieldsUpdate}
+              initialBarangay={addressFields.barangay}
+              initialPurok={addressFields.purok}
+            />
           </>
         )}
 
@@ -515,17 +549,60 @@ const RiderRegistration = () => {
               Please provide the following documents for verification:
             </Text>
 
+            {/* Driver's License Front */}
             {renderUploadSection(
-              "Driver's License *",
-              driversLicenseImage,
-              setDriversLicenseImage,
-              errors.driversLicense,
+              "Driver's License (Front) *",
+              driversLicenseFrontImage,
+              setDriversLicenseFrontImage,
+              errors.driversLicenseFront,
               "document",
-              "Front and back if applicable",
+              "Front side of your driver's license",
             )}
 
+            {/* Driver's License Back - Optional but recommended */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>
+                Driver's License (Back) - Recommended
+              </Text>
+              <TouchableOpacity
+                style={styles.uploadCard}
+                onPress={() =>
+                  openCamera(setDriversLicenseBackImage, "document")
+                }
+              >
+                {driversLicenseBackImage ? (
+                  <View style={styles.imagePreviewContainer}>
+                    <Image
+                      source={{ uri: driversLicenseBackImage }}
+                      style={styles.imagePreview}
+                    />
+                    <View style={styles.imageOverlay}>
+                      <Ionicons name="camera-outline" size={24} color="#fff" />
+                      <Text style={styles.imageOverlayText}>
+                        Retake Back Photo
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.uploadContent}>
+                    <Ionicons
+                      name="document-outline"
+                      size={32}
+                      color={COLORS.light.primary}
+                    />
+                    <Text style={styles.uploadText}>
+                      Capture Back of License
+                    </Text>
+                    <Text style={styles.uploadSubtext}>
+                      Recommended for complete verification
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+
             {renderUploadSection(
-              "Selfie with ID *",
+              "Selfie with Driver's License *",
               selfieWithIdImage,
               setSelfieWithIdImage,
               errors.selfieWithId,
@@ -568,6 +645,12 @@ const RiderRegistration = () => {
                   <Text style={styles.summaryLabel}>Mobile:</Text>
                   <Text style={styles.summaryValue}>{mobile}</Text>
                 </View>
+                {gcashNumber && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>GCash:</Text>
+                    <Text style={styles.summaryValue}>{gcashNumber}</Text>
+                  </View>
+                )}
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Address:</Text>
                   <Text style={styles.summaryValue} numberOfLines={2}>
@@ -604,8 +687,18 @@ const RiderRegistration = () => {
                   <Text style={styles.summaryLabel}>Required Documents:</Text>
                   <Text style={styles.summaryValue}>
                     {[
-                      driversLicenseImage && "Driver's License",
-                      selfieWithIdImage && "Selfie with ID",
+                      driversLicenseFrontImage && "License (Front)",
+                      selfieWithIdImage && "Selfie with License",
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "None"}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Optional Documents:</Text>
+                  <Text style={styles.summaryValue}>
+                    {[
+                      driversLicenseBackImage && "License (Back)",
                       motorcycleRegistrationImage && "Registration",
                     ]
                       .filter(Boolean)
@@ -788,6 +881,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.light.primary,
   },
+  // New email container styling
+  emailContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f8f8",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#e0e0e0",
+    paddingHorizontal: 14,
+  },
+  emailInput: {
+    flex: 1,
+    fontSize: 15,
+    color: "#6b7280",
+    paddingVertical: 14,
+  },
+  lockIcon: {
+    marginLeft: 8,
+  },
   inputError: {
     borderColor: "#ef4444",
     borderWidth: 1.5,
@@ -799,7 +911,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 11,
-    color: COLORS.light.oceanMedium,
+    color: "#6b7280",
     marginTop: 4,
     fontStyle: "italic",
   },

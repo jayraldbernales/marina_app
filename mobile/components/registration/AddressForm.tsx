@@ -252,8 +252,13 @@ const AddressForm: React.FC<AddressFormProps> = ({
               selectedValue={municipality}
               onValueChange={setMunicipality}
               style={styles.picker}
-              enabled={false}
+              enabled={true}
             >
+              <Picker.Item
+                label="Municipality"
+                value=""
+                style={styles.pickerItem}
+              />
               {MUNICIPALITIES.map((mun) => (
                 <Picker.Item
                   key={mun.value}
@@ -264,6 +269,9 @@ const AddressForm: React.FC<AddressFormProps> = ({
               ))}
             </Picker>
           </View>
+          <Text style={styles.helperText}>
+            Currently serving Mabini, Bohol only. More areas coming soon!
+          </Text>
           {errors.municipality && (
             <Text style={styles.errorText}>Municipality is required</Text>
           )}
@@ -443,7 +451,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 11,
-    color: COLORS.light.oceanMedium,
+    color: "#6b7280",
     marginTop: 4,
     fontStyle: "italic",
     marginLeft: 4,
