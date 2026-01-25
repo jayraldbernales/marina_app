@@ -13,6 +13,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2,
@@ -22,6 +28,9 @@ import {
   Mail,
   Phone,
   AlertCircle,
+  Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type {
   VendorApplication,
@@ -63,6 +72,36 @@ const getStatusIcon = (status: string) => {
   }
 };
 
+const getImageLabel = (key: string, type: "vendor" | "rider"): string => {
+  if (type === "vendor") {
+    switch (key) {
+      case "idFront":
+        return "ID Front";
+      case "idBack":
+        return "ID Back";
+      case "selfie":
+        return "Selfie";
+      case "optional":
+        return "Optional Document";
+      default:
+        return key;
+    }
+  } else {
+    switch (key) {
+      case "driversLicenseFront":
+        return "Driver's License Front";
+      case "driversLicenseBack":
+        return "Driver's License Back";
+      case "selfieWithId":
+        return "Selfie with ID";
+      case "motorcycleRegistration":
+        return "Motorcycle Registration";
+      default:
+        return key;
+    }
+  }
+};
+
 export const ApplicationCard = ({
   application,
   type,
@@ -77,20 +116,25 @@ export const ApplicationCard = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rejectError, setRejectError] = useState("");
   const [approveError, setApproveError] = useState("");
+  const [showImageGallery, setShowImageGallery] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const verificationImages = application.verificationImages || {};
+  const imageList = Object.entries(verificationImages)
+    .filter(([, url]) => url)
+    .map(([key, url]) => ({
+      key,
+      url,
+      label: getImageLabel(key, type),
+    }));
 
   const isPending = application.approval_status === "pending";
 
   const handleApprove = async () => {
     if (isSubmitting) return;
-
     setIsSubmitting(true);
     setApproveError("");
-
     try {
-      console.log(
-        `Approving ${type} application for user:`,
-        application.user_id,
-      );
       await onApprove(application.user_id, approveNotes);
       setShowApproveDialog(false);
       setApproveNotes("");
@@ -104,21 +148,14 @@ export const ApplicationCard = ({
 
   const handleReject = async () => {
     if (isSubmitting) return;
-
     // Validate reject notes
     if (!rejectNotes.trim()) {
       setRejectError("Please provide a reason for rejection");
       return;
     }
-
     setIsSubmitting(true);
     setRejectError("");
-
     try {
-      console.log(
-        `Rejecting ${type} application for user:`,
-        application.user_id,
-      );
       await onReject(application.user_id, rejectNotes);
       setShowRejectDialog(false);
       setRejectNotes("");
@@ -182,7 +219,6 @@ export const ApplicationCard = ({
             </Badge>
           </div>
         </CardHeader>
-
         <CardContent className="space-y-4">
           {/* Contact Information */}
           <div className="grid grid-cols-2 gap-3">
@@ -205,7 +241,6 @@ export const ApplicationCard = ({
               </p>
             </div>
           </div>
-
           {/* Location */}
           <div className="flex items-start gap-2 text-sm">
             <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
@@ -224,7 +259,6 @@ export const ApplicationCard = ({
               </p>
             </div>
           </div>
-
           {/* Type-Specific Information */}
           <div className="space-y-2 pt-2 border-t">
             {type === "vendor" ? (
@@ -290,7 +324,6 @@ export const ApplicationCard = ({
               </>
             )}
           </div>
-
           {/* Application Date */}
           <div className="text-xs text-muted-foreground pt-2">
             Applied on{" "}
@@ -302,7 +335,23 @@ export const ApplicationCard = ({
               minute: "2-digit",
             })}
           </div>
-
+          {/* Verification Images */}
+          {imageList.length > 0 && (
+            <div className="pt-2 border-t">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setCurrentImageIndex(0);
+                  setShowImageGallery(true);
+                }}
+              >
+                <ImageIcon className="w-4 h-4 mr-2" />
+                View Verification Images ({imageList.length})
+              </Button>
+            </div>
+          )}
           {/* Actions */}
           {isPending && (
             <div className="flex gap-2 pt-2">
@@ -337,7 +386,6 @@ export const ApplicationCard = ({
           )}
         </CardContent>
       </Card>
-
       {/* Approve Dialog */}
       <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
         <AlertDialogContent>
@@ -389,7 +437,6 @@ export const ApplicationCard = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
       {/* Reject Dialog */}
       <AlertDialog
         open={showRejectDialog}
@@ -444,7 +491,7 @@ export const ApplicationCard = ({
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReject}
-              disabled={isSubmitting}
+              disabled={!rejectNotes.trim() || isSubmitting}
               className="bg-red-600 hover:bg-red-700"
             >
               {isSubmitting ? "Rejecting..." : "Reject"}
@@ -452,6 +499,83 @@ export const ApplicationCard = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Image Gallery Modal */}
+      <Dialog open={showImageGallery} onOpenChange={setShowImageGallery}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Verification Images - {imageList[currentImageIndex]?.label}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {imageList.length > 0 && (
+              <>
+                <div className="relative bg-muted rounded-lg overflow-hidden aspect-video flex items-center justify-center">
+                  <img
+                    src={imageList[currentImageIndex]?.url}
+                    alt={imageList[currentImageIndex]?.label}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+                {/* Navigation */}
+                <div className="flex items-center justify-between gap-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCurrentImageIndex((prev) =>
+                        prev === 0 ? imageList.length - 1 : prev - 1,
+                      )
+                    }
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-center">
+                      {currentImageIndex + 1} of {imageList.length}
+                    </div>
+                    <div className="text-xs text-muted-foreground text-center mt-1">
+                      {imageList[currentImageIndex]?.label}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCurrentImageIndex((prev) =>
+                        prev === imageList.length - 1 ? 0 : prev + 1,
+                      )
+                    }
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+                {/* Thumbnail List */}
+                <div className="flex gap-2 overflow-auto pb-2">
+                  {imageList.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCurrentImageIndex(idx)}
+                      className={cn(
+                        "relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2",
+                        currentImageIndex === idx
+                          ? "border-primary"
+                          : "border-muted",
+                      )}
+                    >
+                      <img
+                        src={img.url}
+                        alt={img.label}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

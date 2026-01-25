@@ -38,10 +38,13 @@ export function Header({ title }: HeaderProps) {
       const res = await logout();
       if (!res.success) {
         console.error("Logout failed:", res.error);
+      } else {
+        // Navigate only after successful logout
+        navigate("/login", { replace: true });
       }
     } catch (err) {
       console.error("Logout error:", err);
-    } finally {
+      // Still navigate on error for safety
       navigate("/login", { replace: true });
     }
   };

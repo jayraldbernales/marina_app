@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
 import {
   View,
@@ -275,25 +275,25 @@ const VendorRegistration = () => {
   };
 
   // Handle address change from AddressForm
-  const handleAddressChange = (newAddress: string) => {
+  const handleAddressChange = useCallback((newAddress: string) => {
     setAddress(newAddress);
-  };
+  }, []);
 
   // Handle errors AND field values from AddressForm
-  const handleAddressErrorsChange = (addressErrors: any) => {
+  const handleAddressErrorsChange = useCallback((addressErrors: any) => {
     setErrors((prev) => ({ ...prev, ...addressErrors }));
-  };
+  }, []);
 
   // NEW FUNCTION: Update address fields when AddressForm changes
-  const handleAddressFieldsUpdate = (
-    barangayValue: string,
-    purokValue: string,
-  ) => {
-    setAddressFields({
-      barangay: barangayValue,
-      purok: purokValue,
-    });
-  };
+  const handleAddressFieldsUpdate = useCallback(
+    (barangayValue: string, purokValue: string) => {
+      setAddressFields({
+        barangay: barangayValue,
+        purok: purokValue,
+      });
+    },
+    [],
+  );
 
   return (
     <SafeAreaView style={styles.container}>

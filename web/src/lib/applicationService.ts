@@ -18,6 +18,12 @@ export interface VendorApplication {
   barangay: string;
   municipality: string;
   purok: string;
+  verificationImages?: {
+    idFront?: string;
+    idBack?: string;
+    selfie?: string;
+    optional?: string;
+  };
 }
 
 export interface RiderApplication {
@@ -36,26 +42,32 @@ export interface RiderApplication {
   mobile_number?: string;
   barangay: string;
   municipality: string;
+  verificationImages?: {
+    driversLicenseFront?: string;
+    driversLicenseBack?: string;
+    selfieWithId?: string;
+    motorcycleRegistration?: string;
+  };
 }
 
-// Helper function to get proper image URLs
-const getImageUrl = (path: string | undefined | null) => {
-  if (!path) return null;
+const getSignedImageUrl = async (
+  path?: string | null,
+  expiresIn = 300, // 5 minutes
+): Promise<string | undefined> => {
+  if (!path) return undefined;
 
-  // If it's already a full URL, return it
   if (path.startsWith("http")) return path;
 
-  // If it's a storage path, try to get public URL
-  try {
-    const { data } = supabase.storage
-      .from("verifications") // or 'avatars' or whatever bucket name
-      .getPublicUrl(path);
+  const { data, error } = await supabase.storage
+    .from("verifications")
+    .createSignedUrl(path, expiresIn);
 
-    return data.publicUrl;
-  } catch (error) {
-    console.error("Error getting image URL:", error);
-    return null;
+  if (error) {
+    console.error("Failed to create signed URL:", error);
+    return undefined;
   }
+
+  return data.signedUrl;
 };
 
 /* ================================
@@ -92,22 +104,28 @@ export const fetchVendorApplications = async (
       return [];
     }
 
-    // Step 2: Fetch all profiles and addresses in parallel
+    // Step 2: Fetch all profiles, addresses, and verifications in parallel
     const userIds = vendors.map((v) => v.user_id);
 
-    const [profileResponse, addressResponse] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("user_id, full_name, email, mobile_number")
-        .in("user_id", userIds),
-      supabase
-        .from("addresses")
-        .select("user_id, barangay, municipality, purok, is_default")
-        .in("user_id", userIds),
-    ]);
+    const [profileResponse, addressResponse, verificationResponse] =
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, full_name, email, mobile_number")
+          .in("user_id", userIds),
+        supabase
+          .from("addresses")
+          .select("user_id, barangay, municipality, purok, is_default")
+          .in("user_id", userIds),
+        supabase
+          .from("user_verifications")
+          .select("user_id, document_type, file_url")
+          .in("user_id", userIds),
+      ]);
 
     const profiles = profileResponse.data || [];
     const addresses = addressResponse.data || [];
+    const verifications = verificationResponse.data || [];
 
     // Log errors if they occur but continue
     if (profileResponse.error) {
@@ -116,33 +134,60 @@ export const fetchVendorApplications = async (
     if (addressResponse.error) {
       console.warn("Warning fetching addresses:", addressResponse.error);
     }
+    if (verificationResponse.error) {
+      console.warn(
+        "Warning fetching verifications:",
+        verificationResponse.error,
+      );
+    }
 
     // Step 3: Combine data in application layer
-    return vendors.map((vendor) => {
-      const profile = profiles.find((p) => p.user_id === vendor.user_id);
-      const vendorAddresses =
-        addresses.filter((a) => a.user_id === vendor.user_id) || [];
+    return await Promise.all(
+      vendors.map(async (vendor) => {
+        const profile = profiles.find((p) => p.user_id === vendor.user_id);
+        const vendorAddresses =
+          addresses.filter((a) => a.user_id === vendor.user_id) || [];
+        const vendorVerifications =
+          verifications.filter((v) => v.user_id === vendor.user_id) || [];
 
-      // Find default address or take first one
-      const defaultAddress =
-        vendorAddresses.find((a) => a.is_default) || vendorAddresses[0];
+        // Find default address or take first one
+        const defaultAddress =
+          vendorAddresses.find((a) => a.is_default) || vendorAddresses[0];
 
-      return {
-        user_id: vendor.user_id,
-        shop_name: vendor.shop_name || "No shop name",
-        email: profile?.email || "No email",
-        mobile_number: profile?.mobile_number || "No phone",
-        gcash_number: vendor.gcash_number || "No GCash",
-        approval_status: vendor.approval_status || "pending",
-        approval_notes: vendor.approval_notes || "",
-        created_at: vendor.created_at,
-        full_name: profile?.full_name || "Unknown",
-        avatar_url: getImageUrl(vendor.avatar_url) || "",
-        barangay: defaultAddress?.barangay || "Not specified",
-        municipality: defaultAddress?.municipality || "Not specified",
-        purok: defaultAddress?.purok || "Not specified",
-      };
-    });
+        // Map verifications to image types
+        const verificationImages: VendorApplication["verificationImages"] = {};
+
+        for (const v of vendorVerifications) {
+          if (v.document_type?.startsWith("id-front")) {
+            verificationImages.idFront = await getSignedImageUrl(v.file_url);
+          } else if (v.document_type?.startsWith("id-back")) {
+            verificationImages.idBack = await getSignedImageUrl(v.file_url);
+          } else if (v.document_type === "selfie-with-id") {
+            verificationImages.selfie = await getSignedImageUrl(v.file_url);
+          } else if (v.document_type === "optional-document") {
+            verificationImages.optional = await getSignedImageUrl(v.file_url);
+          }
+        }
+
+        return {
+          user_id: vendor.user_id,
+          shop_name: vendor.shop_name || "No shop name",
+          email: profile?.email || "No email",
+          mobile_number: profile?.mobile_number || "No phone",
+          gcash_number: vendor.gcash_number || "No GCash",
+          approval_status: vendor.approval_status || "pending",
+          approval_notes: vendor.approval_notes || "",
+          created_at: vendor.created_at,
+          full_name: profile?.full_name || "Unknown",
+          avatar_url: await getSignedImageUrl(vendor.avatar_url),
+
+          barangay: defaultAddress?.barangay || "Not specified",
+          municipality: defaultAddress?.municipality || "Not specified",
+          purok: defaultAddress?.purok || "Not specified",
+          verificationImages,
+        };
+      }),
+    );
   } catch (error) {
     console.error("Error fetching vendor applications:", error);
     throw error;
@@ -211,22 +256,28 @@ export const fetchRiderApplications = async (
       return [];
     }
 
-    // Step 2: Fetch all profiles and addresses in parallel
+    // Step 2: Fetch all profiles, addresses, and verifications in parallel
     const userIds = riders.map((r) => r.user_id);
 
-    const [profileResponse, addressResponse] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("user_id, full_name, email, mobile_number")
-        .in("user_id", userIds),
-      supabase
-        .from("addresses")
-        .select("user_id, barangay, municipality, is_default")
-        .in("user_id", userIds),
-    ]);
+    const [profileResponse, addressResponse, verificationResponse] =
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, full_name, email, mobile_number")
+          .in("user_id", userIds),
+        supabase
+          .from("addresses")
+          .select("user_id, barangay, municipality, is_default")
+          .in("user_id", userIds),
+        supabase
+          .from("user_verifications")
+          .select("user_id, document_type, file_url")
+          .in("user_id", userIds),
+      ]);
 
     const profiles = profileResponse.data || [];
     const addresses = addressResponse.data || [];
+    const verifications = verificationResponse.data || [];
 
     // Log errors if they occur but continue
     if (profileResponse.error) {
@@ -235,36 +286,70 @@ export const fetchRiderApplications = async (
     if (addressResponse.error) {
       console.warn("Warning fetching addresses:", addressResponse.error);
     }
+    if (verificationResponse.error) {
+      console.warn(
+        "Warning fetching verifications:",
+        verificationResponse.error,
+      );
+    }
 
     // Step 3: Combine data in application layer
-    return riders.map((rider) => {
-      const profile = profiles.find((p) => p.user_id === rider.user_id);
-      const riderAddresses =
-        addresses.filter((a) => a.user_id === rider.user_id) || [];
+    return await Promise.all(
+      riders.map(async (rider) => {
+        const profile = profiles.find((p) => p.user_id === rider.user_id);
+        const riderAddresses =
+          addresses.filter((a) => a.user_id === rider.user_id) || [];
+        const riderVerifications =
+          verifications.filter((v) => v.user_id === rider.user_id) || [];
 
-      // Find default address or take first one
-      const defaultAddress =
-        riderAddresses.find((a) => a.is_default) || riderAddresses[0];
+        // Find default address or take first one
+        const defaultAddress =
+          riderAddresses.find((a) => a.is_default) || riderAddresses[0];
 
-      return {
-        user_id: rider.user_id,
-        email: profile?.email || "No email",
-        vehicle_type: rider.vehicle_type || "Not specified",
-        license_plate: rider.license_plate || "Not specified",
-        approval_status: rider.approval_status || "pending",
-        approval_notes: rider.approval_notes || "",
-        gcash_number: rider.gcash_number || "No GCash",
-        emergency_contact_name: rider.emergency_contact_name || "Not specified",
-        emergency_contact_number:
-          rider.emergency_contact_number || "Not specified",
-        created_at: rider.created_at,
-        full_name: profile?.full_name || "Unknown",
-        avatar_url: getImageUrl(rider.avatar_url) || "",
-        mobile_number: profile?.mobile_number || "No phone",
-        barangay: defaultAddress?.barangay || "Not specified",
-        municipality: defaultAddress?.municipality || "Not specified",
-      };
-    });
+        const verificationImages: RiderApplication["verificationImages"] = {};
+
+        for (const v of riderVerifications) {
+          if (v.document_type?.startsWith("drivers-license-front")) {
+            verificationImages.driversLicenseFront = await getSignedImageUrl(
+              v.file_url,
+            );
+          } else if (v.document_type?.startsWith("drivers-license-back")) {
+            verificationImages.driversLicenseBack = await getSignedImageUrl(
+              v.file_url,
+            );
+          } else if (v.document_type === "selfie-with-drivers-license") {
+            verificationImages.selfieWithId = await getSignedImageUrl(
+              v.file_url,
+            );
+          } else if (v.document_type === "motorcycle-registration") {
+            verificationImages.motorcycleRegistration = await getSignedImageUrl(
+              v.file_url,
+            );
+          }
+        }
+
+        return {
+          user_id: rider.user_id,
+          email: profile?.email || "No email",
+          vehicle_type: rider.vehicle_type || "Not specified",
+          license_plate: rider.license_plate || "Not specified",
+          approval_status: rider.approval_status || "pending",
+          approval_notes: rider.approval_notes || "",
+          gcash_number: rider.gcash_number || "No GCash",
+          emergency_contact_name:
+            rider.emergency_contact_name || "Not specified",
+          emergency_contact_number:
+            rider.emergency_contact_number || "Not specified",
+          created_at: rider.created_at,
+          full_name: profile?.full_name || "Unknown",
+          avatar_url: await getSignedImageUrl(rider.avatar_url),
+          mobile_number: profile?.mobile_number || "No phone",
+          barangay: defaultAddress?.barangay || "Not specified",
+          municipality: defaultAddress?.municipality || "Not specified",
+          verificationImages,
+        };
+      }),
+    );
   } catch (error) {
     console.error("Error fetching rider applications:", error);
     throw error;

@@ -1,7 +1,10 @@
 import { supabase } from "./supabase";
 import * as FileSystem from "expo-file-system";
 
-// Types for registration data
+/* ================================
+   Types for registration data
+================================ */
+
 export interface VendorRegistrationData {
   shopName: string;
   email: string;
@@ -38,27 +41,27 @@ export interface RiderRegistrationData {
   acceptedConsent: boolean;
 }
 
-// Helper function to upload image to Supabase Storage
+/* ================================
+   Upload image to Supabase Storage
+================================ */
+
 export const uploadImageToStorage = async (
   imageUri: string,
   bucket: string,
   fileName: string,
 ): Promise<string> => {
   try {
-    // Read the image file
     const base64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    // Convert base64 to binary
     const binaryData = atob(base64);
     const bytes = new Uint8Array(binaryData.length);
     for (let i = 0; i < binaryData.length; i++) {
       bytes[i] = binaryData.charCodeAt(i);
     }
 
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from(bucket)
       .upload(fileName, bytes, {
         contentType: "image/jpeg",
@@ -67,26 +70,26 @@ export const uploadImageToStorage = async (
 
     if (error) throw error;
 
-    // Get public URL
-    const { data: publicUrlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(fileName);
-
-    return publicUrlData.publicUrl;
+    // IMPORTANT:
+    // Store ONLY the bucket-relative path
+    return fileName;
   } catch (error) {
     console.error("Error uploading image:", error);
     throw error;
   }
 };
 
-// Helper function to save vendor registration to database
+/* ================================
+   Vendor Registration
+================================ */
+
 export const saveVendorRegistration = async (
   userId: string,
   data: VendorRegistrationData,
 ): Promise<void> => {
   try {
-    // Upload verification documents
     const timestamp = Date.now();
+
     const validIdFrontUrl = await uploadImageToStorage(
       data.validIdFrontImage,
       "verifications",
@@ -117,7 +120,6 @@ export const saveVendorRegistration = async (
       );
     }
 
-    // Update profiles table with mobile number
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ mobile_number: data.mobile })
@@ -125,7 +127,6 @@ export const saveVendorRegistration = async (
 
     if (profileError) throw profileError;
 
-    // Save to vendor_profiles
     const { error: vendorError } = await supabase
       .from("vendor_profiles")
       .insert([
@@ -141,7 +142,6 @@ export const saveVendorRegistration = async (
 
     if (vendorError) throw vendorError;
 
-    // Save address
     const { error: addressError } = await supabase.from("addresses").insert([
       {
         user_id: userId,
@@ -157,7 +157,6 @@ export const saveVendorRegistration = async (
 
     if (addressError) throw addressError;
 
-    // Save verifications
     const verifications = [
       {
         user_id: userId,
@@ -210,14 +209,17 @@ export const saveVendorRegistration = async (
   }
 };
 
-// Helper function to save rider registration to database
+/* ================================
+   Rider Registration
+================================ */
+
 export const saveRiderRegistration = async (
   userId: string,
   data: RiderRegistrationData,
 ): Promise<void> => {
   try {
-    // Upload verification documents
     const timestamp = Date.now();
+
     const driversLicenseFrontUrl = await uploadImageToStorage(
       data.driversLicenseFrontImage,
       "verifications",
@@ -248,7 +250,6 @@ export const saveRiderRegistration = async (
       );
     }
 
-    // Update profiles table with mobile number
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ mobile_number: data.mobile })
@@ -256,7 +257,6 @@ export const saveRiderRegistration = async (
 
     if (profileError) throw profileError;
 
-    // Save to rider_profiles
     const { error: riderError } = await supabase.from("rider_profiles").insert([
       {
         user_id: userId,
@@ -274,7 +274,6 @@ export const saveRiderRegistration = async (
 
     if (riderError) throw riderError;
 
-    // Save address
     const { error: addressError } = await supabase.from("addresses").insert([
       {
         user_id: userId,
@@ -290,7 +289,6 @@ export const saveRiderRegistration = async (
 
     if (addressError) throw addressError;
 
-    // Save verifications
     const verifications = [
       {
         user_id: userId,
