@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Alert,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -18,20 +19,25 @@ import { Picker } from "@react-native-picker/picker";
 import { supabase } from "../../lib/supabase";
 import { COLORS } from "../../constants";
 import AddressForm from "./AddressForm";
+import {
+  saveRiderRegistration,
+  RiderRegistrationData,
+} from "../../lib/registrationService";
 
 const RiderRegistration = () => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedConsent, setAcceptedConsent] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Step 1: Personal Information
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [address, setAddress] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactNumber, setEmergencyContactNumber] = useState("");
-  const [gcashNumber, setGcashNumber] = useState(""); // Added GCash field
+  const [gcashNumber, setGcashNumber] = useState("");
+  const [municipality, setMunicipality] = useState("");
 
   // Step 2: Vehicle Information
   const [vehicleType, setVehicleType] = useState("");
@@ -58,7 +64,6 @@ const RiderRegistration = () => {
 
   // Error states
   const [errors, setErrors] = useState({
-    fullName: false,
     email: false,
     mobile: false,
     barangay: false,
@@ -115,21 +120,38 @@ const RiderRegistration = () => {
     [],
   );
 
-  // Fetch user email from auth
+  // Fetch user email and mobile number from database
   useEffect(() => {
-    const fetchUserEmail = async () => {
+    const fetchUserData = async () => {
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-        if (session?.user?.email) {
+
+        if (!session?.user?.id) return;
+
+        const userId = session.user.id;
+
+        // Fetch email from auth
+        if (session.user.email) {
           setEmail(session.user.email);
         }
+
+        // Fetch mobile number from profiles table
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("mobile_number")
+          .eq("user_id", userId)
+          .single();
+
+        if (!profileError && profileData?.mobile_number) {
+          setMobile(profileData.mobile_number);
+        }
       } catch (error) {
-        console.error("Error fetching user email:", error);
+        console.error("Error fetching user data:", error);
       }
     };
-    fetchUserEmail();
+    fetchUserData();
   }, []);
 
   // Validation functions
@@ -139,7 +161,6 @@ const RiderRegistration = () => {
 
     const newErrors = {
       ...errors,
-      fullName: !fullName.trim(),
       email: !email.trim(),
       mobile: !mobile.trim(),
       barangay: isBarangayEmpty,
@@ -151,7 +172,6 @@ const RiderRegistration = () => {
     setErrors(newErrors);
 
     const hasErrors =
-      newErrors.fullName ||
       newErrors.email ||
       newErrors.mobile ||
       newErrors.barangay ||
@@ -161,7 +181,6 @@ const RiderRegistration = () => {
 
     return !hasErrors;
   }, [
-    fullName,
     email,
     mobile,
     addressFields,
@@ -252,11 +271,47 @@ const RiderRegistration = () => {
       return;
     }
 
+    setIsLoading(true);
+
     try {
-      // Here you would submit to your backend
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        Alert.alert("Error", "User session not found. Please log in again.");
+        setIsLoading(false);
+        return;
+      }
+
+      const userId = session.user.id;
+
+      // Prepare registration data
+      const registrationData: RiderRegistrationData = {
+        email,
+        mobile,
+        gcashNumber,
+        emergencyContactName,
+        emergencyContactNumber,
+        barangay: addressFields.barangay,
+        purok: addressFields.purok,
+        municipality,
+        vehicleType,
+        plateNumber,
+        driversLicenseFrontImage: driversLicenseFrontImage!,
+        driversLicenseBackImage,
+        selfieWithIdImage: selfieWithIdImage!,
+        motorcycleRegistrationImage,
+        acceptedTerms,
+        acceptedConsent,
+      };
+
+      // Save to database
+      await saveRiderRegistration(userId, registrationData);
+
       Alert.alert(
-        "Registration Submitted",
-        "Your rider registration has been submitted for review. You'll receive a notification once approved by the admin.",
+        "Success",
+        "Your rider registration has been submitted successfully! Your account is pending approval by our admin team. You'll receive a notification once approved.",
         [
           {
             text: "OK",
@@ -264,8 +319,14 @@ const RiderRegistration = () => {
           },
         ],
       );
-    } catch (error) {
-      Alert.alert("Error", "Failed to submit registration. Please try again.");
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      Alert.alert(
+        "Error",
+        error.message || "Failed to submit registration. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
     }
   }, [acceptedTerms, acceptedConsent]);
 
@@ -341,22 +402,6 @@ const RiderRegistration = () => {
             <Text style={styles.stepTitle}>Personal Information</Text>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Full Name *</Text>
-              <TextInput
-                style={[styles.input, errors.fullName && styles.inputError]}
-                placeholder="Enter your full name"
-                value={fullName}
-                onChangeText={(text) => {
-                  setFullName(text);
-                  setErrors((prev) => ({ ...prev, fullName: false }));
-                }}
-              />
-              {errors.fullName && (
-                <Text style={styles.errorText}>Full name is required</Text>
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email Address *</Text>
               <View
                 style={[
@@ -402,6 +447,11 @@ const RiderRegistration = () => {
               {errors.mobile && (
                 <Text style={styles.errorText}>Mobile number is required</Text>
               )}
+              <Text style={styles.helperText}>
+                {mobile
+                  ? "Pre-filled from your profile. You can update if needed."
+                  : "Enter your mobile number"}
+              </Text>
             </View>
 
             {/* GCash Number - Optional for riders */}
@@ -477,6 +527,7 @@ const RiderRegistration = () => {
               errors={addressFormErrors}
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
+              onMunicipalityChange={setMunicipality}
               initialBarangay={addressFields.barangay}
               initialPurok={addressFields.purok}
             />
@@ -634,10 +685,6 @@ const RiderRegistration = () => {
                   Personal Information
                 </Text>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Full Name:</Text>
-                  <Text style={styles.summaryValue}>{fullName}</Text>
-                </View>
-                <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Email:</Text>
                   <Text style={styles.summaryValue}>{email}</Text>
                 </View>
@@ -789,11 +836,16 @@ const RiderRegistration = () => {
                 styles.button,
                 styles.submitButton,
                 !(acceptedTerms && acceptedConsent) && styles.disabledButton,
+                isLoading && styles.disabledButton,
               ]}
-              disabled={!(acceptedTerms && acceptedConsent)}
+              disabled={!(acceptedTerms && acceptedConsent) || isLoading}
               onPress={handleSubmit}
             >
-              <Text style={styles.buttonText}>Submit Registration</Text>
+              {isLoading ? (
+                <ActivityIndicator color={COLORS.common.white} />
+              ) : (
+                <Text style={styles.buttonText}>Submit Registration</Text>
+              )}
             </TouchableOpacity>
           )}
         </View>

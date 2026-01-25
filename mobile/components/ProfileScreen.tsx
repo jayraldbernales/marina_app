@@ -1,3 +1,4 @@
+// ProfileTab.tsx - Complete version
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -14,6 +15,11 @@ import { router } from "expo-router";
 import { COLORS } from "../constants";
 import { profileStyles } from "../components/styles/profileStyles";
 import { supabase } from "../lib/supabase";
+import { useRegistrationStatus } from "../hooks/useRegistrationStatus";
+import {
+  navigateToVendorFlow,
+  navigateToRiderFlow,
+} from "../lib/navigationHelpers";
 
 type UserProfile = {
   full_name: string;
@@ -25,6 +31,17 @@ const ProfileTab = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Use the custom hook to get registration status
+  const {
+    isVendorApproved,
+    isRiderApproved,
+    vendorStatus,
+    riderStatus,
+    vendorNotes, // ADD THIS
+    riderNotes, // ADD THIS
+    isLoading: statusLoading,
+  } = useRegistrationStatus();
+
   useEffect(() => {
     fetchUserProfile();
   }, []);
@@ -32,7 +49,6 @@ const ProfileTab = () => {
   const fetchUserProfile = async () => {
     try {
       setLoading(true);
-      // Get current user session
       const {
         data: { session },
         error: sessionError,
@@ -47,7 +63,6 @@ const ProfileTab = () => {
       const userId = session.user.id;
       const userEmail = session.user.email || "";
 
-      // Fetch profile data from PROFILES table
       const { data, error } = await supabase
         .from("profiles")
         .select("full_name, avatar_url")
@@ -55,8 +70,6 @@ const ProfileTab = () => {
         .single();
 
       if (error) {
-        console.error("Error fetching profile:", error);
-        // Set default values if profile doesn't exist yet
         setProfile({
           full_name: "User",
           avatar_url: "",
@@ -75,6 +88,21 @@ const ProfileTab = () => {
       setLoading(false);
     }
   };
+
+  // Helper function to get subtitle based on status
+  const getBusinessSubtitle = (type: "vendor" | "rider", status: string) => {
+    switch (status) {
+      case "approved":
+        return "Go to dashboard";
+      case "pending":
+        return "View application status";
+      case "rejected":
+        return "Reapply or contact support";
+      default:
+        return type === "vendor" ? "Start selling" : "Start delivering";
+    }
+  };
+
   const accountMenus = [
     {
       id: 1,
@@ -91,38 +119,42 @@ const ProfileTab = () => {
       onPress: () => console.log("Navigate to Settings"),
     },
   ];
+
+  // Dynamic business menus based on registration status
   const businessMenus = [
     {
       id: 3,
       title: "My Shop",
-      subtitle: "Manage your store",
+      subtitle: getBusinessSubtitle("vendor", vendorStatus),
       icon: "storefront-outline" as const,
-      onPress: () => router.push("/registration/welcome-vendor"),
+      onPress: () => navigateToVendorFlow(vendorStatus, vendorNotes), // PASS NOTES
     },
     {
       id: 4,
       title: "Delivery Center",
-      subtitle: "Manage deliveries",
+      subtitle: getBusinessSubtitle("rider", riderStatus),
       icon: "bicycle-outline" as const,
-      onPress: () => router.push("/registration/welcome-rider"),
+      onPress: () => navigateToRiderFlow(riderStatus, riderNotes), // PASS NOTES
     },
   ];
+
   const supportMenus = [
     {
       id: 5,
       title: "Support and Help",
       subtitle: "Get assistance",
       icon: "help-circle-outline" as const,
-      onPress: () => router.push("/(seller-tabs)"),
+      onPress: () => router.push("/terms"),
     },
     {
       id: 6,
       title: "About",
       subtitle: "App information and terms",
       icon: "information-circle-outline" as const,
-      onPress: () => router.push("/(rider-tabs)"),
+      onPress: () => router.push("/terms"),
     },
   ];
+
   const logOutMenus = [
     {
       id: 7,
@@ -152,6 +184,7 @@ const ProfileTab = () => {
     icon: any;
     onPress: () => void;
   };
+
   const renderMenuItem = (section: MenuItem) => (
     <TouchableOpacity
       key={section.id}
@@ -174,10 +207,13 @@ const ProfileTab = () => {
       />
     </TouchableOpacity>
   );
+
+  const isLoading = loading || statusLoading;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={profileStyles.container}>
-        {loading ? (
+        {isLoading ? (
           <View
             style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
           >
@@ -272,4 +308,5 @@ const ProfileTab = () => {
     </SafeAreaView>
   );
 };
+
 export default ProfileTab;

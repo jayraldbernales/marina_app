@@ -1,5 +1,5 @@
-// components/AddressForm.tsx
-import React, { useState, useEffect, useCallback } from "react";
+// components/registration/AddressForm.tsx
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -55,7 +55,7 @@ type AddressFormProps = {
   errors?: AddressErrors;
   onErrorsChange?: (errors: AddressErrors) => void;
   onFieldsChange?: (barangay: string, purok: string) => void;
-  // ADD THESE PROPS
+  onMunicipalityChange?: (municipality: string) => void;
   initialBarangay?: string;
   initialPurok?: string;
 };
@@ -66,7 +66,7 @@ const AddressForm: React.FC<AddressFormProps> = ({
   errors = {},
   onErrorsChange,
   onFieldsChange,
-  // ADD THESE PROPS
+  onMunicipalityChange,
   initialBarangay = "",
   initialPurok = "",
 }) => {
@@ -79,67 +79,91 @@ const AddressForm: React.FC<AddressFormProps> = ({
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Update local state when initial props change (when navigating back)
-  useEffect(() => {
-    if (initialBarangay !== barangay) {
-      setBarangay(initialBarangay);
-    }
-    if (initialPurok !== purok) {
-      setPurok(initialPurok);
-    }
-  }, [initialBarangay, initialPurok]);
-
-  // Helper to get municipality display label
+  // Get municipality label
   const getMunicipalityLabel = useCallback((value: string) => {
     const found = MUNICIPALITIES.find((m) => m.value === value);
     return found ? found.label : "";
   }, []);
 
-  // Generate the full address
-  const generateFullAddress = useCallback(() => {
-    const normalizedPurok = purok.replace(/\s+/g, " ").trim();
+  // Memoized normalized purok
+  const normalizedPurok = useMemo(() => {
+    return purok.replace(/\s+/g, " ").trim();
+  }, [purok]);
 
+  // Memoize the full address
+  const fullAddress = useMemo(() => {
     if (barangay && normalizedPurok) {
       return `${normalizedPurok}, ${barangay}, ${getMunicipalityLabel(municipality)}`;
     }
     return "";
-  }, [barangay, purok, municipality, getMunicipalityLabel]);
+  }, [barangay, normalizedPurok, municipality, getMunicipalityLabel]);
+
+  // Should show preview
+  const shouldShowPreview = useMemo(() => {
+    return barangay && normalizedPurok;
+  }, [barangay, normalizedPurok]);
+
+  // Update address only when fullAddress actually changes
+  useEffect(() => {
+    if (fullAddress && fullAddress !== address) {
+      onChange(fullAddress);
+    }
+  }, [fullAddress, address, onChange]);
+
+  // Update fields separately
+  useEffect(() => {
+    if (onFieldsChange) {
+      onFieldsChange(barangay, purok);
+    }
+  }, [barangay, purok, onFieldsChange]);
+
+  // Update municipality
+  useEffect(() => {
+    if (onMunicipalityChange) {
+      onMunicipalityChange(municipality);
+    }
+  }, [municipality, onMunicipalityChange]);
+
+  // Update local state when initial props change (on navigation back)
+  useEffect(() => {
+    if (initialBarangay !== barangay) {
+      setBarangay(initialBarangay);
+    }
+  }, [initialBarangay]);
 
   useEffect(() => {
-    const newAddress = generateFullAddress();
-
-    if (newAddress !== address) {
-      onChange(newAddress);
+    if (initialPurok !== purok) {
+      setPurok(initialPurok);
     }
+  }, [initialPurok]);
 
-    onFieldsChange?.(barangay, purok);
-  }, [barangay, purok]); // Cleaner dependency array
-
-  // Handle barangay change with proper error updates
+  // Handler functions
   const handleBarangayChange = useCallback(
     (value: string) => {
       setBarangay(value);
-      onErrorsChange?.({ barangay: !value });
+      if (onErrorsChange) {
+        onErrorsChange({ barangay: !value });
+      }
     },
     [onErrorsChange],
   );
 
   const handlePurokChange = useCallback(
-    (value: string) => {
-      setPurok(value);
-      const normalizedValue = value.replace(/\s+/g, " ").trim();
-      onErrorsChange?.({ purok: !normalizedValue });
+    (text: string) => {
+      setPurok(text);
+      const normalizedValue = text.replace(/\s+/g, " ").trim();
+      if (onErrorsChange) {
+        onErrorsChange({ purok: !normalizedValue });
+      }
     },
     [onErrorsChange],
   );
 
-  // Open barangay selector modal
   const openBarangaySelector = useCallback(() => {
     setSearchQuery("");
     setModalVisible(true);
   }, []);
 
-  // Handle barangay selection from modal
   const handleSelectBarangay = useCallback(
     (item: string) => {
       handleBarangayChange(item);
@@ -148,15 +172,13 @@ const AddressForm: React.FC<AddressFormProps> = ({
     [handleBarangayChange],
   );
 
-  // Filter barangays based on search
   const getFilteredBarangays = useCallback(() => {
     if (!searchQuery) return BARANGAYS;
-    return BARANGAYS.filter((barangay) =>
-      barangay.toLowerCase().includes(searchQuery.toLowerCase()),
+    return BARANGAYS.filter((barangayItem) =>
+      barangayItem.toLowerCase().includes(searchQuery.toLowerCase()),
     );
   }, [searchQuery]);
 
-  // Custom dropdown render item
   const renderBarangayItem = useCallback(
     ({ item }: { item: string }) => (
       <TouchableOpacity
@@ -168,16 +190,6 @@ const AddressForm: React.FC<AddressFormProps> = ({
     ),
     [handleSelectBarangay],
   );
-
-  // Get normalized purok for display and validation
-  const getNormalizedPurok = useCallback(() => {
-    return purok.replace(/\s+/g, " ").trim();
-  }, [purok]);
-
-  // Check if we should show address preview
-  const shouldShowPreview = useCallback(() => {
-    return barangay && getNormalizedPurok();
-  }, [barangay, getNormalizedPurok]);
 
   return (
     <View style={styles.container}>
@@ -254,11 +266,6 @@ const AddressForm: React.FC<AddressFormProps> = ({
               style={styles.picker}
               enabled={true}
             >
-              <Picker.Item
-                label="Municipality"
-                value=""
-                style={styles.pickerItem}
-              />
               {MUNICIPALITIES.map((mun) => (
                 <Picker.Item
                   key={mun.value}
@@ -323,18 +330,15 @@ const AddressForm: React.FC<AddressFormProps> = ({
           )}
           <Text style={styles.helperText}>
             Enter your specific purok, sitio, or nearby landmark
-            {purok && ` (${getNormalizedPurok().length}/100 characters)`}
+            {purok && ` (${normalizedPurok.length}/100 characters)`}
           </Text>
         </View>
 
         {/* Current Address Preview */}
-        {shouldShowPreview() && (
+        {shouldShowPreview && (
           <View style={styles.previewContainer}>
             <Text style={styles.previewLabel}>Your address will be:</Text>
-            <Text style={styles.previewAddress}>
-              {getNormalizedPurok()}, {barangay},{" "}
-              {getMunicipalityLabel(municipality)}
-            </Text>
+            <Text style={styles.previewAddress}>{fullAddress}</Text>
           </View>
         )}
       </View>
@@ -408,7 +412,6 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  // Custom Dropdown Styles
   customDropdown: {
     backgroundColor: COLORS.common.white,
     borderRadius: 10,
@@ -428,7 +431,6 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: {
     color: "#999",
   },
-  // Text Input Styles
   textInput: {
     backgroundColor: COLORS.common.white,
     borderRadius: 10,
@@ -474,7 +476,6 @@ const styles = StyleSheet.create({
     color: COLORS.light.primary,
     lineHeight: 18,
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",

@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Alert,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -17,11 +18,16 @@ import * as ImagePicker from "expo-image-picker";
 import { Picker } from "@react-native-picker/picker";
 import { COLORS } from "../../constants";
 import AddressForm from "./AddressForm";
+import {
+  saveVendorRegistration,
+  VendorRegistrationData,
+} from "../../lib/registrationService";
 
 const VendorRegistration = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedConsent, setAcceptedConsent] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [idType, setIdType] = useState("");
   const [validIdFrontImage, setValidIdFrontImage] = useState<string | null>(
     null,
@@ -36,6 +42,7 @@ const VendorRegistration = () => {
   const [address, setAddress] = useState("");
   const [mobile, setMobile] = useState("");
   const [gcash, setGcash] = useState("");
+  const [municipality, setMunicipality] = useState("");
 
   // Add separate state for address fields to track them individually
   const [addressFields, setAddressFields] = useState({
@@ -186,6 +193,72 @@ const VendorRegistration = () => {
     }
   };
 
+  const handleSubmit = async () => {
+    if (!acceptedTerms || !acceptedConsent) {
+      Alert.alert(
+        "Agreement Required",
+        "Please accept the Terms & Conditions and Privacy Policy.",
+      );
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        Alert.alert("Error", "User session not found. Please log in again.");
+        setIsLoading(false);
+        return;
+      }
+
+      const userId = session.user.id;
+
+      // Prepare registration data
+      const registrationData: VendorRegistrationData = {
+        shopName,
+        email,
+        mobile,
+        gcash,
+        barangay: addressFields.barangay,
+        purok: addressFields.purok,
+        municipality,
+        validIdFrontImage: validIdFrontImage!,
+        validIdBackImage,
+        selfieImage: selfieImage!,
+        optionalDoc,
+        idType,
+        acceptedTerms,
+        acceptedConsent,
+      };
+
+      // Save to database
+      await saveVendorRegistration(userId, registrationData);
+
+      Alert.alert(
+        "Success",
+        "Your vendor registration has been submitted successfully! Your account is pending approval by our admin team.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.replace("/(tabs)"),
+          },
+        ],
+      );
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      Alert.alert(
+        "Error",
+        error.message || "Failed to submit registration. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const openCamera = async (setter: (uri: string) => void) => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
@@ -251,22 +324,6 @@ const VendorRegistration = () => {
               />
               {errors.shopName && (
                 <Text style={styles.errorText}>Shop name is required</Text>
-              )}
-            </View>
-
-            {/* Replace this entire section: */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email Address *</Text>
-
-              <TextInput
-                style={[styles.input, errors.email && styles.inputError]}
-                placeholder="Your registered email"
-                value={email}
-                editable={false}
-                selectTextOnFocus={false}
-              />
-              {errors.email && (
-                <Text style={styles.errorText}>Email is required</Text>
               )}
             </View>
 
@@ -350,6 +407,7 @@ const VendorRegistration = () => {
               }}
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
+              onMunicipalityChange={setMunicipality}
               // ADD THESE PROPS TO PASS INITIAL VALUES
               initialBarangay={addressFields.barangay}
               initialPurok={addressFields.purok}
@@ -729,11 +787,16 @@ const VendorRegistration = () => {
                 styles.button,
                 styles.submitButton,
                 !(acceptedTerms && acceptedConsent) && styles.disabledButton,
+                isLoading && styles.disabledButton,
               ]}
-              disabled={!(acceptedTerms && acceptedConsent)}
-              onPress={() => Alert.alert("Success", "Registration submitted!")}
+              disabled={!(acceptedTerms && acceptedConsent) || isLoading}
+              onPress={handleSubmit}
             >
-              <Text style={styles.buttonText}>Submit Registration</Text>
+              {isLoading ? (
+                <ActivityIndicator color={COLORS.common.white} />
+              ) : (
+                <Text style={styles.buttonText}>Submit Registration</Text>
+              )}
             </TouchableOpacity>
           )}
         </View>

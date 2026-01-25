@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Anchor,
+  FileCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -22,6 +23,7 @@ interface NavItem {
 const adminNavItems: NavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Applications", href: "/admin/applications", icon: FileCheck },
   { title: "Vendors", href: "/admin/vendors", icon: Store },
   { title: "Orders", href: "/admin/orders", icon: ShoppingCart },
   { title: "Reports", href: "/admin/reports", icon: BarChart3 },
@@ -35,7 +37,7 @@ export function AdminSidebar() {
     <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300 ease-out flex flex-col",
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "w-16" : "w-64",
       )}
     >
       {/* Logo */}
@@ -71,7 +73,7 @@ export function AdminSidebar() {
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
                 isActive
                   ? "bg-primary text-primary-foreground shadow-ocean"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
               )}
             >
               <Icon

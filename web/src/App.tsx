@@ -20,6 +20,7 @@ const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 
 const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
+const Applications = lazy(() => import("@/pages/admin/Applications"));
 const UserManagement = lazy(() => import("@/pages/UserManagement"));
 const VendorManagement = lazy(() => import("@/pages/VendorManagement"));
 const OrderMonitoring = lazy(() => import("@/pages/OrderMonitoring"));
@@ -79,6 +80,16 @@ function AppRoutes() {
             <ProtectedRoute allowedRole="admin">
               <AdminLayout>
                 <AdminDashboard />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/applications"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminLayout>
+                <Applications />
               </AdminLayout>
             </ProtectedRoute>
           }
