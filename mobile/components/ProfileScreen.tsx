@@ -1,4 +1,4 @@
-// ProfileTab.tsx - Complete version
+// ProfileTab.tsx - Updated with complete pull-to-refresh including status refetch
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -9,6 +9,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -30,6 +31,7 @@ type UserProfile = {
 const ProfileTab = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Use the custom hook to get registration status
   const {
@@ -37,9 +39,10 @@ const ProfileTab = () => {
     isRiderApproved,
     vendorStatus,
     riderStatus,
-    vendorNotes, // ADD THIS
-    riderNotes, // ADD THIS
+    vendorNotes,
+    riderNotes,
     isLoading: statusLoading,
+    refetch: refetchStatus, // NEW: Destructure refetch
   } = useRegistrationStatus();
 
   useEffect(() => {
@@ -89,6 +92,13 @@ const ProfileTab = () => {
     }
   };
 
+  // Updated handler: Refetch both profile and status in parallel
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchUserProfile(), refetchStatus()]);
+    setRefreshing(false);
+  };
+
   // Helper function to get subtitle based on status
   const getBusinessSubtitle = (type: "vendor" | "rider", status: string) => {
     switch (status) {
@@ -127,14 +137,14 @@ const ProfileTab = () => {
       title: "My Shop",
       subtitle: getBusinessSubtitle("vendor", vendorStatus),
       icon: "storefront-outline" as const,
-      onPress: () => navigateToVendorFlow(vendorStatus, vendorNotes), // PASS NOTES
+      onPress: () => navigateToVendorFlow(vendorStatus, vendorNotes),
     },
     {
       id: 4,
       title: "Delivery Center",
       subtitle: getBusinessSubtitle("rider", riderStatus),
       icon: "bicycle-outline" as const,
-      onPress: () => navigateToRiderFlow(riderStatus, riderNotes), // PASS NOTES
+      onPress: () => navigateToRiderFlow(riderStatus, riderNotes),
     },
   ];
 
@@ -224,6 +234,13 @@ const ProfileTab = () => {
             style={profileStyles.scrollView}
             contentContainerStyle={profileStyles.scrollContent}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={[COLORS.light.primary]} // Optional: Customize spinner color
+              />
+            }
           >
             <View style={profileStyles.header}>
               <View style={profileStyles.profileSection}>

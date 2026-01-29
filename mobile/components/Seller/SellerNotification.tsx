@@ -135,13 +135,13 @@ const SellerNotification = () => {
 
   const handleNotificationPress = (id: number) => {
     setNotificationList((prev) =>
-      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif))
+      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)),
     );
   };
 
   const handleMarkAllRead = () => {
     setNotificationList((prev) =>
-      prev.map((notif) => ({ ...notif, read: true }))
+      prev.map((notif) => ({ ...notif, read: true })),
     );
   };
 
@@ -149,7 +149,7 @@ const SellerNotification = () => {
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.background }}>
       <View style={SellerNotificationStyles.headerBar}>
         <TouchableOpacity
-          onPress={() => router.push("/(tabs)")}
+          onPress={() => router.back()}
           style={SellerNotificationStyles.headerBackBtn}
           accessibilityLabel="Back to dashboard"
         >

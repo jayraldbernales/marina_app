@@ -102,7 +102,7 @@ const SellerShopProfile = () => {
         {/* Header with Back Button */}
         <View style={sellerShopProfileStyles.headerBar}>
           <TouchableOpacity
-            onPress={() => router.push("/(tabs)")}
+            onPress={() => router.back()}
             style={sellerShopProfileStyles.headerBackBtn}
             accessibilityLabel="Back to dashboard"
           >

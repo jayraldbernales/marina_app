@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -7,137 +7,239 @@ import {
   SafeAreaView,
   Image,
   Alert,
-  Animated,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { COLORS } from "../../constants";
 import { sellerProductsStyles } from "./styles/sellerProductsStyles";
-// Types
+import { supabase } from "../../lib/supabase";
+
+// Types aligned with DB schema
 type StockFilter = "all" | "inStock" | "lowStock" | "outOfStock";
-type FreshnessStatus = "today" | "yesterday" | "this week" | "not fresh";
+type FreshnessLabel = { text: string; color: string };
+
+interface DbProduct {
+  product_id: string;
+  product_name: string;
+  price: number;
+  stock: number;
+  unit?: string;
+  harvest_at: string;
+  images?: string[] | null;
+  is_active?: boolean;
+  categories?: { category_name: string }[] | null;
+}
+
 interface Product {
   id: string;
   name: string;
   price: number;
   stock: number;
-  image: any;
-  category?: string;
-  rating?: number;
-  sales?: number;
-  freshness?: FreshnessStatus;
+  thumbnail?: string | null;
+  harvested_at: string;
+  category?: string | null;
 }
-// Mock data for products
-const mockProducts: Product[] = [
-  {
-    id: "PROD-001",
-    name: "Bangus",
-    price: 480,
-    stock: 25,
-    image: require("@/assets/img/bangus.jpg"),
-    category: "Fish",
-    rating: 4.5,
-    sales: 42,
-    freshness: "today",
-  },
-  {
-    id: "PROD-002",
-    name: "Mayamaya",
-    price: 650,
-    stock: 12,
-    image: require("@/assets/img/mayamaya.jpg"),
-    category: "Fish",
-    rating: 4.8,
-    sales: 28,
-    freshness: "yesterday",
-  },
-  {
-    id: "PROD-003",
-    name: "Crab",
-    price: 720,
-    stock: 4,
-    image: require("@/assets/img/crab.jpg"),
-    category: "Shellfish",
-    rating: 4.3,
-    sales: 15,
-    freshness: "this week",
-  },
-  {
-    id: "PROD-004",
-    name: "Shrimp",
-    price: 720,
-    stock: 0,
-    image: require("@/assets/img/shrimp.jpg"),
-    category: "Shellfish",
-    rating: 4.6,
-    sales: 0,
-    freshness: "not fresh",
-  },
-];
-const SellerProducts = () => {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
-  const [filter, setFilter] = useState<StockFilter>("all");
-  const [refreshing, setRefreshing] = useState(false);
 
-  const handleOpenProduct = useCallback((productId: string) => {
-    router.push(`/(seller-tabs)/products?view=${productId}`);
+const SellerProducts = () => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filter, setFilter] = useState<StockFilter>("all");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  // Helpers
+  const formatPrice = useCallback((price: number) => {
+    return `₱${Number(price).toLocaleString()}`;
   }, []);
-  const handleEditProduct = useCallback((productId: string) => {
-    router.push(`/(seller-tabs)/products?edit=${productId}`);
-  }, []);
-  const handleAddProduct = useCallback(() => {
-    router.push("/(seller-tabs)/products?mode=add");
-  }, []);
-  const handleBack = useCallback(() => {
-    router.push("/(tabs)");
-  }, []);
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    // Simulate API call
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
-  }, []);
-  const formatPrice = (price: number) => {
-    return `₱${price.toLocaleString()}`;
-  };
-  const getStockStatus = (stock: number) => {
+
+  const getStockStatus = useCallback((stock: number) => {
     if (stock === 0) return { text: "Out of Stock", color: "#dc2626" };
     if (stock <= 5) return { text: "Low Stock", color: "#ea580c" };
     return { text: "In Stock", color: COLORS.light.oceanMedium };
-  };
-  const getFreshnessStatus = (freshness?: FreshnessStatus) => {
-    switch (freshness) {
-      case "today":
-        return { text: "Caught Today", color: "#10b981" };
-      case "yesterday":
-        return { text: "Caught Yesterday", color: "#f59e0b" };
-      case "this week":
+  }, []);
+
+  const computeFreshness = useCallback(
+    (harvestDate?: string | null): FreshnessLabel => {
+      if (!harvestDate) return { text: "Unknown", color: "#6b7280" };
+      const then = new Date(harvestDate);
+      const now = new Date();
+      const diffMs = now.getTime() - then.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) return { text: "Caught Today", color: "#10b981" };
+      if (diffDays === 1) return { text: "Caught Yesterday", color: "#f59e0b" };
+      if (diffDays >= 2 && diffDays <= 7)
         return { text: "Caught This Week", color: "#d97706" };
-      case "not fresh":
-        return { text: "Not Fresh", color: "#6b7280" };
-      default:
-        return { text: "Unknown", color: "#dc2626" };
+      return { text: "Not Fresh", color: "#6b7280" };
+    },
+    [],
+  );
+
+  // Fetch products for current vendor
+  const fetchProducts = useCallback(async () => {
+    try {
+      setLoading(true);
+      // get current user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        Alert.alert("Error", "Unable to determine current user.");
+        setProducts([]);
+        return;
+      }
+
+      if (!user?.id) {
+        setProducts([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("products")
+        .select(
+          `
+          product_id, 
+          product_name, 
+          price, 
+          stock, 
+          unit, 
+          harvested_at, 
+          images, 
+          is_active,
+          category_id,
+          categories:category_id(category_name)
+        `,
+        )
+        .eq("vendor_user_id", user.id)
+        .eq("is_active", true)
+        .order("product_name", { ascending: true });
+
+      if (error) {
+        Alert.alert("Error", "Failed to load products. Please try again.");
+        setProducts([]);
+        return;
+      }
+
+      const mapped: Product[] = (data || []).map((p: any) => ({
+        id: p.product_id,
+        name: p.product_name,
+        price: Number(p.price ?? 0),
+        stock: Number(p.stock ?? 0),
+        thumbnail: p.images?.[0] ?? null,
+        harvested_at: p.harvested_at ?? null,
+        category: p.categories?.category_name ?? null,
+      }));
+
+      setProducts(mapped);
+    } catch (err) {
+      Alert.alert(
+        "Error",
+        "An unexpected error occurred while loading products.",
+      );
+      setProducts([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
-  const filteredProducts =
-    filter === "all"
-      ? products
-      : products.filter((product) => {
-          const stockStatus = getStockStatus(product.stock);
-          if (filter === "inStock") return stockStatus.text === "In Stock";
-          if (filter === "lowStock") return stockStatus.text === "Low Stock";
-          if (filter === "outOfStock")
-            return stockStatus.text === "Out of Stock";
-          return false;
-        });
+  }, []);
+
+  const searchParams = useLocalSearchParams();
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // Re-fetch when returning from add/edit actions (e.g. ?refresh=1)
+  useEffect(() => {
+    if (searchParams?.refresh === "1") {
+      fetchProducts();
+      // clean URL so the param doesn't keep triggering on mount
+      router.replace("/(seller-tabs)/products");
+    }
+  }, [searchParams?.refresh, fetchProducts]);
+
+  // Pull to refresh
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // Filtered products according to stock state
+  const filteredProducts = useMemo(() => {
+    if (filter === "all") return products;
+    return products.filter((product) => {
+      const status = getStockStatus(product.stock).text;
+      if (filter === "inStock") return status === "In Stock";
+      if (filter === "lowStock") return status === "Low Stock";
+      if (filter === "outOfStock") return status === "Out of Stock";
+      return true;
+    });
+  }, [filter, products, getStockStatus]);
+
+  // Navigation handlers
+  const handleOpenProduct = useCallback((productId: string) => {
+    router.push(`/seller/products-view?product_id=${productId}`);
+  }, []);
+
+  const handleEditProduct = useCallback((productId: string) => {
+    router.push(`/seller/products-edit?product_id=${productId}`);
+  }, []);
+
+  const handleAddProduct = useCallback(() => {
+    router.push("/seller/products-add");
+  }, []);
+
+  const handleGoProfile = useCallback(() => {
+    router.push("/(tabs)/profile");
+  }, []);
+
+  // Loading / Empty UI
+  if (loading) {
+    return (
+      <SafeAreaView style={sellerProductsStyles.container}>
+        <View style={sellerProductsStyles.mainContent}>
+          <View style={sellerProductsStyles.headerBar}>
+            <TouchableOpacity
+              onPress={handleGoProfile}
+              style={sellerProductsStyles.headerBackBtn}
+              accessibilityLabel="Back to profile"
+            >
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </TouchableOpacity>
+            <Text style={sellerProductsStyles.headerTitle}>My Products</Text>
+            <TouchableOpacity
+              style={sellerProductsStyles.addProductButton}
+              onPress={handleAddProduct}
+            >
+              <Text style={sellerProductsStyles.addProductButtonText}>
+                Add Product
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ padding: 24, alignItems: "center" }}>
+            <Text style={{ color: COLORS.light.oceanMedium }}>
+              Loading products...
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={sellerProductsStyles.container}>
       <View style={sellerProductsStyles.mainContent}>
         {/* Header */}
         <View style={sellerProductsStyles.headerBar}>
           <TouchableOpacity
-            onPress={() => router.push("/(tabs)/profile")}
+            onPress={handleGoProfile}
             style={sellerProductsStyles.headerBackBtn}
             accessibilityLabel="Back to profile"
           >
@@ -157,6 +259,7 @@ const SellerProducts = () => {
             </Text>
           </TouchableOpacity>
         </View>
+
         {/* Filter Tabs */}
         <View style={sellerProductsStyles.tabsContainer}>
           {[
@@ -185,19 +288,24 @@ const SellerProducts = () => {
             </TouchableOpacity>
           ))}
         </View>
+
         {/* Products List */}
         <ScrollView
           style={sellerProductsStyles.productsContainer}
           contentContainerStyle={
-            filteredProducts.length === 0 && { flexGrow: 1 }
+            filteredProducts.length === 0 ? { flexGrow: 1 } : undefined
           }
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         >
           {filteredProducts.length > 0 ? (
             <View style={sellerProductsStyles.productsGrid}>
               {filteredProducts.map((product) => {
                 const stockStatus = getStockStatus(product.stock);
-                const freshnessStatus = getFreshnessStatus(product.freshness);
+                const freshnessStatus = computeFreshness(product.harvested_at);
+
                 return (
                   <TouchableOpacity
                     key={product.id}
@@ -207,11 +315,27 @@ const SellerProducts = () => {
                   >
                     {/* Product Image with Freshness Status Badge */}
                     <View style={sellerProductsStyles.imageContainer}>
-                      <Image
-                        source={product.image}
-                        style={sellerProductsStyles.productImage}
-                        resizeMode="cover"
-                      />
+                      {product.thumbnail ? (
+                        <Image
+                          source={{ uri: product.thumbnail }}
+                          style={sellerProductsStyles.productImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            sellerProductsStyles.productImage,
+                            {
+                              justifyContent: "center",
+                              alignItems: "center",
+                              backgroundColor: "#f3f4f6",
+                            },
+                          ]}
+                        >
+                          <Ionicons name="image" size={28} color="#9ca3af" />
+                        </View>
+                      )}
+
                       {/* Freshness Status Badge */}
                       <View style={sellerProductsStyles.stockStatusBadge}>
                         {freshnessStatus.text.includes("Yesterday") ||
@@ -234,6 +358,7 @@ const SellerProducts = () => {
                         </Text>
                       </View>
                     </View>
+
                     {/* Product Info */}
                     <View style={sellerProductsStyles.productInfo}>
                       <View style={sellerProductsStyles.namePriceRow}>
@@ -247,23 +372,21 @@ const SellerProducts = () => {
                           {formatPrice(product.price)}
                         </Text>
                       </View>
-                      {/* Category and Rating */}
+
+                      {/* Category (if any) */}
                       <View style={sellerProductsStyles.metaRow}>
-                        {product.category && (
+                        {product.category ? (
                           <Text style={sellerProductsStyles.productCategory}>
                             {product.category}
                           </Text>
-                        )}
-                        {product.rating && (
-                          <View style={sellerProductsStyles.ratingContainer}>
-                            <Ionicons name="star" size={12} color="#f59e0b" />
-                            <Text style={sellerProductsStyles.ratingText}>
-                              {product.rating}
-                            </Text>
-                          </View>
+                        ) : (
+                          <Text style={sellerProductsStyles.productCategory}>
+                            No category
+                          </Text>
                         )}
                       </View>
-                      {/* Stock and Sales Info */}
+
+                      {/* Stock Info */}
                       <View style={sellerProductsStyles.statsRow}>
                         <View style={sellerProductsStyles.stockContainer}>
                           <Text
@@ -275,12 +398,8 @@ const SellerProducts = () => {
                             {product.stock} stocks
                           </Text>
                         </View>
-                        {product.sales !== undefined && product.sales > 0 && (
-                          <Text style={sellerProductsStyles.salesText}>
-                            {product.sales} sold
-                          </Text>
-                        )}
                       </View>
+
                       {/* Action Buttons */}
                       <View style={sellerProductsStyles.actionButtons}>
                         <TouchableOpacity
@@ -345,4 +464,5 @@ const SellerProducts = () => {
     </SafeAreaView>
   );
 };
+
 export default SellerProducts;

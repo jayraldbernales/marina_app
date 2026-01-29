@@ -80,7 +80,8 @@ export const uploadImageToStorage = async (
 };
 
 /* ================================
-   Vendor Registration
+   Vendor Registration - Upsert
+   (Creates new or updates existing)
 ================================ */
 
 export const saveVendorRegistration = async (
@@ -120,6 +121,7 @@ export const saveVendorRegistration = async (
       );
     }
 
+    // Update profiles
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ mobile_number: data.mobile })
@@ -127,36 +129,109 @@ export const saveVendorRegistration = async (
 
     if (profileError) throw profileError;
 
-    const { error: vendorError } = await supabase
+    // Check if vendor profile exists
+    const { data: existingVendor } = await supabase
       .from("vendor_profiles")
-      .insert([
-        {
-          user_id: userId,
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (existingVendor) {
+      // UPDATE existing vendor profile
+      const { error: vendorUpdateError } = await supabase
+        .from("vendor_profiles")
+        .update({
           shop_name: data.shopName,
           gcash_number: data.gcash,
-          approval_status: "pending",
+          approval_status: "pending", // Reset to pending
+          approval_notes: null, // Clear previous notes
           agreed_to_terms: data.acceptedTerms,
+        })
+        .eq("user_id", userId);
+
+      if (vendorUpdateError) throw vendorUpdateError;
+
+      // Update or insert address
+      const { data: existingAddress } = await supabase
+        .from("addresses")
+        .select("user_id")
+        .eq("user_id", userId)
+        .eq("address_type", "business")
+        .maybeSingle();
+
+      if (existingAddress) {
+        const { error: addressUpdateError } = await supabase
+          .from("addresses")
+          .update({
+            full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+            purok: data.purok,
+            barangay: data.barangay,
+            municipality: data.municipality,
+          })
+          .eq("user_id", userId)
+          .eq("address_type", "business");
+
+        if (addressUpdateError) throw addressUpdateError;
+      } else {
+        const { error: addressInsertError } = await supabase
+          .from("addresses")
+          .insert([
+            {
+              user_id: userId,
+              full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+              purok: data.purok,
+              barangay: data.barangay,
+              municipality: data.municipality,
+              address_type: "business",
+              is_default: false,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+        if (addressInsertError) throw addressInsertError;
+      }
+
+      // Delete old verifications and insert new ones
+      const { error: deleteVerificationsError } = await supabase
+        .from("user_verifications")
+        .delete()
+        .eq("user_id", userId);
+
+      if (deleteVerificationsError) throw deleteVerificationsError;
+    } else {
+      // CREATE new vendor profile
+      const { error: vendorError } = await supabase
+        .from("vendor_profiles")
+        .insert([
+          {
+            user_id: userId,
+            shop_name: data.shopName,
+            gcash_number: data.gcash,
+            approval_status: "pending",
+            agreed_to_terms: data.acceptedTerms,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+      if (vendorError) throw vendorError;
+
+      const { error: addressError } = await supabase.from("addresses").insert([
+        {
+          user_id: userId,
+          full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+          purok: data.purok,
+          barangay: data.barangay,
+          municipality: data.municipality,
+          address_type: "business",
+          is_default: false,
           created_at: new Date().toISOString(),
         },
       ]);
 
-    if (vendorError) throw vendorError;
+      if (addressError) throw addressError;
+    }
 
-    const { error: addressError } = await supabase.from("addresses").insert([
-      {
-        user_id: userId,
-        full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
-        purok: data.purok,
-        barangay: data.barangay,
-        municipality: data.municipality,
-        address_type: "business",
-        is_default: true,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-
-    if (addressError) throw addressError;
-
+    // Insert new verifications
     const verifications = [
       {
         user_id: userId,
@@ -210,7 +285,8 @@ export const saveVendorRegistration = async (
 };
 
 /* ================================
-   Rider Registration
+   Rider Registration - Upsert
+   (Creates new or updates existing)
 ================================ */
 
 export const saveRiderRegistration = async (
@@ -250,6 +326,7 @@ export const saveRiderRegistration = async (
       );
     }
 
+    // Update profiles
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ mobile_number: data.mobile })
@@ -257,38 +334,116 @@ export const saveRiderRegistration = async (
 
     if (profileError) throw profileError;
 
-    const { error: riderError } = await supabase.from("rider_profiles").insert([
-      {
-        user_id: userId,
-        vehicle_type: data.vehicleType,
-        license_plate: data.plateNumber,
-        gcash_number: data.gcashNumber,
-        emergency_contact_name: data.emergencyContactName,
-        emergency_contact_number: data.emergencyContactNumber,
-        approval_status: "pending",
-        agreed_to_terms: data.acceptedTerms,
-        is_available: false,
-        created_at: new Date().toISOString(),
-      },
-    ]);
+    // Check if rider profile exists
+    const { data: existingRider } = await supabase
+      .from("rider_profiles")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (riderError) throw riderError;
+    if (existingRider) {
+      // UPDATE existing rider profile
+      const { error: riderUpdateError } = await supabase
+        .from("rider_profiles")
+        .update({
+          vehicle_type: data.vehicleType,
+          license_plate: data.plateNumber,
+          gcash_number: data.gcashNumber,
+          emergency_contact_name: data.emergencyContactName,
+          emergency_contact_number: data.emergencyContactNumber,
+          approval_status: "pending", // Reset to pending
+          approval_notes: null, // Clear previous notes
+          agreed_to_terms: data.acceptedTerms,
+        })
+        .eq("user_id", userId);
 
-    const { error: addressError } = await supabase.from("addresses").insert([
-      {
-        user_id: userId,
-        full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
-        purok: data.purok,
-        barangay: data.barangay,
-        municipality: data.municipality,
-        address_type: "residential",
-        is_default: true,
-        created_at: new Date().toISOString(),
-      },
-    ]);
+      if (riderUpdateError) throw riderUpdateError;
 
-    if (addressError) throw addressError;
+      // Update or insert address
+      const { data: existingAddress } = await supabase
+        .from("addresses")
+        .select("user_id")
+        .eq("user_id", userId)
+        .eq("address_type", "residential")
+        .maybeSingle();
 
+      if (existingAddress) {
+        const { error: addressUpdateError } = await supabase
+          .from("addresses")
+          .update({
+            full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+            purok: data.purok,
+            barangay: data.barangay,
+            municipality: data.municipality,
+          })
+          .eq("user_id", userId)
+          .eq("address_type", "residential");
+
+        if (addressUpdateError) throw addressUpdateError;
+      } else {
+        const { error: addressInsertError } = await supabase
+          .from("addresses")
+          .insert([
+            {
+              user_id: userId,
+              full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+              purok: data.purok,
+              barangay: data.barangay,
+              municipality: data.municipality,
+              address_type: "residential",
+              is_default: true,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+
+        if (addressInsertError) throw addressInsertError;
+      }
+
+      // Delete old verifications and insert new ones
+      const { error: deleteVerificationsError } = await supabase
+        .from("user_verifications")
+        .delete()
+        .eq("user_id", userId);
+
+      if (deleteVerificationsError) throw deleteVerificationsError;
+    } else {
+      // CREATE new rider profile
+      const { error: riderError } = await supabase
+        .from("rider_profiles")
+        .insert([
+          {
+            user_id: userId,
+            vehicle_type: data.vehicleType,
+            license_plate: data.plateNumber,
+            gcash_number: data.gcashNumber,
+            emergency_contact_name: data.emergencyContactName,
+            emergency_contact_number: data.emergencyContactNumber,
+            approval_status: "pending",
+            agreed_to_terms: data.acceptedTerms,
+            is_available: false,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+      if (riderError) throw riderError;
+
+      const { error: addressError } = await supabase.from("addresses").insert([
+        {
+          user_id: userId,
+          full_address: `${data.purok}, ${data.barangay}, ${data.municipality}`,
+          purok: data.purok,
+          barangay: data.barangay,
+          municipality: data.municipality,
+          address_type: "residential",
+          is_default: true,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      if (addressError) throw addressError;
+    }
+
+    // Insert new verifications
     const verifications = [
       {
         user_id: userId,

@@ -104,7 +104,7 @@ const RiderProfile = () => {
         {/* Header */}
         <View style={riderProfileStyles.headerBar}>
           <TouchableOpacity
-            onPress={() => router.push("/(rider-tabs)")}
+            onPress={() => router.back()}
             style={riderProfileStyles.headerBackBtn}
           >
             <Ionicons
