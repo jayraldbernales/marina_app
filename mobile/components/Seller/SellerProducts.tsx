@@ -14,22 +14,10 @@ import { router, useLocalSearchParams } from "expo-router";
 import { COLORS } from "../../constants";
 import { sellerProductsStyles } from "./styles/sellerProductsStyles";
 import { supabase } from "../../lib/supabase";
+import { computeFreshness, FreshnessStatus } from "../../utils/freshness";
 
 // Types aligned with DB schema
 type StockFilter = "all" | "inStock" | "lowStock" | "outOfStock";
-type FreshnessLabel = { text: string; color: string };
-
-interface DbProduct {
-  product_id: string;
-  product_name: string;
-  price: number;
-  stock: number;
-  unit?: string;
-  harvest_at: string;
-  images?: string[] | null;
-  is_active?: boolean;
-  categories?: { category_name: string }[] | null;
-}
 
 interface Product {
   id: string;
@@ -57,23 +45,6 @@ const SellerProducts = () => {
     if (stock <= 5) return { text: "Low Stock", color: "#ea580c" };
     return { text: "In Stock", color: COLORS.light.oceanMedium };
   }, []);
-
-  const computeFreshness = useCallback(
-    (harvestDate?: string | null): FreshnessLabel => {
-      if (!harvestDate) return { text: "Unknown", color: "#6b7280" };
-      const then = new Date(harvestDate);
-      const now = new Date();
-      const diffMs = now.getTime() - then.getTime();
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 0) return { text: "Caught Today", color: "#10b981" };
-      if (diffDays === 1) return { text: "Caught Yesterday", color: "#f59e0b" };
-      if (diffDays >= 2 && diffDays <= 7)
-        return { text: "Caught This Week", color: "#d97706" };
-      return { text: "Not Fresh", color: "#6b7280" };
-    },
-    [],
-  );
 
   // Fetch products for current vendor
   const fetchProducts = useCallback(async () => {
@@ -128,7 +99,7 @@ const SellerProducts = () => {
         price: Number(p.price ?? 0),
         stock: Number(p.stock ?? 0),
         thumbnail: p.images?.[0] ?? null,
-        harvested_at: p.harvested_at ?? null,
+        harvested_at: p.harvested_at,
         category: p.categories?.category_name ?? null,
       }));
 
@@ -304,7 +275,10 @@ const SellerProducts = () => {
             <View style={sellerProductsStyles.productsGrid}>
               {filteredProducts.map((product) => {
                 const stockStatus = getStockStatus(product.stock);
-                const freshnessStatus = computeFreshness(product.harvested_at);
+                const freshness = computeFreshness(product.harvested_at);
+                const isFairOrWorse =
+                  freshness.status === FreshnessStatus.FAIR ||
+                  freshness.status === FreshnessStatus.NOT_FRESH;
 
                 return (
                   <TouchableOpacity
@@ -338,23 +312,22 @@ const SellerProducts = () => {
 
                       {/* Freshness Status Badge */}
                       <View style={sellerProductsStyles.stockStatusBadge}>
-                        {freshnessStatus.text.includes("Yesterday") ||
-                        freshnessStatus.text.includes("This Week") ? (
+                        {isFairOrWorse ? (
                           <Ionicons
                             name="warning"
                             size={12}
-                            color={freshnessStatus.color}
+                            color={freshness.color}
                           />
                         ) : (
                           <View
                             style={[
                               sellerProductsStyles.statusDot,
-                              { backgroundColor: freshnessStatus.color },
+                              { backgroundColor: freshness.color },
                             ]}
                           />
                         )}
                         <Text style={sellerProductsStyles.statusText}>
-                          {freshnessStatus.text}
+                          {freshness.label}
                         </Text>
                       </View>
                     </View>

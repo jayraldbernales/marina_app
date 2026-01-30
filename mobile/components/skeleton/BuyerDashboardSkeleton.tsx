@@ -121,19 +121,10 @@ const BuyerDashboardSkeleton = () => {
               <View key={idx} style={buyerDashboardStyles.categoryCard}>
                 <View
                   style={{
-                    height: 30,
-                    width: 35,
-                    backgroundColor: "#e0e0e0",
-                    borderRadius: 5,
-                  }}
-                />
-                <View
-                  style={{
                     height: 8,
                     width: 20,
                     backgroundColor: "#e0e0e0",
                     borderRadius: 10,
-                    marginTop: 8,
                   }}
                 />
               </View>

@@ -11,12 +11,17 @@ import {
   FlatList,
   Dimensions,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import {
+  Ionicons,
+  MaterialCommunityIcons,
+  FontAwesome,
+} from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { COLORS } from "../../constants";
 import { supabase } from "../../lib/supabase";
 import { computeFreshness } from "../../utils/freshness";
 import { formatHoursAgo } from "../../utils/time";
+import LoadingSpinner from "../../components/Loading";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -53,36 +58,79 @@ const formatTimeForDisplay = (dateString?: string | null) => {
   }
 };
 
-// REMOVED: Old computeFreshnessLabel function - now using the imported utility
-
-export default function ProductView() {
+export default function BuyerProductDetail() {
   const params = useLocalSearchParams();
   const productId =
     typeof params?.product_id === "string" ? params.product_id : undefined;
 
   const [product, setProduct] = useState<any | null>(null);
+  const [vendor, setVendor] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [addingToCart, setAddingToCart] = useState(false);
+  const [rating, setRating] = useState<number | null>(null);
+  const [soldCount, setSoldCount] = useState<number>(0);
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
     try {
       setLoading(true);
-      const { data, error } = await supabase
+
+      // Fetch product with vendor info
+      const { data: productData, error: productError } = await supabase
         .from("products")
         .select(
-          "product_id, product_name, description, price, stock, unit, harvested_at, images, category_id, is_active, categories!inner(category_name)",
+          `
+          product_id,
+          product_name,
+          description,
+          price,
+          stock,
+          unit,
+          harvested_at,
+          images,
+          category_id,
+          is_active,
+          vendor_user_id,
+          categories!inner(category_name)
+        `,
         )
         .eq("product_id", productId)
         .single();
 
-      if (error) {
-        console.warn(error);
+      if (productError) {
+        console.warn(productError);
         Alert.alert("Error", "Failed to load product.");
         return;
       }
 
-      setProduct(data);
+      setProduct(productData);
+
+      // Fetch vendor information
+      if (productData.vendor_user_id) {
+        const { data: vendorData, error: vendorError } = await supabase
+          .from("vendor_profiles")
+          .select(
+            `
+            user_id,
+            shop_name,
+            avatar_url,
+            gcash_number
+          `,
+          )
+          .eq("user_id", productData.vendor_user_id)
+          .single();
+
+        if (!vendorError) {
+          setVendor(vendorData);
+        }
+      }
+
+      // Fetch product rating and sold count
+      // Assuming you have a way to get these from your database
+      // For now, we'll use mock data
+      setRating(4.5); // Mock rating - replace with actual data fetch
+      setSoldCount(42); // Mock sold count - replace with actual data fetch
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Unexpected error loading product.");
@@ -96,14 +144,8 @@ export default function ProductView() {
   }, [loadProduct]);
 
   const goBack = useCallback(() => router.back(), []);
-  const onEdit = useCallback(() => {
-    if (product?.product_id)
-      router.push(
-        `/seller/products-edit?product_id=${encodeURIComponent(String(product.product_id))}` as any,
-      );
-  }, [product]);
 
-  // Properly typed renderImageItem function
+  // Render image item
   const renderImageItem = ({
     item,
     index,
@@ -120,43 +162,32 @@ export default function ProductView() {
     </View>
   );
 
-  // Render image indicators
-  const renderImageIndicator = () => {
-    const images = product?.images || [];
-    if (images.length <= 1) return null;
+  // Add to cart function
+  const handleAddToCart = async () => {};
 
-    return (
-      <View style={styles.imageIndicators}>
-        {images.map((_: any, index: number) => (
-          <View
-            key={index}
-            style={[
-              styles.indicatorDot,
-              activeImageIndex === index && styles.indicatorDotActive,
-            ]}
-          />
-        ))}
-      </View>
-    );
-  };
+  // Direct order function
+  const handleDirectOrder = () => {};
+
+  // View vendor profile
+  const handleViewVendor = () => {};
 
   if (!productId) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.mainContent}>
           <View style={styles.headerBar}>
-            <TouchableOpacity onPress={goBack}>
+            <TouchableOpacity onPress={goBack} style={styles.backButton}>
               <Ionicons
                 name="arrow-back"
                 size={24}
                 color={COLORS.light.primary}
               />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Product</Text>
-            <View style={{ width: 80 }} />
+            <Text style={styles.headerTitle}>Product Details</Text>
+            <View style={{ width: 40 }} />
           </View>
           <View style={styles.emptyState}>
-            <Ionicons name="cube-outline" size={64} color="#cbd5e1" />
+            <MaterialCommunityIcons name="fish-off" size={64} color="#cbd5e1" />
             <Text style={styles.emptyStateText}>No product selected</Text>
           </View>
         </View>
@@ -169,39 +200,38 @@ export default function ProductView() {
       <SafeAreaView style={styles.container}>
         <View style={styles.mainContent}>
           <View style={styles.headerBar}>
-            <TouchableOpacity onPress={goBack}>
+            <TouchableOpacity onPress={goBack} style={styles.backButton}>
               <Ionicons
                 name="arrow-back"
                 size={24}
                 color={COLORS.light.primary}
               />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Product</Text>
-            <View style={{ width: 80 }} />
+            <Text style={styles.headerTitle}>Product Details</Text>
+            <View style={{ width: 40 }} />
           </View>
-          <View style={styles.loadingContainer}>
-            <Ionicons name="refresh" size={32} color={COLORS.light.primary} />
-            <Text style={styles.loadingText}>Loading product details...</Text>
-          </View>
+          {/* Use the reusable loading component */}
+          <LoadingSpinner />
         </View>
       </SafeAreaView>
     );
   }
 
-  // CHANGED: Using computeFreshness from freshness.ts
+  // Calculate values
   const freshness = computeFreshness(product?.harvested_at);
   const images = product?.images || [];
   const categoryName = product?.categories?.category_name ?? null;
   const harvestDate = formatDateForDisplay(product?.harvested_at);
   const harvestTime = formatTimeForDisplay(product?.harvested_at);
   const price = Number(product?.price) || 0;
+  const stockAvailable = product?.stock || 0;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
-        {/* Header - Kept Original */}
+        {/* Header - Centered */}
         <View style={styles.headerBar}>
-          <TouchableOpacity onPress={goBack}>
+          <TouchableOpacity onPress={goBack} style={styles.backButton}>
             <Ionicons
               name="arrow-back"
               size={24}
@@ -209,21 +239,14 @@ export default function ProductView() {
             />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Product Details</Text>
-          <TouchableOpacity style={styles.editButton} onPress={onEdit}>
-            <Ionicons
-              name="create-outline"
-              size={20}
-              color={COLORS.light.primary}
-            />
-            <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
+          <View style={styles.headerSpacer} />
         </View>
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Image Carousel - Full Width */}
+          {/* Image Carousel */}
           <View style={styles.imageCarouselContainer}>
             {images.length > 0 ? (
               <>
@@ -243,32 +266,69 @@ export default function ProductView() {
                   }}
                   keyExtractor={(item, index) => `${item}-${index}`}
                 />
-                {renderImageIndicator()}
+                {/* Image indicator as numbers instead of dots */}
+                {images.length > 1 && (
+                  <View style={styles.imageIndicatorNumber}>
+                    <View style={styles.indicatorNumberContainer}>
+                      <Text style={styles.indicatorNumberText}>
+                        {activeImageIndex + 1}/{images.length}
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </>
             ) : (
               <View style={styles.noImageContainer}>
-                <Ionicons name="image-outline" size={64} color="#cbd5e1" />
+                <MaterialCommunityIcons
+                  name="image-off"
+                  size={64}
+                  color="#cbd5e1"
+                />
                 <Text style={styles.noImageText}>No images available</Text>
               </View>
             )}
           </View>
 
-          {/* Price & Title Section - Shopee Style */}
+          {/* Price & Title Section */}
           <View style={styles.priceSection}>
             <View style={styles.priceRow}>
-              <Text style={styles.currencySymbol}>₱</Text>
-              <Text style={styles.priceAmount}>{price.toLocaleString()}</Text>
-              <Text style={styles.priceUnit}>/{product.unit}</Text>
-            </View>
+              <View style={styles.priceLeftColumn}>
+                <View style={styles.priceRow}>
+                  <Text style={styles.currencySymbol}>₱</Text>
+                  <Text style={styles.priceAmount}>
+                    {price.toLocaleString()}
+                  </Text>
+                  <Text style={styles.priceUnit}>/{product.unit}</Text>
+                </View>
+                <Text style={styles.productTitle}>{product.product_name}</Text>
+              </View>
 
-            <Text style={styles.productTitle}>{product.product_name}</Text>
+              {/* Sold and Rating on the right side */}
+              <View style={styles.priceRightColumn}>
+                <View style={styles.soldRatingContainer}>
+                  <View style={styles.soldContainer}>
+                    <Text style={styles.soldRatingText}>{soldCount} sold</Text>
+                  </View>
+                  <View style={styles.ratingContainer}>
+                    <FontAwesome name="star" size={14} color="#FFD700" />
+                    <Text style={styles.soldRatingText}>
+                      {rating ? rating.toFixed(1) : "N/A"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
 
             {/* Stats Row */}
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Ionicons name="cube-outline" size={14} color="#757575" />
+                <MaterialCommunityIcons
+                  name="package-variant"
+                  size={14}
+                  color="#757575"
+                />
                 <Text style={styles.statText}>
-                  {product.stock} {product.unit} left
+                  {stockAvailable} {product.unit} left
                 </Text>
               </View>
               <View style={styles.statDivider} />
@@ -280,35 +340,62 @@ export default function ProductView() {
                   ]}
                 />
                 <Text style={[styles.statText, { color: freshness.color }]}>
-                  {freshness.label}{" "}
-                  {/* CHANGED: freshness.label instead of freshness.text */}
+                  {freshness.label} • {formatHoursAgo(freshness.hoursElapsed)}
                 </Text>
               </View>
             </View>
           </View>
 
-          {/* Category & Status Section */}
+          {/* Vendor Information */}
+          {vendor && (
+            <TouchableOpacity
+              style={styles.vendorSection}
+              onPress={handleViewVendor}
+              activeOpacity={0.7}
+            >
+              <View style={styles.vendorInfo}>
+                {vendor.avatar_url ? (
+                  <Image
+                    source={{ uri: vendor.avatar_url }}
+                    style={styles.vendorAvatar}
+                  />
+                ) : (
+                  <View style={styles.vendorAvatarPlaceholder}>
+                    <MaterialCommunityIcons
+                      name="store"
+                      size={24}
+                      color="#fff"
+                    />
+                  </View>
+                )}
+                <View style={styles.vendorText}>
+                  <Text style={styles.vendorName}>{vendor.shop_name}</Text>
+                  <Text style={styles.vendorLabel}>Seller</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            </TouchableOpacity>
+          )}
+
+          {/* Category & Stock Section */}
           <View style={styles.categorySection}>
             {categoryName && (
               <>
                 <View style={styles.categoryItem}>
                   <Text style={styles.categoryLabel}>Category</Text>
-                  <View style={styles.categoryValueRow}>
-                    <Text style={styles.categoryValue}>{categoryName}</Text>
-                    <Ionicons name="chevron-forward" size={16} color="#999" />
-                  </View>
+                  <Text style={styles.categoryValue}>{categoryName}</Text>
                 </View>
                 <View style={styles.categoryDivider} />
               </>
             )}
 
             <View style={styles.categoryItem}>
-              <Text style={styles.categoryLabel}>Status</Text>
+              <Text style={styles.categoryLabel}>Availability</Text>
               <View style={styles.statusBadge}>
                 <View
                   style={[
                     styles.statusDot,
-                    product.is_active
+                    product.is_active && stockAvailable > 0
                       ? styles.statusDotActive
                       : styles.statusDotInactive,
                   ]}
@@ -316,31 +403,43 @@ export default function ProductView() {
                 <Text
                   style={[
                     styles.statusText,
-                    product.is_active
+                    product.is_active && stockAvailable > 0
                       ? styles.statusTextActive
                       : styles.statusTextInactive,
                   ]}
                 >
-                  {product.is_active ? "Active" : "Inactive"}
+                  {product.is_active && stockAvailable > 0
+                    ? "Available"
+                    : "Out of Stock"}
                 </Text>
               </View>
             </View>
           </View>
 
+          {/* Product Description Section */}
+          <View style={styles.descriptionSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Description</Text>
+            </View>
+            <Text style={styles.descriptionText}>
+              {product.description || "No description provided."}
+            </Text>
+          </View>
+
           {/* Harvest Information Section */}
           <View style={styles.harvestSection}>
             <View style={styles.sectionHeader}>
-              <Ionicons
-                name="leaf-outline"
+              <MaterialCommunityIcons
+                name="fish"
                 size={20}
                 color={COLORS.light.primary}
               />
-              <Text style={styles.sectionTitle}>Harvest Information</Text>
+              <Text style={styles.sectionTitle}>Freshness Information</Text>
             </View>
 
             <View style={styles.harvestGrid}>
               <View style={styles.harvestCard}>
-                <Ionicons
+                <MaterialCommunityIcons
                   name="calendar"
                   size={24}
                   color={COLORS.light.primary}
@@ -351,8 +450,8 @@ export default function ProductView() {
 
               {harvestTime && (
                 <View style={styles.harvestCard}>
-                  <Ionicons
-                    name="time"
+                  <MaterialCommunityIcons
+                    name="clock"
                     size={24}
                     color={COLORS.light.primary}
                   />
@@ -362,75 +461,58 @@ export default function ProductView() {
               )}
             </View>
           </View>
-
-          {/* Product Description Section */}
-          <View style={styles.descriptionSection}>
-            <View style={styles.sectionHeader}>
-              <Ionicons
-                name="document-text-outline"
-                size={20}
-                color={COLORS.light.primary}
-              />
-              <Text style={styles.sectionTitle}>Product Description</Text>
-            </View>
-            <Text style={styles.descriptionText}>
-              {product.description || "No description provided."}
-            </Text>
-          </View>
-
-          {/* Product Information Section */}
-          <View style={styles.infoSection}>
-            <View style={styles.sectionHeader}>
-              <Ionicons
-                name="information-circle-outline"
-                size={20}
-                color={COLORS.light.primary}
-              />
-              <Text style={styles.sectionTitle}>Product Information</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Product ID: </Text>
-              <Text style={styles.infoValue}>{product.product_id}</Text>
-            </View>
-
-            <View style={styles.infoDivider} />
-
-            {/* CHANGED: Added Freshness Status info */}
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Freshness: </Text>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View
-                  style={[
-                    styles.statusDot,
-                    { backgroundColor: freshness.color, marginRight: 6 },
-                  ]}
-                />
-                <Text style={[styles.infoValue, { color: freshness.color }]}>
-                  {freshness.label}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.infoDivider} />
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Harvested</Text>
-              <Text style={styles.infoValue}>
-                {formatHoursAgo(freshness.hoursElapsed)}
-              </Text>
-            </View>
-
-            <View style={styles.infoDivider} />
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Stock Available</Text>
-              <Text style={styles.infoValue}>
-                {product.stock} {product.unit}
-              </Text>
-            </View>
-          </View>
         </ScrollView>
+
+        {/* Fixed Bottom Action Bar */}
+        <View style={styles.actionBar}>
+          {/* Action Buttons */}
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[
+                styles.addToCartButton,
+                (stockAvailable === 0 || addingToCart) && styles.buttonDisabled,
+              ]}
+              onPress={handleAddToCart}
+              disabled={stockAvailable === 0 || addingToCart}
+            >
+              <Ionicons
+                name="cart"
+                size={20}
+                color={
+                  stockAvailable === 0 || addingToCart
+                    ? "#ccc"
+                    : COLORS.light.primary
+                }
+              />
+              <Text
+                style={[
+                  styles.addToCartText,
+                  (stockAvailable === 0 || addingToCart) && styles.disabledText,
+                ]}
+              >
+                {addingToCart ? "Adding..." : "Add to Cart"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.orderButton,
+                stockAvailable === 0 && styles.buttonDisabled,
+              ]}
+              onPress={handleDirectOrder}
+              disabled={stockAvailable === 0}
+            >
+              <Text
+                style={[
+                  styles.orderButtonText,
+                  stockAvailable === 0 && styles.disabledText,
+                ]}
+              >
+                Order Now
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -445,11 +527,10 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
-  // Original Header Styles - Unchanged
+  // Header Styles - Centered
   headerBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingTop: 48,
     paddingHorizontal: 16,
     paddingBottom: 8,
@@ -458,25 +539,18 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e8e8e8",
   },
   headerTitle: {
+    flex: 1,
     fontSize: 18,
     fontWeight: "600",
     color: COLORS.light.primary,
+    textAlign: "center",
   },
-  editButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f9ff",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
+  headerSpacer: {
+    width: 40,
   },
-  editButtonText: {
-    color: COLORS.light.primary,
-    fontSize: 14,
-    fontWeight: "600",
+  backButton: {
+    padding: 4,
+    width: 40,
   },
   emptyState: {
     flex: 1,
@@ -490,23 +564,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#999",
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-    backgroundColor: "#fff",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: COLORS.light.primary,
-  },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: 120, // More space for improved action bar
   },
 
-  // Image Carousel - Full Width Shopee Style
+  // Image Carousel
   imageCarouselContainer: {
     height: IMAGE_HEIGHT,
     backgroundColor: "#fff",
@@ -521,22 +583,22 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: IMAGE_HEIGHT,
   },
-  imageIndicators: {
-    flexDirection: "row",
+  // Number-based image indicator
+  imageIndicatorNumber: {
     position: "absolute",
     bottom: 16,
     alignSelf: "center",
-    gap: 6,
   },
-  indicatorDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.5)",
+  indicatorNumberContainer: {
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
-  indicatorDotActive: {
-    backgroundColor: "#fff",
-    width: 18,
+  indicatorNumberText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   noImageContainer: {
     width: SCREEN_WIDTH,
@@ -551,7 +613,7 @@ const styles = StyleSheet.create({
     color: "#999",
   },
 
-  // Price Section - Shopee Style
+  // Price Section - Updated for sold and rating on right
   priceSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -559,8 +621,16 @@ const styles = StyleSheet.create({
   },
   priceRow: {
     flexDirection: "row",
+    justifyContent: "flex-start",
     alignItems: "flex-start",
     marginBottom: 12,
+  },
+  priceLeftColumn: {
+    flex: 1,
+    marginRight: 16,
+  },
+  priceRightColumn: {
+    alignItems: "flex-end",
   },
   currencySymbol: {
     fontSize: 20,
@@ -586,11 +656,32 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#212121",
     lineHeight: 26,
-    marginBottom: 12,
+    marginTop: 4,
+  },
+  // Sold and Rating Styles
+  soldRatingContainer: {
+    alignItems: "flex-end",
+  },
+  soldContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 4,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  soldRatingText: {
+    fontSize: 13,
+    color: "#757575",
+    fontWeight: "500",
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
+    marginTop: 8,
   },
   statItem: {
     flexDirection: "row",
@@ -613,7 +704,48 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
-  // Category & Status Section - Shopee Style
+  // Vendor Section
+  vendorSection: {
+    backgroundColor: "#fff",
+    padding: 16,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  vendorInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  vendorAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  vendorAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  vendorText: {
+    flexDirection: "column",
+  },
+  vendorName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#212121",
+  },
+  vendorLabel: {
+    fontSize: 12,
+    color: "#757575",
+    marginTop: 2,
+  },
+
+  // Category & Status Section
   categorySection: {
     backgroundColor: "#fff",
     paddingVertical: 8,
@@ -629,11 +761,6 @@ const styles = StyleSheet.create({
   categoryLabel: {
     fontSize: 14,
     color: "#757575",
-  },
-  categoryValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
   },
   categoryValue: {
     fontSize: 14,
@@ -672,7 +799,7 @@ const styles = StyleSheet.create({
     color: "#ef4444",
   },
 
-  // Harvest Section - Shopee Style
+  // Harvest Section
   harvestSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -685,13 +812,14 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#212121",
   },
   harvestGrid: {
     flexDirection: "row",
     gap: 12,
+    marginBottom: 16,
   },
   harvestCard: {
     flex: 1,
@@ -714,8 +842,7 @@ const styles = StyleSheet.create({
     color: "#212121",
     textAlign: "center",
   },
-
-  // Description Section - Shopee Style
+  // Description Section
   descriptionSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -724,32 +851,73 @@ const styles = StyleSheet.create({
   descriptionText: {
     fontSize: 14,
     lineHeight: 22,
-    color: "#424242",
-  },
-
-  // Info Section - Shopee Style
-  infoSection: {
-    backgroundColor: "#fff",
-    padding: 16,
-    marginBottom: 8,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  infoLabel: {
-    fontSize: 14,
     color: "#757575",
   },
-  infoValue: {
-    fontSize: 14,
-    color: "#212121",
-    fontWeight: "500",
+
+  // Action Bar (Fixed at Bottom) - IMPROVED LAYOUT
+  actionBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 48,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e8e8e8",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  infoDivider: {
-    height: 1,
-    backgroundColor: "#f5f5f5",
+
+  // Action Buttons
+  actionButtons: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+
+  // Add to Cart Button (White with primary border)
+  addToCartButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: COLORS.light.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+    flex: 1,
+  },
+  addToCartText: {
+    color: COLORS.light.primary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  // Order Now Button
+  orderButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+  },
+  orderButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+
+  buttonDisabled: {
+    backgroundColor: "#e5e7eb",
+    borderColor: "#d1d5db",
+  },
+  disabledText: {
+    color: "#9ca3af",
   },
 });

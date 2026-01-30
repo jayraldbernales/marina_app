@@ -37,16 +37,15 @@ export const buyerDashboardStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: COLORS.light.ocean,
-    marginBottom: 12,
   },
   promoCard: { flex: 1, borderRadius: 12, padding: 12, marginRight: 5 },
   promoTitle: { fontWeight: "bold", fontSize: 14 },
   promoDesc: { fontSize: 10, opacity: 0.9 },
   categoryCard: {
     width: 80,
-    height: 80,
+    height: 40,
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 12,
     marginRight: 12,
     justifyContent: "center",
     alignItems: "center",
@@ -66,6 +65,7 @@ export const buyerDashboardStyles = StyleSheet.create({
   },
   categoryName: {
     fontSize: 13,
+    color: COLORS.light.primary,
     fontWeight: "600",
   },
   productCard: {
@@ -133,5 +133,34 @@ export const buyerDashboardStyles = StyleSheet.create({
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
+  },
+  // Add to buyerDashboardStyles
+  vendorCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  vendorAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginBottom: 8,
+  },
+  vendorName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  vendorProductCount: {
+    fontSize: 12,
+    color: "#666",
   },
 });
