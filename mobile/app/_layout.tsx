@@ -1,11 +1,117 @@
 import * as WebBrowser from "expo-web-browser";
 import Toast from "react-native-toast-message";
-import { Stack } from "expo-router";
-import { View, StyleSheet } from "react-native";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
+import { useUserStore } from "../store/userStore";
+import { COLORS } from "../constants";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Add this import
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function Layout() {
+  const router = useRouter();
+  const segments = useSegments();
+  const [isReady, setIsReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasSeenWelcome, setHasSeenWelcome] = useState(false); // Add this state
+  const { user, setUser } = useUserStore();
+
+  // Initialize auth session and welcome flag on app launch
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        // Load welcome flag
+        const seenWelcome = await AsyncStorage.getItem("hasSeenWelcome");
+        setHasSeenWelcome(seenWelcome === "true");
+
+        // Get current session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email ?? "",
+            fullName: session.user.user_metadata?.full_name ?? "",
+          });
+        }
+      } catch (error) {
+        console.error("Auth initialization error:", error);
+      } finally {
+        setIsLoading(false);
+        setIsReady(true);
+      }
+    };
+
+    initializeAuth();
+
+    // Listen for auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email ?? "",
+          fullName: session.user.user_metadata?.full_name ?? "",
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Handle navigation based on auth state and welcome flag
+  useEffect(() => {
+    if (!isReady || !(segments.length > 0)) return;
+
+    const currentSegment = segments[0] as string;
+    const authScreens = [
+      "index",
+      "login",
+      "signup",
+      "forgot-password",
+      "reset-password",
+      "terms",
+      "privacy",
+    ];
+    const isAuthScreen = authScreens.includes(currentSegment);
+
+    // If not logged in and not on an auth screen, redirect to login
+    // But allow index only if welcome hasn't been seen
+    if (!user && !isAuthScreen) {
+      router.replace("/login");
+    } else if (!user && currentSegment === "index" && hasSeenWelcome) {
+      // Skip index if welcome has been seen
+      router.replace("/login");
+    } else if (user && isAuthScreen && currentSegment !== "index") {
+      router.replace("/(tabs)");
+    }
+  }, [user, isReady, segments, hasSeenWelcome]); // Add hasSeenWelcome to dependencies
+
+  // Show loading screen during auth initialization
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: COLORS.light.oceanLight,
+        }}
+      >
+        <ActivityIndicator size="large" color={COLORS.light.oceanPrimary} />
+      </View>
+    );
+  }
+
   return (
     <>
       <View style={styles.toastContainer}>
@@ -31,6 +137,8 @@ export default function Layout() {
             options={{ headerShown: true }}
           />
           <Stack.Screen name="reset-password" options={{ headerShown: true }} />
+
+          <Stack.Screen name="+not-found" options={{ headerShown: false }} />
         </Stack>
       </View>
     </>

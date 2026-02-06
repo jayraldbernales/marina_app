@@ -10,18 +10,30 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "../constants";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Add this import
 
 const { width, height } = Dimensions.get("window");
 
-export const WelcomeScreen = () => {
+export const WelcomeScreen = ({ onFinish }: { onFinish?: () => void }) => {
   const router = useRouter();
+
+  const handleGetStarted = async () => {
+    // Set the flag to mark welcome as seen
+    await AsyncStorage.setItem("hasSeenWelcome", "true");
+
+    if (onFinish) {
+      onFinish();
+    } else {
+      router.replace("/login");
+    }
+  };
 
   return (
     <LinearGradient
       colors={[
-        COLORS.light.oceanLight,
+        COLORS.light.background,
         COLORS.light.seafoam,
-        COLORS.light.oceanLight,
+        COLORS.light.background,
       ]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
@@ -51,7 +63,7 @@ export const WelcomeScreen = () => {
         </Text>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => router.replace("/login")}
+          onPress={handleGetStarted} // Updated to use the new handler
           activeOpacity={0.85}
         >
           <Text style={styles.primaryButtonText}>Get Started</Text>

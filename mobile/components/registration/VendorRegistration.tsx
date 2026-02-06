@@ -396,7 +396,6 @@ const VendorRegistration = () => {
               </Text>
             </View>
 
-            {/* Address Form Card - Placed below GCash */}
             <AddressForm
               address={address}
               onChange={handleAddressChange}
@@ -408,9 +407,6 @@ const VendorRegistration = () => {
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
               onMunicipalityChange={setMunicipality}
-              // ADD THESE PROPS TO PASS INITIAL VALUES
-              initialBarangay={addressFields.barangay}
-              initialPurok={addressFields.purok}
             />
           </>
         )}

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "marina",
+    "name": "Marina",
     "owner": "jayrald",
     "slug": "marina",
     "version": "1.0.0",
@@ -10,14 +10,16 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jayrald.marina"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#013567"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.jayrald.marina"
     },
     "web": {
       "bundler": "metro",
@@ -43,7 +45,11 @@
     },
     "extra": {
       "supabaseUrl": "https://kpqbwvxuzeveqwfhulaf.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcWJ3dnh1emV2ZXF3Zmh1bGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0NjI3ODYsImV4cCI6MjA3NDAzODc4Nn0.08wYrgXHTgSE5FWEFflVi70JTsm9FQO6j6n2Ndukwyk"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcWJ3dnh1emV2ZXF3Zmh1bGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0NjI3ODYsImV4cCI6MjA3NDAzODc4Nn0.08wYrgXHTgSE5FWEFflVi70JTsm9FQO6j6n2Ndukwyk",
+      "router": {},
+      "eas": {
+        "projectId": "3609b822-86cb-42b5-9e5e-5007444821df"
+      }
     }
   }
 }

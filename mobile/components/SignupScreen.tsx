@@ -121,9 +121,9 @@ export const SignupScreen = () => {
   return (
     <LinearGradient
       colors={[
-        COLORS.light.oceanLight,
+        COLORS.light.background,
         COLORS.light.seafoam,
-        COLORS.light.oceanLight,
+        COLORS.light.background,
       ]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}

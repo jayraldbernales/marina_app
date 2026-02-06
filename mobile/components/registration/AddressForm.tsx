@@ -49,6 +49,8 @@ type AddressErrors = {
   purok?: boolean;
 };
 
+// ... (imports remain the same)
+
 type AddressFormProps = {
   address: string;
   onChange: (address: string) => void;
@@ -56,8 +58,8 @@ type AddressFormProps = {
   onErrorsChange?: (errors: AddressErrors) => void;
   onFieldsChange?: (barangay: string, purok: string) => void;
   onMunicipalityChange?: (municipality: string) => void;
-  initialBarangay?: string;
-  initialPurok?: string;
+  // REMOVE: initialBarangay?: string;
+  // REMOVE: initialPurok?: string;
 };
 
 const AddressForm: React.FC<AddressFormProps> = ({
@@ -67,13 +69,13 @@ const AddressForm: React.FC<AddressFormProps> = ({
   onErrorsChange,
   onFieldsChange,
   onMunicipalityChange,
-  initialBarangay = "",
-  initialPurok = "",
+  // REMOVE: initialBarangay = "",
+  // REMOVE: initialPurok = "",
 }) => {
-  // Initialize state with initial values from parent
+  // Initialize state with defaults (no longer from props)
   const [municipality, setMunicipality] = useState("mabini_bohol");
-  const [barangay, setBarangay] = useState(initialBarangay);
-  const [purok, setPurok] = useState(initialPurok);
+  const [barangay, setBarangay] = useState("");
+  const [purok, setPurok] = useState("");
 
   // State for barangay selector modal
   const [modalVisible, setModalVisible] = useState(false);
@@ -123,19 +125,6 @@ const AddressForm: React.FC<AddressFormProps> = ({
       onMunicipalityChange(municipality);
     }
   }, [municipality, onMunicipalityChange]);
-
-  // Update local state when initial props change (on navigation back)
-  useEffect(() => {
-    if (initialBarangay !== barangay) {
-      setBarangay(initialBarangay);
-    }
-  }, [initialBarangay]);
-
-  useEffect(() => {
-    if (initialPurok !== purok) {
-      setPurok(initialPurok);
-    }
-  }, [initialPurok]);
 
   // Handler functions
   const handleBarangayChange = useCallback(

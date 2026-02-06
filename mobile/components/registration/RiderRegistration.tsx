@@ -528,8 +528,6 @@ const RiderRegistration = () => {
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
               onMunicipalityChange={setMunicipality}
-              initialBarangay={addressFields.barangay}
-              initialPurok={addressFields.purok}
             />
           </>
         )}

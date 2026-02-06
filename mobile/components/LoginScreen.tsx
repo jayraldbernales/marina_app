@@ -17,7 +17,6 @@ import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 import { useRouter } from "expo-router";
 import { showError } from "../lib/toast";
-import { useUserStore } from "../store/userStore";
 import { useAuth } from "../hooks/useAuth";
 import { usePressAndFocusAnimations } from "../hooks/useAnimations";
 
@@ -72,13 +71,8 @@ export const LoginScreen = () => {
         return;
       }
 
-      useUserStore.getState().setUser({
-        id: user.id,
-        email: user.email ?? "",
-        fullName: user.user_metadata?.full_name ?? "",
-      });
-
-      router.push("/(tabs)");
+      // Auth state listener in root layout will handle navigation
+      // No need to manually set user or navigate
     } catch (err: any) {
       console.error(err);
       showError("Something went wrong while signing in");
@@ -100,18 +94,8 @@ export const LoginScreen = () => {
         return;
       }
 
-      const session = (data as any)?.session;
-      if (session?.user) {
-        useUserStore.getState().setUser({
-          id: session.user.id,
-          email: session.user.email ?? "",
-          fullName: session.user.user_metadata?.full_name ?? "",
-        });
-
-        router.push("/(tabs)");
-      } else {
-        showError("Could not retrieve session after login.");
-      }
+      // Auth state listener in root layout will handle navigation
+      // No need to manually set user or navigate
     } catch (err: any) {
       console.error("Facebook login error:", err);
       showError("Error retrieving session: " + (err?.message || String(err)));
@@ -127,16 +111,16 @@ export const LoginScreen = () => {
   return (
     <LinearGradient
       colors={[
-        COLORS.light.oceanLight,
+        COLORS.light.background,
         COLORS.light.seafoam,
-        COLORS.light.oceanLight,
+        COLORS.light.background,
       ]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Login</Text>
+        <Text style={styles.headerTitle}>LOGIN</Text>
       </View>
 
       <AuthCard title="Welcome" subtitle="Sign in to your MARINA account">
@@ -246,7 +230,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     marginBottom: 24,
     marginTop: 24,
   },
