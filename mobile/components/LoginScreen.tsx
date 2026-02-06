@@ -1,12 +1,18 @@
 import React, { useState, useRef } from "react";
-import { Text, TextInput, Pressable, StyleSheet, Platform } from "react-native";
+import {
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  View,
+  Platform,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "../constants";
 import { PrimaryButton } from "../components/ui/buttons/PrimaryButton";
 import { SecondaryButton } from "../components/ui/buttons/SecondaryButton";
 import { TextInputWithIcon } from "../components/ui/inputs/InputField";
 import { AuthCard } from "../components/ui/cards/AuthCard";
-import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { DividerWithText } from "../components/ui/DividerWithText";
 import { FacebookButton } from "./ui/buttons/FacebookButton";
 import { useRouter } from "expo-router";
@@ -28,8 +34,6 @@ export const LoginScreen = () => {
   const [passwordFocused, setPasswordFocused] = useState(false);
 
   // Refs
-  const emailInputRef = useRef<TextInput>(null);
-  const passwordInputRef = useRef<TextInput>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isFacebookLoggingIn, setIsFacebookLoggingIn] = useState(false);
 
@@ -131,9 +135,11 @@ export const LoginScreen = () => {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <ScreenHeader title="Login" onBackPress={() => router.replace("/")} />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Login</Text>
+      </View>
 
-      <AuthCard title="Welcome Back" subtitle="Sign in to your MARINA account">
+      <AuthCard title="Welcome" subtitle="Sign in to your MARINA account">
         <TextInputWithIcon
           iconName="mail-outline"
           placeholder="Enter your email"
@@ -236,5 +242,17 @@ const styles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     fontWeight: "500",
     fontSize: 12,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+    marginTop: 24,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: COLORS.light.oceanPrimary,
   },
 });
