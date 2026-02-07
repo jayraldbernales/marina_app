@@ -223,7 +223,7 @@ export const saveVendorRegistration = async (
           barangay: data.barangay,
           municipality: data.municipality,
           address_type: "business",
-          is_default: false,
+          is_default: true,
           created_at: new Date().toISOString(),
         },
       ]);

@@ -1,10 +1,10 @@
 import React, { useState, useRef } from "react";
 import {
   Text,
-  TextInput,
   Pressable,
   StyleSheet,
-  View,
+  BackHandler,
+  Alert,
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -19,6 +19,7 @@ import { useRouter } from "expo-router";
 import { showError } from "../lib/toast";
 import { useAuth } from "../hooks/useAuth";
 import { usePressAndFocusAnimations } from "../hooks/useAnimations";
+import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 
 export const LoginScreen = () => {
   const router = useRouter();
@@ -119,9 +120,20 @@ export const LoginScreen = () => {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>LOGIN</Text>
-      </View>
+      <ScreenHeader
+        title="Login"
+        onBackPress={() => {
+          Alert.alert(
+            "Exit App",
+            "Are you sure you want to close the app?",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Yes", onPress: () => BackHandler.exitApp() },
+            ],
+            { cancelable: true },
+          );
+        }}
+      />
 
       <AuthCard title="Welcome" subtitle="Sign in to your MARINA account">
         <TextInputWithIcon
@@ -226,16 +238,5 @@ const styles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     fontWeight: "500",
     fontSize: 12,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-    marginTop: 24,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: COLORS.light.oceanPrimary,
   },
 });

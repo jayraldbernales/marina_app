@@ -15,7 +15,7 @@ import { COLORS } from "../../constants";
 import { Ionicons } from "@expo/vector-icons";
 
 // Real data for Mabini, Bohol
-const MUNICIPALITIES = [{ value: "mabini_bohol", label: "Mabini, Bohol" }];
+const MUNICIPALITIES = [{ value: "Mabini, Bohol", label: "Mabini, Bohol" }];
 
 const BARANGAYS = [
   "Abaca",
@@ -73,7 +73,7 @@ const AddressForm: React.FC<AddressFormProps> = ({
   // REMOVE: initialPurok = "",
 }) => {
   // Initialize state with defaults (no longer from props)
-  const [municipality, setMunicipality] = useState("mabini_bohol");
+  const [municipality, setMunicipality] = useState("Mabini, Bohol");
   const [barangay, setBarangay] = useState("");
   const [purok, setPurok] = useState("");
 

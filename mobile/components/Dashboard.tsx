@@ -9,14 +9,16 @@ import {
   Image,
   Alert,
   RefreshControl,
+  Modal,
+  FlatList,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { router } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
 import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
 import { supabase } from "../lib/supabase";
-import { computeFreshness } from "../utils/freshness";
+import { computeFreshness, FreshnessStatus } from "../utils/freshness";
 
 // -------------------- TYPES --------------------
 
@@ -37,6 +39,9 @@ interface Product {
   description?: string;
   rating: number;
 }
+
+// Freshness filter options
+type FreshnessFilter = "all" | FreshnessStatus;
 
 // -------------------- HELPERS --------------------
 
@@ -66,6 +71,23 @@ const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
 };
 
+// Freshness filter labels
+const FRESHNESS_FILTERS: Array<{
+  label: string;
+  value: FreshnessFilter;
+  color: string;
+}> = [
+  { label: "All Products", value: "all", color: "#10b981" },
+  {
+    label: "Today's Catch",
+    value: FreshnessStatus.ULTRA_FRESH,
+    color: "#10b981",
+  },
+  { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
+  { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
+  { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+];
+
 // -------------------- COMPONENT --------------------
 
 const BuyerDashboard = () => {
@@ -74,11 +96,13 @@ const BuyerDashboard = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [fullName, setFullName] = useState("");
   const [greeting, setGreeting] = useState("");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<string[]>([]); // Changed to string array
-
-  const navigation = useNavigation();
+  const [allProducts, setAllProducts] = useState<Product[]>([]); // Store ALL products
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]); // Products after filtering
+  const [categories, setCategories] = useState<string[]>([]);
+  const [freshnessFilter, setFreshnessFilter] =
+    useState<FreshnessFilter>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null); // Add category filter state
+  const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Fetch user profile
   const fetchUserProfile = useCallback(async () => {
@@ -137,7 +161,7 @@ const BuyerDashboard = () => {
         .eq("is_active", true)
         .gt("stock", 0)
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(100);
 
       if (error) {
         console.error("Error fetching products:", error);
@@ -186,7 +210,50 @@ const BuyerDashboard = () => {
     }
   }, []);
 
-  // Fetch categories - SIMPLIFIED: Just category names, no icons
+  // Filter products based on freshness AND category
+  const filterProducts = useCallback(
+    (
+      products: Product[],
+      freshnessFilter: FreshnessFilter,
+      category: string | null,
+    ) => {
+      return products.filter((product) => {
+        const freshness = computeFreshness(product.harvested_at);
+
+        // Filter out NOT_FRESH
+        if (freshness.status === "not_fresh") {
+          return false;
+        }
+
+        // Filter by category if selected
+        if (category && product.category !== category) {
+          return false;
+        }
+
+        // Filter by freshness
+        if (freshnessFilter !== "all" && freshness.status !== freshnessFilter) {
+          return false;
+        }
+
+        return true;
+      });
+    },
+    [],
+  );
+
+  // Apply filters whenever allProducts, freshnessFilter, or selectedCategory changes
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      const filtered = filterProducts(
+        allProducts,
+        freshnessFilter,
+        selectedCategory,
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [allProducts, freshnessFilter, selectedCategory, filterProducts]);
+
+  // Fetch categories
   const fetchCategories = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -199,9 +266,7 @@ const BuyerDashboard = () => {
         return [];
       }
 
-      // Just extract category names as strings
       const categoryNames = (data || []).map((cat: any) => cat.category_name);
-
       return categoryNames;
     } catch (error) {
       console.error("Error in fetchCategories:", error);
@@ -217,8 +282,9 @@ const BuyerDashboard = () => {
       await Promise.all([
         fetchUserProfile(),
         fetchProducts().then((productsData) => {
-          setProducts(productsData);
-          setFeaturedProducts(productsData.slice(0, 4));
+          // Store all products
+          setAllProducts(productsData);
+          // Initial filter will be applied by useEffect
         }),
         fetchCategories().then(setCategories),
       ]);
@@ -253,16 +319,45 @@ const BuyerDashboard = () => {
     loadData();
   }, [loadData]);
 
-  // Handlers - Add proper navigation
+  // Handlers
   const handleProductPress = useCallback((product: Product) => {
     router.push(`./buyer/product-details?product_id=${product.id}`);
   }, []);
 
-  const handleCategoryPress = useCallback((category: string) => {}, []);
+  const handleCategoryPress = useCallback(
+    (category: string) => {
+      if (selectedCategory === category) {
+        // If same category is clicked again, deselect it
+        setSelectedCategory(null);
+      } else {
+        setSelectedCategory(category);
+      }
+    },
+    [selectedCategory],
+  );
 
-  const handleSeeAllProducts = useCallback(() => {}, []);
+  const handleSearchSubmit = useCallback(() => {
+    if (searchQuery.trim()) {
+      router.push(`./buyer/search?q=${encodeURIComponent(searchQuery)}`);
+    }
+  }, [searchQuery]);
 
-  const handleSearchSubmit = useCallback(() => {}, [searchQuery]);
+  const handleFilterPress = (filterValue: FreshnessFilter) => {
+    setFreshnessFilter(filterValue);
+    setShowFilterModal(false);
+  };
+
+  // Clear all filters
+  const clearAllFilters = useCallback(() => {
+    setFreshnessFilter("all");
+    setSelectedCategory(null);
+  }, []);
+
+  // Get current filter label
+  const getCurrentFilterLabel = () => {
+    const filter = FRESHNESS_FILTERS.find((f) => f.value === freshnessFilter);
+    return filter ? filter.label : "All Products";
+  };
 
   // Promos
   const promos = [
@@ -279,6 +374,9 @@ const BuyerDashboard = () => {
       textColor: COLORS.light.primary,
     },
   ];
+
+  // Check if any filter is active
+  const isFilterActive = freshnessFilter !== "all" || selectedCategory !== null;
 
   if (loading) {
     return <BuyerDashboardSkeleton />;
@@ -372,7 +470,7 @@ const BuyerDashboard = () => {
             ))}
           </View>
 
-          {/* Categories - NO ICONS */}
+          {/* Categories */}
           <Text
             style={[buyerDashboardStyles.sectionTitle, { marginBottom: 12 }]}
           >
@@ -388,19 +486,96 @@ const BuyerDashboard = () => {
             {categories.map((category, idx) => (
               <TouchableOpacity
                 key={idx}
-                style={buyerDashboardStyles.categoryCard}
+                style={[
+                  buyerDashboardStyles.categoryCard,
+                  selectedCategory === category && {
+                    backgroundColor: COLORS.light.primary,
+                  },
+                ]}
                 onPress={() => handleCategoryPress(category)}
                 accessibilityLabel={`Browse ${category}`}
               >
-                {/* Removed icon wrapper completely */}
-                <Text style={buyerDashboardStyles.categoryName}>
+                <Text
+                  style={[
+                    buyerDashboardStyles.categoryName,
+                    selectedCategory === category && {
+                      color: "#fff",
+                    },
+                  ]}
+                >
                   {category}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          {/* Featured Products */}
+          {/* Active Filters */}
+          {isFilterActive && (
+            <View
+              style={{
+                marginBottom: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <Text style={{ color: "#666", fontSize: 12, marginRight: 8 }}>
+                Active filters:
+              </Text>
+              {selectedCategory && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: COLORS.light.seafoam,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 16,
+                    marginRight: 8,
+                    marginBottom: 4,
+                  }}
+                  onPress={() => setSelectedCategory(null)}
+                >
+                  <Text style={{ color: COLORS.light.primary, fontSize: 12 }}>
+                    {selectedCategory}
+                  </Text>
+                  <Ionicons
+                    name="close"
+                    size={14}
+                    color={COLORS.light.primary}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+              )}
+              {freshnessFilter !== "all" && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: COLORS.light.seafoam,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 16,
+                    marginRight: 8,
+                    marginBottom: 4,
+                  }}
+                  onPress={() => setFreshnessFilter("all")}
+                >
+                  <Text style={{ color: COLORS.light.primary, fontSize: 12 }}>
+                    {getCurrentFilterLabel()}
+                  </Text>
+                  <Ionicons
+                    name="close"
+                    size={14}
+                    color={COLORS.light.primary}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* Fresh Catch Header with Filter */}
           <View
             style={{
               flexDirection: "row",
@@ -410,19 +585,65 @@ const BuyerDashboard = () => {
             }}
           >
             <Text style={buyerDashboardStyles.sectionTitle}>Fresh Catch</Text>
-            <TouchableOpacity onPress={handleSeeAllProducts}>
-              <Text style={{ color: COLORS.light.primary, fontSize: 14 }}>
-                See All
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: COLORS.light.seafoam,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+              }}
+              onPress={() => setShowFilterModal(true)}
+            >
+              <Feather name="filter" size={16} color={COLORS.light.primary} />
+              <Text
+                style={{
+                  color: COLORS.light.primary,
+                  fontSize: 14,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getCurrentFilterLabel()}
               </Text>
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={COLORS.light.primary}
+                style={{ marginLeft: 2 }}
+              />
             </TouchableOpacity>
           </View>
 
-          {featuredProducts.length === 0 ? (
+          {filteredProducts.length === 0 ? (
             <View style={{ alignItems: "center", padding: 20 }}>
               <Ionicons name="fish-outline" size={48} color="#ccc" />
-              <Text style={{ color: "#666", marginTop: 10 }}>
-                No fresh products available at the moment
+              <Text
+                style={{ color: "#666", marginTop: 10, textAlign: "center" }}
+              >
+                {allProducts.length === 0
+                  ? "No products available at the moment"
+                  : isFilterActive
+                    ? "No products match your filters"
+                    : "No fresh products available"}
               </Text>
+              {allProducts.length > 0 && isFilterActive && (
+                <TouchableOpacity
+                  style={{
+                    marginTop: 10,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    backgroundColor: COLORS.light.primary,
+                    borderRadius: 20,
+                  }}
+                  onPress={clearAllFilters}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Clear Filters
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View
@@ -432,7 +653,7 @@ const BuyerDashboard = () => {
                 justifyContent: "space-between",
               }}
             >
-              {featuredProducts.map((product) => {
+              {filteredProducts.map((product) => {
                 const freshness = computeFreshness(product.harvested_at);
 
                 return (
@@ -536,6 +757,102 @@ const BuyerDashboard = () => {
           )}
         </ScrollView>
       </View>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: "50%",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "bold",
+                  color: COLORS.light.primary,
+                }}
+              >
+                Filter by Freshness
+              </Text>
+              <TouchableOpacity onPress={() => setShowFilterModal(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={FRESHNESS_FILTERS}
+              keyExtractor={(item) => item.value}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#f0f0f0",
+                  }}
+                  onPress={() => handleFilterPress(item.value)}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 10,
+                      backgroundColor: item.color,
+                      marginRight: 12,
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color:
+                        freshnessFilter === item.value
+                          ? COLORS.light.primary
+                          : "#333",
+                      fontWeight:
+                        freshnessFilter === item.value ? "600" : "400",
+                    }}
+                  >
+                    {item.label}
+                  </Text>
+                  {freshnessFilter === item.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.light.primary}
+                      style={{ marginLeft: "auto" }}
+                    />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

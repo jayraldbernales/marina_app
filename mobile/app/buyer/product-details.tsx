@@ -10,6 +10,7 @@ import {
   StyleSheet,
   FlatList,
   Dimensions,
+  Modal,
 } from "react-native";
 import {
   Ionicons,
@@ -70,6 +71,8 @@ export default function BuyerProductDetail() {
   const [addingToCart, setAddingToCart] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
   const [soldCount, setSoldCount] = useState<number>(0);
+  const [showQuantityModal, setShowQuantityModal] = useState(false);
+  const [selectedQuantity, setSelectedQuantity] = useState(1);
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
@@ -106,6 +109,9 @@ export default function BuyerProductDetail() {
 
       setProduct(productData);
 
+      // Reset quantity to 1 when product changes
+      setSelectedQuantity(1);
+
       // Fetch vendor information
       if (productData.vendor_user_id) {
         const { data: vendorData, error: vendorError } = await supabase
@@ -127,10 +133,8 @@ export default function BuyerProductDetail() {
       }
 
       // Fetch product rating and sold count
-      // Assuming you have a way to get these from your database
-      // For now, we'll use mock data
-      setRating(4.5); // Mock rating - replace with actual data fetch
-      setSoldCount(42); // Mock sold count - replace with actual data fetch
+      setRating(4.5);
+      setSoldCount(42);
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Unexpected error loading product.");
@@ -162,11 +166,166 @@ export default function BuyerProductDetail() {
     </View>
   );
 
-  // Add to cart function
-  const handleAddToCart = async () => {};
+  // Handlers for quantity selector
+  const increaseQuantity = () => {
+    if (selectedQuantity < stockAvailable) {
+      setSelectedQuantity(selectedQuantity + 1);
+    }
+  };
+
+  const decreaseQuantity = () => {
+    if (selectedQuantity > 1) {
+      setSelectedQuantity(selectedQuantity - 1);
+    }
+  };
+
+  // Show quantity modal when clicking Add to Cart
+  const handleAddToCartClick = () => {
+    if (!product || stockAvailable <= 0) {
+      Alert.alert("Error", "Product is out of stock or unavailable.");
+      return;
+    }
+    setShowQuantityModal(true);
+  };
+
+  // Confirm and add to cart with selected quantity
+  const handleAddToCart = async () => {
+    if (!product || stockAvailable <= 0) {
+      Alert.alert("Error", "Product is out of stock or unavailable.");
+      return;
+    }
+
+    setAddingToCart(true);
+    setShowQuantityModal(false);
+
+    try {
+      // Step 1: Get the current authenticated user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user) {
+        Alert.alert("Error", "You must be logged in to add items to cart.");
+        return;
+      }
+      const userId = user.id;
+
+      // Step 2: Check if a cart exists for this user and vendor
+      const { data: existingCart, error: cartError } = await supabase
+        .from("carts")
+        .select("cart_id")
+        .eq("user_id", userId)
+        .eq("vendor_user_id", product.vendor_user_id)
+        .single();
+
+      let cartId;
+      if (cartError && cartError.code !== "PGRST116") {
+        console.error("Error fetching cart:", cartError);
+        Alert.alert("Error", "Failed to check cart. Please try again.");
+        return;
+      }
+
+      if (!existingCart) {
+        // Create a new cart
+        const { data: newCart, error: insertCartError } = await supabase
+          .from("carts")
+          .insert({
+            user_id: userId,
+            vendor_user_id: product.vendor_user_id,
+          })
+          .select("cart_id")
+          .single();
+
+        if (insertCartError) {
+          console.error("Error creating cart:", insertCartError);
+          Alert.alert("Error", "Failed to create cart. Please try again.");
+          return;
+        }
+        cartId = newCart.cart_id;
+      } else {
+        cartId = existingCart.cart_id;
+      }
+
+      // Step 3: Check if the product is already in the cart
+      const { data: existingCartItem, error: itemError } = await supabase
+        .from("cart_items")
+        .select("cart_item_id, quantity")
+        .eq("cart_id", cartId)
+        .eq("product_id", product.product_id)
+        .single();
+
+      if (itemError && itemError.code !== "PGRST116") {
+        console.error("Error fetching cart item:", itemError);
+        Alert.alert("Error", "Failed to check cart item. Please try again.");
+        return;
+      }
+
+      // Use selectedQuantity instead of 1
+      const newQuantity = existingCartItem
+        ? existingCartItem.quantity + selectedQuantity
+        : selectedQuantity;
+
+      // Step 4: Ensure we don't exceed stock
+      if (newQuantity > stockAvailable) {
+        Alert.alert(
+          "Error",
+          `Cannot add more than ${stockAvailable} units in stock.`,
+        );
+        return;
+      }
+
+      if (existingCartItem) {
+        // Update existing cart item
+        const { error: updateError } = await supabase
+          .from("cart_items")
+          .update({
+            quantity: newQuantity,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("cart_item_id", existingCartItem.cart_item_id);
+
+        if (updateError) {
+          console.error("Error updating cart item:", updateError);
+          Alert.alert("Error", "Failed to update cart. Please try again.");
+          return;
+        }
+      } else {
+        // Insert new cart item
+        const { error: insertItemError } = await supabase
+          .from("cart_items")
+          .insert({
+            cart_id: cartId,
+            product_id: product.product_id,
+            quantity: selectedQuantity,
+          });
+
+        if (insertItemError) {
+          console.error("Error adding to cart:", insertItemError);
+          Alert.alert("Error", "Failed to add to cart. Please try again.");
+          return;
+        }
+      }
+
+      // Step 5: Success - Show alert and optionally navigate
+      Alert.alert("Success", `${selectedQuantity} item(s) added to cart!`);
+      // Reset quantity after successful add
+      setSelectedQuantity(1);
+    } catch (err) {
+      console.error("Unexpected error in handleAddToCart:", err);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setAddingToCart(false);
+    }
+  };
 
   // Direct order function
-  const handleDirectOrder = () => {};
+  const handleDirectOrder = () => {
+    // You can implement direct ordering logic here
+    Alert.alert(
+      "Direct Order",
+      `You selected ${selectedQuantity} unit(s) for direct ordering.`,
+    );
+  };
 
   // View vendor profile
   const handleViewVendor = () => {};
@@ -463,7 +622,7 @@ export default function BuyerProductDetail() {
           </View>
         </ScrollView>
 
-        {/* Fixed Bottom Action Bar */}
+        {/* Fixed Bottom Action Bar with Quantity Selector */}
         <View style={styles.actionBar}>
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
@@ -472,7 +631,7 @@ export default function BuyerProductDetail() {
                 styles.addToCartButton,
                 (stockAvailable === 0 || addingToCart) && styles.buttonDisabled,
               ]}
-              onPress={handleAddToCart}
+              onPress={handleAddToCartClick}
               disabled={stockAvailable === 0 || addingToCart}
             >
               <Ionicons
@@ -514,6 +673,100 @@ export default function BuyerProductDetail() {
           </View>
         </View>
       </View>
+
+      {/* Quantity Selection Modal */}
+      <Modal
+        visible={showQuantityModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowQuantityModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Quantity</Text>
+              <TouchableOpacity
+                onPress={() => setShowQuantityModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalContent}>
+              {/* Price and Stock displayed side by side */}
+              <View style={styles.priceStockRow}>
+                <Text style={styles.priceText}>
+                  ₱{price.toLocaleString()}/{product?.unit}
+                </Text>
+                <Text style={styles.stockText}>
+                  Stock: {stockAvailable} {product?.unit}
+                </Text>
+              </View>
+
+              {/* Improved Quantity Selection */}
+              <View style={styles.quantitySection}>
+                <View style={styles.quantityLabelRow}>
+                  <Text style={styles.quantityLabel}>Quantity:</Text>
+                  <View style={styles.quantitySelector}>
+                    <TouchableOpacity
+                      style={[
+                        styles.quantityButton,
+                        selectedQuantity <= 1 && styles.quantityButtonDisabled,
+                      ]}
+                      onPress={decreaseQuantity}
+                      disabled={selectedQuantity <= 1}
+                    >
+                      <Ionicons
+                        name="remove"
+                        size={16}
+                        color={
+                          selectedQuantity <= 1 ? "#ccc" : COLORS.light.primary
+                        }
+                      />
+                    </TouchableOpacity>
+
+                    <View style={styles.quantityDisplay}>
+                      <Text style={styles.quantityValue}>
+                        {selectedQuantity}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.quantityButton,
+                        selectedQuantity >= stockAvailable &&
+                          styles.quantityButtonDisabled,
+                      ]}
+                      onPress={increaseQuantity}
+                      disabled={selectedQuantity >= stockAvailable}
+                    >
+                      <Ionicons
+                        name="add"
+                        size={16}
+                        color={
+                          selectedQuantity >= stockAvailable
+                            ? "#ccc"
+                            : COLORS.light.primary
+                        }
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={handleAddToCart}
+              >
+                <Text style={styles.confirmButtonText}>
+                  Add {selectedQuantity} to Cart
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -854,7 +1107,7 @@ const styles = StyleSheet.create({
     color: "#757575",
   },
 
-  // Action Bar (Fixed at Bottom) - IMPROVED LAYOUT
+  // Action Bar (Fixed at Bottom) - IMPROVED LAYOUT with Quantity Selector
   actionBar: {
     position: "absolute",
     bottom: 0,
@@ -871,7 +1124,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
 
-  // Action Buttons
+  // UPDATED: Action Buttons
   actionButtons: {
     flex: 1,
     flexDirection: "row",
@@ -879,7 +1132,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // Add to Cart Button (White with primary border)
+  // Add to Cart Button
   addToCartButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -887,7 +1140,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.light.primary,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 14,
     borderRadius: 8,
     gap: 6,
     flex: 1,
@@ -902,7 +1155,7 @@ const styles = StyleSheet.create({
   orderButton: {
     backgroundColor: COLORS.light.primary,
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 16,
     borderRadius: 8,
     flex: 1,
   },
@@ -919,5 +1172,125 @@ const styles = StyleSheet.create({
   },
   disabledText: {
     color: "#9ca3af",
+  },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8e8e8",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#212121",
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalContent: {
+    padding: 20,
+  },
+
+  // Price and Stock row
+  priceStockRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  priceText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+  },
+  stockText: {
+    fontSize: 14,
+    color: "#666",
+    backgroundColor: "#f8f9fa",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+
+  // Quantity Section
+  quantitySection: {
+    marginBottom: 12,
+  },
+  quantityLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  quantityLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#212121",
+  },
+  quantitySelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    padding: 8,
+  },
+  quantityButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.light.primary,
+  },
+  quantityButtonDisabled: {
+    backgroundColor: "#f5f5f5",
+    borderColor: "#ddd",
+  },
+  quantityDisplay: {
+    alignItems: "center",
+    minWidth: 45,
+  },
+  quantityValue: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#212121",
+  },
+
+  // Confirm Button
+  confirmButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  confirmButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
