@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -122,31 +122,44 @@ const CartScreen = () => {
     }, [user?.id]),
   );
 
-  // Fetch home address
-  useEffect(() => {
-    const fetchHomeAddress = async () => {
-      if (!user?.id) return;
-      const { data, error } = await supabase
-        .from("addresses")
-        .select("full_address")
-        .eq("user_id", user.id)
-        .eq("is_default", true)
-        .in("address_type", ["home", "work"])
-        .maybeSingle();
-      if (error) {
-        Alert.alert("Error", `Failed to fetch home address: ${error.message}`);
-        return;
-      }
-      if (data) {
-        setDeliveryAddress(data.full_address || "");
-        setHasHomeAddress(true);
-      } else {
-        setDeliveryAddress("");
-        setHasHomeAddress(false);
-      }
-    };
-    fetchHomeAddress();
-  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      const fetchHomeAddress = async () => {
+        if (!user?.id) return;
+
+        try {
+          const { data, error } = await supabase
+            .from("addresses")
+            .select("full_address, address_type")
+            .eq("user_id", user.id)
+            .eq("is_default", true)
+            .in("address_type", ["home", "work"])
+            .maybeSingle();
+
+          if (error) {
+            console.error("Error fetching address:", error);
+            setDeliveryAddress("");
+            setHasHomeAddress(false);
+            return;
+          }
+
+          if (data) {
+            setDeliveryAddress(data.full_address || "Address not specified");
+            setHasHomeAddress(true);
+          } else {
+            setDeliveryAddress("");
+            setHasHomeAddress(false);
+          }
+        } catch (error) {
+          console.error("Unexpected error:", error);
+          setDeliveryAddress("");
+          setHasHomeAddress(false);
+        }
+      };
+
+      fetchHomeAddress();
+    }, [user?.id]),
+  );
 
   const subtotal = cartItems
     .filter((item) => item.selected)

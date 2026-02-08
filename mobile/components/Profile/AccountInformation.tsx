@@ -12,11 +12,14 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { COLORS } from "../../constants";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 
 type ProfileForm = {
   full_name: string;
@@ -45,6 +48,8 @@ const AccountInformation = () => {
   const [homeAddress, setHomeAddress] = useState<Address | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [showImageSourceModal, setShowImageSourceModal] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -110,7 +115,7 @@ const AccountInformation = () => {
         full_name: profileData?.full_name ?? "",
         avatar_url: profileData?.avatar_url ?? "",
         email: session.user.email ?? "",
-        mobile_number: profileData?.mobile_number ?? "",
+        mobile_number: profileData?.mobile_number ?? "", // FIX: Ensure empty string instead of null
       });
       setHomeAddress(displayAddress);
     } catch (err) {
@@ -125,12 +130,23 @@ const AccountInformation = () => {
     userId: string,
     updates: Partial<ProfileForm>,
   ) => {
-    const { data, error } = await supabase.from("profiles").upsert({
+    // FIX: Only include mobile_number if it has a value, don't set it to null
+    const updateData: any = {
       user_id: userId,
       full_name: updates.full_name?.trim(),
       avatar_url: updates.avatar_url,
-      mobile_number: updates.mobile_number?.trim() || null,
-    });
+    };
+
+    // Only include mobile_number if it's not empty
+    if (updates.mobile_number && updates.mobile_number.trim() !== "") {
+      updateData.mobile_number = updates.mobile_number.trim();
+    }
+    // If mobile_number is explicitly set to empty string, keep it as empty string
+    else if (updates.mobile_number === "") {
+      updateData.mobile_number = "";
+    }
+
+    const { data, error } = await supabase.from("profiles").upsert(updateData);
 
     if (error) {
       throw error; // Let caller handle
@@ -139,10 +155,148 @@ const AccountInformation = () => {
     return data;
   };
 
+  const uploadAvatar = async (uri: string) => {
+    try {
+      setUploading(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        throw new Error("User not authenticated");
+      }
+
+      const userId = session.user.id;
+      const path = `users/${userId}/avatar.jpg`; // Fixed path for standardization
+
+      // Compress and convert to JPEG
+      const manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [], // No resizing or other manipulations
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
+      const response = await fetch(manipulated.uri);
+      const arrayBuffer = await response.arrayBuffer();
+
+      // Upload (upsert to overwrite if same path)
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, arrayBuffer, {
+          contentType: "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get public URL - add timestamp to prevent caching
+      const { data: publicData } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(path);
+
+      const publicUrl = `${publicData.publicUrl}?t=${Date.now()}`;
+      if (!publicUrl) {
+        throw new Error("Failed to generate public URL");
+      }
+
+      // Update profile
+      await updateProfile(userId, { avatar_url: publicUrl });
+
+      // Update local state and force image refresh
+      setForm((prev) => ({ ...prev, avatar_url: publicUrl }));
+      Alert.alert("Success", "Profile photo updated");
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      Alert.alert("Error", err.message || "Failed to upload avatar");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Request permissions on component mount
+  useEffect(() => {
+    (async () => {
+      const { status: cameraStatus } =
+        await ImagePicker.requestCameraPermissionsAsync();
+      const { status: libraryStatus } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (cameraStatus !== "granted" || libraryStatus !== "granted") {
+        console.warn("Camera/gallery permissions not granted");
+      }
+    })();
+  }, []);
+
+  const takePhoto = async () => {
+    setShowImageSourceModal(false);
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        aspect: [1, 1],
+        allowsEditing: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        await uploadAvatar(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.error("Camera error:", err);
+      Alert.alert("Error", "Unable to take photo");
+    }
+  };
+
+  const pickFromGallery = async () => {
+    setShowImageSourceModal(false);
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        aspect: [1, 1],
+        allowsEditing: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        await uploadAvatar(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.error("Gallery error:", err);
+      Alert.alert("Error", "Unable to pick image from gallery");
+    }
+  };
+
+  // FIX: Add mobile number validation
+  const validateMobileNumber = (number: string) => {
+    // Remove all non-digit characters
+    const cleaned = number.replace(/\D/g, "");
+
+    // Check if it's exactly 11 digits
+    if (cleaned.length > 11) {
+      return cleaned.substring(0, 11);
+    }
+
+    return cleaned;
+  };
+
+  const handleMobileNumberChange = (text: string) => {
+    const validatedNumber = validateMobileNumber(text);
+    setForm((prev) => ({ ...prev, mobile_number: validatedNumber }));
+  };
+
   const handleSave = async () => {
     const trimmedFullName = form.full_name.trim();
     if (!trimmedFullName) {
       Alert.alert("Validation", "Full name is required");
+      return;
+    }
+
+    // Validate mobile number length
+    const cleanedMobile = form.mobile_number.replace(/\D/g, "");
+    if (cleanedMobile && cleanedMobile.length !== 11) {
+      Alert.alert("Validation", "Mobile number must be exactly 11 digits");
       return;
     }
 
@@ -174,6 +328,77 @@ const AccountInformation = () => {
   const handleNavigateToAddress = () => {
     router.push("/buyer/address-management");
   };
+
+  const renderImageSourceModal = () => (
+    <Modal
+      transparent={true}
+      visible={showImageSourceModal}
+      animationType="slide"
+      onRequestClose={() => setShowImageSourceModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Change Profile Photo</Text>
+            <TouchableOpacity
+              onPress={() => setShowImageSourceModal(false)}
+              style={styles.modalCloseButton}
+            >
+              <Ionicons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.modalSubtitle}>
+            Choose how you want to update your profile photo
+          </Text>
+
+          <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
+            <View style={styles.modalOptionIconContainer}>
+              <Ionicons
+                name="camera-outline"
+                size={28}
+                color={COLORS.light.primary}
+              />
+            </View>
+            <View style={styles.modalOptionTextContainer}>
+              <Text style={styles.modalOptionTitle}>Take Photo</Text>
+              <Text style={styles.modalOptionDescription}>
+                Use your camera to take a new photo
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.modalOption}
+            onPress={pickFromGallery}
+          >
+            <View style={styles.modalOptionIconContainer}>
+              <Ionicons
+                name="images-outline"
+                size={28}
+                color={COLORS.light.primary}
+              />
+            </View>
+            <View style={styles.modalOptionTextContainer}>
+              <Text style={styles.modalOptionTitle}>Choose from Gallery</Text>
+              <Text style={styles.modalOptionDescription}>
+                Select a photo from your device
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => setShowImageSourceModal(false)}
+          >
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (loading) {
     return (
@@ -212,7 +437,11 @@ const AccountInformation = () => {
           {/* Avatar Section */}
           <View style={styles.card}>
             <View style={styles.avatarContainer}>
-              <View style={styles.avatarWrapper}>
+              <TouchableOpacity
+                onPress={() => setShowImageSourceModal(true)}
+                activeOpacity={0.8}
+                style={styles.avatarWrapper}
+              >
                 <Image
                   source={
                     form.avatar_url
@@ -221,18 +450,27 @@ const AccountInformation = () => {
                   }
                   style={styles.avatar}
                 />
-                <View style={styles.avatarBadge}>
-                  <Ionicons name="camera" size={16} color="#fff" />
-                </View>
-              </View>
+
+                {uploading ? (
+                  <View style={styles.avatarBadge}>
+                    <ActivityIndicator color="#fff" size="small" />
+                  </View>
+                ) : (
+                  <View style={styles.avatarBadge}>
+                    <Ionicons name="camera" size={16} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
             <TouchableOpacity
               activeOpacity={0.7}
               style={styles.changePhotoButton}
+              onPress={() => setShowImageSourceModal(true)}
             >
               <Text style={styles.changePhotoText}>Change Profile Photo</Text>
             </TouchableOpacity>
           </View>
+
           {/* Profile Information */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Profile Information</Text>
@@ -266,17 +504,17 @@ const AccountInformation = () => {
               <Text style={styles.label}>Mobile Number</Text>
               <TextInput
                 value={form.mobile_number}
-                onChangeText={(text) =>
-                  setForm((prev) => ({ ...prev, mobile_number: text }))
-                }
+                onChangeText={handleMobileNumberChange}
                 style={styles.input}
-                placeholder="Enter your mobile number"
+                placeholder="09XXXXXXXXX"
                 placeholderTextColor="#999"
                 keyboardType="phone-pad"
+                maxLength={11}
               />
             </View>
           </View>
-          {/* Home Address Section - Updated to show default address */}
+
+          {/* Home Address Section */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               {homeAddress?.is_default ? "Default Address" : "Home Address"}
@@ -330,6 +568,7 @@ const AccountInformation = () => {
                 : "Your home address is shown here. Set a default address for faster checkout."}
             </Text>
           </View>
+
           {/* Save Button */}
           <TouchableOpacity
             onPress={handleSave}
@@ -345,6 +584,9 @@ const AccountInformation = () => {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Image Source Modal */}
+      {renderImageSourceModal()}
     </SafeAreaView>
   );
 };
@@ -389,7 +631,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 24,
   },
-  // Centered Avatar Styles
   avatarContainer: {
     alignItems: "center",
     marginBottom: 12,
@@ -477,7 +718,6 @@ const styles = StyleSheet.create({
     color: "#999",
     marginTop: 4,
   },
-  // Address Input Styles
   addressInputContainer: {
     borderWidth: 1,
     borderColor: "#e0e0e0",
@@ -553,5 +793,82 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+    paddingHorizontal: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#64748b",
+    marginBottom: 24,
+  },
+  modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  modalOptionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#e0f2ed",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  modalOptionTextContainer: {
+    flex: 1,
+  },
+  modalOptionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginBottom: 2,
+  },
+  modalOptionDescription: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  cancelButton: {
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#64748b",
   },
 });

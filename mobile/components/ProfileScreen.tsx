@@ -161,7 +161,7 @@ const ProfileTab = () => {
       title: "About",
       subtitle: "App information and terms",
       icon: "information-circle-outline" as const,
-      onPress: () => router.push("/terms"),
+      onPress: () => router.push("/order-tracking"),
     },
   ];
 

@@ -12,8 +12,6 @@ export const orderStyles = StyleSheet.create({
     backgroundColor: COLORS.common.white,
     paddingTop: 48,
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
   },
   backButton: {
     marginRight: 10,
@@ -25,8 +23,7 @@ export const orderStyles = StyleSheet.create({
     flex: 1,
   },
   tabsContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
+    backgroundColor: COLORS.common.white,
     maxHeight: 60,
   },
   tabsContent: {
@@ -37,8 +34,8 @@ export const orderStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: COLORS.common.white,
+    borderRadius: 20,
+    backgroundColor: "transparent",
   },
   activeTab: {
     backgroundColor: COLORS.light.primary,
@@ -59,21 +56,29 @@ export const orderStyles = StyleSheet.create({
   orderCard: {
     backgroundColor: COLORS.common.white,
     borderRadius: 16,
-    padding: 12,
+    padding: 16,
     marginBottom: 12,
-    elevation: 2,
+    marginTop: 12,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
-    paddingBottom: 8,
+    marginBottom: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
+    borderBottomColor: "#f0f0f0",
   },
   orderId: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "bold",
     color: COLORS.light.primary,
   },
@@ -85,7 +90,7 @@ export const orderStyles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 20,
   },
   statusText: {
     color: COLORS.common.white,
@@ -94,7 +99,7 @@ export const orderStyles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: "row",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   itemImage: {
     width: 50,
@@ -116,16 +121,11 @@ export const orderStyles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     marginTop: 2,
   },
-  itemPrice: {
-    fontSize: 13,
-    color: COLORS.light.primary,
-    marginTop: 4,
-  },
   orderFooter: {
     borderTopWidth: 1,
-    borderTopColor: "#cce3de",
-    paddingTop: 8,
-    marginTop: 0,
+    borderTopColor: "#f0f0f0",
+    paddingTop: 12,
+    marginTop: 4,
   },
   totalRow: {
     flexDirection: "row",
@@ -159,7 +159,7 @@ export const orderStyles = StyleSheet.create({
     fontSize: 14,
   },
   secondaryButton: {
-    backgroundColor: COLORS.common.gray,
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: COLORS.light.primary,
     paddingHorizontal: 16,
@@ -189,7 +189,57 @@ export const orderStyles = StyleSheet.create({
   },
   emptyDescription: {
     fontSize: 14,
+    marginBottom: 16,
     color: COLORS.light.oceanMedium,
     textAlign: "center",
+  },
+  priceSummary: {
+    marginBottom: 16,
+    paddingTop: 0,
+  },
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  priceValue: {
+    fontSize: 14,
+    color: "#333",
+  },
+  itemContainer: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginLeft: 12,
+  },
+  itemLeftColumn: {
+    flex: 1,
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  itemRightColumn: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minWidth: 80,
+  },
+  itemPrice: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  itemQuantity: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  totalItems: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
   },
 });

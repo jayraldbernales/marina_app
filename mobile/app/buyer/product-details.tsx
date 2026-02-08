@@ -320,11 +320,19 @@ export default function BuyerProductDetail() {
 
   // Direct order function
   const handleDirectOrder = () => {
-    // You can implement direct ordering logic here
-    Alert.alert(
-      "Direct Order",
-      `You selected ${selectedQuantity} unit(s) for direct ordering.`,
-    );
+    if (!productId || stockAvailable === 0) {
+      Alert.alert("Error", "Product is out of stock or unavailable.");
+      return;
+    }
+
+    // Navigate to the direct order screen with product data
+    router.push({
+      pathname: "/buyer/direct-order",
+      params: {
+        product_id: productId,
+        quantity: selectedQuantity.toString(), // Pass the selected quantity
+      },
+    });
   };
 
   // View vendor profile
