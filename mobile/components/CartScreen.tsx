@@ -10,12 +10,15 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
 } from "react-native";
 import {
   Ionicons,
   Feather,
   FontAwesome5,
   MaterialCommunityIcons,
+  Entypo,
 } from "@expo/vector-icons";
 import { useNavigation, router, useFocusEffect } from "expo-router";
 import { cartScreenStyles } from "../components/styles/cartScreenStyles";
@@ -24,13 +27,11 @@ import { useUserStore } from "@/store/userStore";
 // Navigation types (top-level)
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "@/constants";
-
 type RootStackParamList = {
   OrderTracking: undefined;
   BuyerDashboard: undefined;
 };
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
 // Define for type safety/reuse
 type CartItem = {
   cartItemId: string;
@@ -42,6 +43,9 @@ type CartItem = {
   vendor: string;
   image: string | null;
   selected: boolean;
+  vendorUserId: string;
+  unit: string;
+  stock: number;
 };
 
 const CartScreen = () => {
@@ -51,6 +55,8 @@ const CartScreen = () => {
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cod" | "gcash">("cod");
   const [hasHomeAddress, setHasHomeAddress] = useState(false);
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
   const navigation = useNavigation<NavigationProp>();
   const user = useUserStore((state) => state.user);
 
@@ -85,6 +91,9 @@ const CartScreen = () => {
             product_name,
             price,
             images,
+            unit,
+            stock,
+            vendor_user_id,
             vendor_profiles (
               shop_name
             )
@@ -105,6 +114,9 @@ const CartScreen = () => {
           vendor: item.products?.vendor_profiles?.shop_name || "Unknown Vendor",
           image: item.products?.images?.[0] || null,
           selected: false,
+          vendorUserId: item.products?.vendor_user_id,
+          unit: item.products?.unit || "kg",
+          stock: item.products?.stock || 0,
         }),
       );
       setCartItems(transformedItems);
@@ -126,7 +138,6 @@ const CartScreen = () => {
     useCallback(() => {
       const fetchHomeAddress = async () => {
         if (!user?.id) return;
-
         try {
           const { data, error } = await supabase
             .from("addresses")
@@ -135,14 +146,12 @@ const CartScreen = () => {
             .eq("is_default", true)
             .in("address_type", ["home", "work"])
             .maybeSingle();
-
           if (error) {
             console.error("Error fetching address:", error);
             setDeliveryAddress("");
             setHasHomeAddress(false);
             return;
           }
-
           if (data) {
             setDeliveryAddress(data.full_address || "Address not specified");
             setHasHomeAddress(true);
@@ -156,16 +165,34 @@ const CartScreen = () => {
           setHasHomeAddress(false);
         }
       };
-
       fetchHomeAddress();
     }, [user?.id]),
   );
 
-  const subtotal = cartItems
-    .filter((item) => item.selected)
-    .reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const deliveryFee = 50;
-  const total = subtotal + deliveryFee;
+  const selectedItems = cartItems.filter((item) => item.selected);
+
+  // Group selected items by vendor to calculate delivery fees
+  const getVendorGroups = () => {
+    const itemsByVendor: Record<string, CartItem[]> = {};
+    selectedItems.forEach((item) => {
+      if (!itemsByVendor[item.vendorUserId]) {
+        itemsByVendor[item.vendorUserId] = [];
+      }
+      itemsByVendor[item.vendorUserId].push(item);
+    });
+    return itemsByVendor;
+  };
+
+  const vendorGroups = getVendorGroups();
+  const vendorCount = Object.keys(vendorGroups).length;
+
+  const subtotal = selectedItems.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0,
+  );
+  const deliveryFeePerVendor = 50;
+  const totalDeliveryFee = vendorCount * deliveryFeePerVendor;
+  const total = subtotal + totalDeliveryFee;
 
   // Toggle item selection
   const toggleSelectItem = (cartItemId: string) => {
@@ -193,6 +220,16 @@ const CartScreen = () => {
       if (newQuantity === 0) {
         await removeItem(cartItemId);
       } else {
+        // Check stock availability
+        const item = cartItems.find((i) => i.cartItemId === cartItemId);
+        if (item && newQuantity > item.stock) {
+          Alert.alert(
+            "Insufficient Stock",
+            `Only ${item.stock} ${item.unit} available.`,
+          );
+          return;
+        }
+
         const { error } = await supabase
           .from("cart_items")
           .update({ quantity: newQuantity })
@@ -243,8 +280,7 @@ const CartScreen = () => {
     );
   };
 
-  const handleCheckout = () => {
-    const selectedItems = cartItems.filter((item) => item.selected);
+  const handleCheckoutPreview = () => {
     if (selectedItems.length === 0) {
       Alert.alert(
         "No Items Selected",
@@ -266,13 +302,141 @@ const CartScreen = () => {
       );
       return;
     }
-    // TODO: Implement actual order creation logic here.
-    // Note: Currently, this screen allows editing the address but does not save changes back to the database.
-    // In a production app, consider creating or updating an address entry in Supabase before creating the order.
-    // Additionally, since this is a multi-vendor cart, group items by vendor and create separate orders for each.
-    // Payment handling (especially for GCash) should integrate with a payment gateway.
-    console.log("Proceed to checkout with selected items:", selectedItems);
-    navigation.navigate("OrderTracking");
+
+    // Check stock availability for all selected items
+    const outOfStock = selectedItems.filter(
+      (item) => item.quantity > item.stock,
+    );
+    if (outOfStock.length > 0) {
+      Alert.alert(
+        "Insufficient Stock",
+        `Some items have insufficient stock: ${outOfStock.map((item) => item.name).join(", ")}`,
+      );
+      return;
+    }
+
+    setShowPreview(true);
+  };
+
+  const handleConfirmOrder = async () => {
+    setShowPreview(false);
+    try {
+      // Get the user's default address ID
+      const { data: addressData, error: addressError } = await supabase
+        .from("addresses")
+        .select("address_id")
+        .eq("user_id", user?.id)
+        .eq("is_default", true)
+        .maybeSingle();
+
+      if (addressError) throw addressError;
+      if (!addressData) {
+        Alert.alert(
+          "Error",
+          "No default address found. Please set a default address.",
+        );
+        return;
+      }
+
+      // Group items by vendor
+      const itemsByVendor = getVendorGroups();
+
+      // Create orders for each vendor using a database function
+      const orderPromises = Object.entries(itemsByVendor).map(
+        async ([vendorUserId, items]) => {
+          // Generate order number
+          const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const orderSubtotal = items.reduce(
+            (sum, item) => sum + item.price * item.quantity,
+            0,
+          );
+
+          // Each vendor gets their own delivery fee
+          const vendorDeliveryFee = deliveryFeePerVendor;
+          const orderTotal = orderSubtotal + vendorDeliveryFee;
+
+          // Call database function to create order with proper stock updates
+          const { data: orderId, error: rpcError } = await supabase.rpc(
+            "place_cart_order",
+            {
+              p_order_number: orderNumber,
+              p_user_id: user?.id,
+              p_vendor_user_id: vendorUserId,
+              p_address_id: addressData.address_id,
+              p_payment_method: paymentMethod,
+              p_order_total: orderTotal,
+              p_delivery_fee: vendorDeliveryFee,
+              p_note: specialInstructions,
+              p_cart_item_ids: items.map((item) => item.cartItemId),
+            },
+          );
+
+          if (rpcError) {
+            if (rpcError.message.includes("Insufficient stock")) {
+              // Refresh cart items to get updated stock
+              await fetchCartItems();
+              throw new Error(
+                "Some items have insufficient stock. Please adjust your cart.",
+              );
+            }
+            throw rpcError;
+          }
+
+          return { orderNumber, vendorDeliveryFee, orderTotal };
+        },
+      );
+
+      const orderResults = await Promise.all(orderPromises);
+      const orderNumbers = orderResults.map((r) => r.orderNumber);
+
+      // Calculate total for success message
+      const totalDeliveryFee = orderResults.reduce(
+        (sum, result) => sum + result.vendorDeliveryFee,
+        0,
+      );
+      const finalTotal = subtotal + totalDeliveryFee;
+
+      // Refresh cart after successful order
+      await fetchCartItems();
+
+      // Show success message
+      if (paymentMethod === "cod") {
+        Alert.alert(
+          "Orders Placed Successfully!",
+          `Your order${orderNumbers.length > 1 ? "s" : ""} (${orderNumbers.join(", ")}) ha${orderNumbers.length > 1 ? "ve" : "s"} been placed successfully. You'll pay ₱${finalTotal.toLocaleString()} upon delivery.`,
+          [
+            {
+              text: "Track Orders",
+              onPress: () => router.push("/order-tracking"),
+            },
+            {
+              text: "Continue Shopping",
+              onPress: () => router.push("/"),
+            },
+          ],
+        );
+      } else {
+        Alert.alert(
+          "Proceed to Payment",
+          `Order${orderNumbers.length > 1 ? "s" : ""} created. Please proceed to GCash payment.`,
+          [
+            {
+              text: "Pay Now",
+              onPress: () => {
+                console.log("Redirect to GCash payment");
+              },
+            },
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+          ],
+        );
+      }
+    } catch (error: any) {
+      console.error("Checkout error:", error);
+      Alert.alert("Error", `Failed to place order: ${error.message}`);
+    }
   };
 
   const handleBackToDashboard = () => {
@@ -281,6 +445,192 @@ const CartScreen = () => {
 
   const navigateToProfileEdit = () => {
     router.push("/account-information");
+  };
+
+  // Order Preview Modal
+  const OrderPreviewModal = () => {
+    // Calculate delivery fees by vendor
+    const itemsByVendor = getVendorGroups();
+    const vendorCount = Object.keys(itemsByVendor).length;
+    const totalDeliveryFee = vendorCount * deliveryFeePerVendor;
+
+    return (
+      <Modal
+        visible={showPreview}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowPreview(false)}
+      >
+        <View style={cartScreenStyles.modalOverlay}>
+          <View style={cartScreenStyles.modalContainer}>
+            <View style={cartScreenStyles.modalHeader}>
+              <Text style={cartScreenStyles.modalTitle}>Review Your Order</Text>
+              <TouchableOpacity
+                onPress={() => setShowPreview(false)}
+                style={cartScreenStyles.closeButton}
+              >
+                <Entypo name="cross" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={cartScreenStyles.modalContent}>
+              {/* Order Details */}
+              <View style={cartScreenStyles.section}>
+                <Text style={cartScreenStyles.sectionHeader}>
+                  Order Details ({selectedItems.length} item
+                  {selectedItems.length !== 1 ? "s" : ""})
+                </Text>
+                {selectedItems.map((item) => (
+                  <View
+                    key={item.cartItemId}
+                    style={cartScreenStyles.productCard}
+                  >
+                    {item.image ? (
+                      <Image
+                        source={{ uri: item.image }}
+                        style={cartScreenStyles.productImage}
+                      />
+                    ) : (
+                      <View style={cartScreenStyles.placeholderImage}>
+                        <Feather name="image" size={24} color="#999" />
+                      </View>
+                    )}
+                    <View style={cartScreenStyles.productDetails}>
+                      <Text style={cartScreenStyles.productName}>
+                        {item.name}
+                      </Text>
+                      <Text style={cartScreenStyles.productVendor}>
+                        {item.vendor}
+                      </Text>
+                      <Text style={cartScreenStyles.productPrice}>
+                        ₱{item.price.toLocaleString()} × {item.quantity}{" "}
+                        {item.unit}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              {/* Delivery Information */}
+              <View style={cartScreenStyles.section}>
+                <Text style={cartScreenStyles.sectionHeader}>
+                  Delivery Information
+                </Text>
+                <View style={cartScreenStyles.infoRow}>
+                  <Feather name="map-pin" size={16} color="#666" />
+                  <Text style={cartScreenStyles.infoText}>
+                    {deliveryAddress}
+                  </Text>
+                </View>
+                <View style={cartScreenStyles.infoRow}>
+                  <Feather name="clock" size={16} color="#666" />
+                  <Text style={cartScreenStyles.infoText}>
+                    Estimated delivery: 30-60 minutes
+                  </Text>
+                </View>
+                <View style={cartScreenStyles.infoRow}>
+                  <Feather name="shopping-bag" size={16} color="#666" />
+                  <Text style={cartScreenStyles.infoText}>
+                    {vendorCount} vendor{vendorCount !== 1 ? "s" : ""} (₱
+                    {deliveryFeePerVendor} delivery fee per vendor)
+                  </Text>
+                </View>
+              </View>
+
+              {/* Payment Method */}
+              <View style={cartScreenStyles.section}>
+                <Text style={cartScreenStyles.sectionHeader}>
+                  Payment Method
+                </Text>
+                <View style={cartScreenStyles.infoRow}>
+                  {paymentMethod === "cod" ? (
+                    <>
+                      <FontAwesome5 name="wallet" size={16} color="#666" />
+                      <Text style={cartScreenStyles.infoText}>
+                        Cash on Delivery
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <FontAwesome5 name="mobile-alt" size={16} color="#666" />
+                      <Text style={cartScreenStyles.infoText}>GCash</Text>
+                    </>
+                  )}
+                </View>
+              </View>
+
+              {/* Special Instructions */}
+              {specialInstructions ? (
+                <View style={cartScreenStyles.section}>
+                  <Text style={cartScreenStyles.sectionHeader}>
+                    Special Instructions
+                  </Text>
+                  <Text style={cartScreenStyles.instructionsText}>
+                    {specialInstructions}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Order Summary */}
+              <View style={cartScreenStyles.section}>
+                <Text style={cartScreenStyles.sectionHeader}>
+                  Order Summary
+                </Text>
+                <View style={cartScreenStyles.summaryRow}>
+                  <Text style={cartScreenStyles.summaryLabel}>Subtotal</Text>
+                  <Text style={cartScreenStyles.summaryValue}>
+                    ₱{subtotal.toLocaleString()}
+                  </Text>
+                </View>
+                <View style={cartScreenStyles.summaryRow}>
+                  <Text style={cartScreenStyles.summaryLabel}>
+                    Delivery Fee ({vendorCount} vendor
+                    {vendorCount !== 1 ? "s" : ""})
+                  </Text>
+                  <Text style={cartScreenStyles.summaryValue}>
+                    ₱{totalDeliveryFee}
+                  </Text>
+                </View>
+                <View style={cartScreenStyles.totalRow}>
+                  <Text style={cartScreenStyles.totalLabel}>Total Amount</Text>
+                  <Text style={cartScreenStyles.totalValue}>
+                    ₱{(subtotal + totalDeliveryFee).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Terms and Conditions */}
+              <View style={cartScreenStyles.termsContainer}>
+                <Text style={cartScreenStyles.termsText}>
+                  By placing this order, you agree to our Terms of Service and
+                  Privacy Policy. You can cancel your order within 5 minutes of
+                  placing it.
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* Action Buttons */}
+            <View style={cartScreenStyles.modalActions}>
+              <TouchableOpacity
+                style={cartScreenStyles.editButton}
+                onPress={() => setShowPreview(false)}
+              >
+                <Text style={cartScreenStyles.editButtonText}>Edit Order</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={cartScreenStyles.confirmButton}
+                onPress={handleConfirmOrder}
+              >
+                <Text style={cartScreenStyles.confirmButtonText}>
+                  {paymentMethod === "cod"
+                    ? "Confirm Order"
+                    : "Proceed to Payment"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
   };
 
   if (loading) {
@@ -362,8 +712,7 @@ const CartScreen = () => {
           </TouchableOpacity>
           <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           <Text style={cartScreenStyles.headerItemsCount}>
-            {cartItems.filter((item) => item.selected).length}/
-            {cartItems.length} selected
+            {selectedItems.length}/{cartItems.length} selected
           </Text>
         </View>
         <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
@@ -402,6 +751,7 @@ const CartScreen = () => {
                 : "Select All"}
             </Text>
           </TouchableOpacity>
+
           {/* Cart Items */}
           {cartItems.map((item) => (
             <CartItemComponent
@@ -413,6 +763,7 @@ const CartScreen = () => {
               deleting={deleting}
             />
           ))}
+
           {/* Delivery Address */}
           <View style={cartScreenStyles.sectionCard}>
             <View
@@ -427,7 +778,6 @@ const CartScreen = () => {
                 Delivery Address
               </Text>
             </View>
-
             {!hasHomeAddress ? (
               <>
                 <View
@@ -493,6 +843,7 @@ const CartScreen = () => {
               </Text>
             )}
           </View>
+
           {/* Payment Method */}
           <View style={cartScreenStyles.sectionCard}>
             <Text style={cartScreenStyles.sectionTitle}>Payment Option</Text>
@@ -543,8 +894,47 @@ const CartScreen = () => {
               </View>
             </TouchableOpacity>
           </View>
-          {/* Order Summary */}
+
+          {/* Special Instructions */}
           <View style={cartScreenStyles.sectionCard}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <MaterialCommunityIcons
+                name="note-text-outline"
+                size={20}
+                color={COLORS.light.primary}
+              />
+              <Text style={cartScreenStyles.sectionTitle}>
+                Special Instructions
+              </Text>
+            </View>
+            <TextInput
+              style={[
+                cartScreenStyles.input,
+                {
+                  height: 80,
+                  textAlignVertical: "top",
+                  paddingTop: 12,
+                  paddingBottom: 12,
+                },
+              ]}
+              placeholder="Add special instructions (e.g., delivery notes)"
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={4}
+              value={specialInstructions}
+              onChangeText={setSpecialInstructions}
+              accessibilityLabel="Special instructions for order"
+            />
+          </View>
+
+          {/* Order Summary */}
+          <View style={[cartScreenStyles.sectionCard, { marginBottom: 40 }]}>
             <Text style={cartScreenStyles.sectionTitle}>Order Summary</Text>
             <View style={cartScreenStyles.summaryRow}>
               <Text style={cartScreenStyles.summaryLabel}>Subtotal</Text>
@@ -553,8 +943,13 @@ const CartScreen = () => {
               </Text>
             </View>
             <View style={cartScreenStyles.summaryRow}>
-              <Text style={cartScreenStyles.summaryLabel}>Delivery Fee</Text>
-              <Text style={cartScreenStyles.summaryValue}>₱{deliveryFee}</Text>
+              <Text style={cartScreenStyles.summaryLabel}>
+                Delivery Fee ({vendorCount} vendor{vendorCount !== 1 ? "s" : ""}
+                )
+              </Text>
+              <Text style={cartScreenStyles.summaryValue}>
+                ₱{totalDeliveryFee}
+              </Text>
             </View>
             <View style={cartScreenStyles.summaryDivider} />
             <View style={cartScreenStyles.summaryRow}>
@@ -571,30 +966,29 @@ const CartScreen = () => {
             </View>
           </View>
         </ScrollView>
+
         {/* Checkout Button */}
         <View style={cartScreenStyles.checkoutBar}>
           <TouchableOpacity
             style={[
               cartScreenStyles.checkoutBtn,
-              (cartItems.filter((item) => item.selected).length === 0 ||
-                !hasHomeAddress) && {
+              (selectedItems.length === 0 || !hasHomeAddress) && {
                 opacity: 0.5,
               },
             ]}
-            onPress={handleCheckout}
-            disabled={
-              cartItems.filter((item) => item.selected).length === 0 ||
-              !hasHomeAddress
-            }
+            onPress={handleCheckoutPreview}
+            disabled={selectedItems.length === 0 || !hasHomeAddress}
             accessibilityLabel="Proceed to checkout"
           >
             <Text style={cartScreenStyles.checkoutBtnText}>
-              {paymentMethod === "cod" ? "Checkout" : "GCash Payment"} - ₱
-              {total.toLocaleString()}
+              Place Order - ₱{total.toLocaleString()}
             </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Order Preview Modal */}
+      <OrderPreviewModal />
     </SafeAreaView>
   );
 };
@@ -653,11 +1047,16 @@ const CartItemComponent = ({
         <Text style={cartScreenStyles.cartName}>{item.name}</Text>
         <Text style={cartScreenStyles.cartVendor}>{item.vendor}</Text>
         <Text style={cartScreenStyles.cartPrice}>
-          ₱{item.price.toLocaleString()} per kg
+          ₱{item.price.toLocaleString()} per {item.unit}
         </Text>
       </View>
       {/* Delete and Quantity */}
-      <View style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
+      <View
+        style={{
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <TouchableOpacity
           onPress={onDelete}
           disabled={isDeleting}
@@ -677,19 +1076,32 @@ const CartItemComponent = ({
           <TouchableOpacity
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}
             style={cartScreenStyles.qtyBtn}
+            disabled={item.quantity <= 1}
             accessibilityLabel="Decrease quantity"
           >
-            <Feather name="minus" size={16} color="#005f73" />
+            <Feather
+              name="minus"
+              size={16}
+              color={item.quantity <= 1 ? "#ccc" : "#005f73"}
+            />
           </TouchableOpacity>
           <Text style={cartScreenStyles.qtyText}>{item.quantity}</Text>
           <TouchableOpacity
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
             style={cartScreenStyles.qtyBtn}
+            disabled={item.quantity >= item.stock}
             accessibilityLabel="Increase quantity"
           >
-            <Feather name="plus" size={16} color="#005f73" />
+            <Feather
+              name="plus"
+              size={16}
+              color={item.quantity >= item.stock ? "#ccc" : "#005f73"}
+            />
           </TouchableOpacity>
         </View>
+        <Text style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+          Stock: {item.stock} {item.unit}
+        </Text>
       </View>
     </View>
   );

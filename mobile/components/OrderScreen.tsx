@@ -24,13 +24,14 @@ type OrderStatus =
   | "shipped"
   | "delivered"
   | "cancelled";
-type PaymentStatus = "pending" | "paid" | "failed";
+type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
 
 interface DisplayOrder {
   id: string;
   orderNumber: string;
   items: {
     id: string;
+    productId: string; // Added productId for stock restoration
     name: string;
     price: number;
     quantity: number;
@@ -53,7 +54,6 @@ const OrdersScreen = () => {
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
   const navigation = useNavigation();
   const user = useUserStore((state) => state.user);
 
@@ -83,16 +83,33 @@ const OrdersScreen = () => {
     }
   };
 
+  // Helper function to update order status locally
+  const updateOrderStatusLocally = (
+    orderId: string,
+    newStatus: OrderStatus,
+    newPaymentStatus: PaymentStatus,
+  ) => {
+    setOrders((prevOrders) =>
+      prevOrders.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              status: newStatus,
+              paymentStatus: newPaymentStatus,
+            }
+          : order,
+      ),
+    );
+  };
+
   // Fetch orders from Supabase
   const fetchOrders = async () => {
     if (!user?.id) {
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
-
       // Fetch orders with address information
       const { data: ordersData, error: ordersError } = await supabase
         .from("orders")
@@ -127,6 +144,7 @@ const OrdersScreen = () => {
             `
             *,
             products!inner(
+              product_id,
               product_name,
               images,
               vendor_profiles!inner(shop_name)
@@ -143,6 +161,7 @@ const OrdersScreen = () => {
         // Transform items for display
         const displayItems = (itemsData || []).map((item: any) => ({
           id: item.order_item_id,
+          productId: item.product_id, // Store product_id for stock restoration
           name: item.products.product_name,
           price: item.unit_price,
           quantity: item.quantity,
@@ -243,21 +262,45 @@ const OrdersScreen = () => {
         text: "Yes",
         onPress: async () => {
           try {
-            const { error } = await supabase
-              .from("orders")
-              .update({
-                order_status: "cancelled",
-                payment_status: "cancelled",
-              })
-              .eq("order_id", orderId)
-              .eq("user_id", user?.id);
+            // Call the database function to cancel order and restore stock atomically
+            const { error } = await supabase.rpc("cancel_order_with_restock", {
+              p_order_id: orderId,
+              p_user_id: user?.id,
+            });
 
-            if (error) throw error;
+            if (error) {
+              if (error.message.includes("Order not found")) {
+                Alert.alert("Error", "Order not found or unauthorized");
+                return;
+              }
+              if (error.message.includes("cannot be cancelled")) {
+                Alert.alert(
+                  "Cannot Cancel",
+                  "This order cannot be cancelled in its current status",
+                );
+                return;
+              }
+              throw error;
+            }
 
-            Alert.alert("Success", "Order has been cancelled");
-            fetchOrders(); // Refresh the list
+            // Update local state immediately for better UX
+            updateOrderStatusLocally(orderId, "cancelled", "cancelled");
+
+            Alert.alert(
+              "Success",
+              "Order has been cancelled and stock has been restored",
+            );
+
+            // Optional: Fetch fresh data in background to ensure consistency
+            setTimeout(() => {
+              fetchOrders();
+            }, 1000);
           } catch (error: any) {
-            Alert.alert("Error", error.message);
+            console.error("Cancel order error:", error);
+            Alert.alert(
+              "Error",
+              error.message || "Failed to cancel order. Please try again.",
+            );
           }
         },
       },
@@ -276,7 +319,6 @@ const OrdersScreen = () => {
         onPress: async () => {
           try {
             let newPaymentStatus = currentPaymentStatus;
-
             if (paymentMethod === "cod" && currentPaymentStatus === "pending") {
               newPaymentStatus = "paid";
             } else if (currentPaymentStatus === "paid") {
@@ -297,8 +339,19 @@ const OrdersScreen = () => {
 
             if (error) throw error;
 
+            // Update local state immediately
+            updateOrderStatusLocally(
+              orderId,
+              "delivered",
+              newPaymentStatus as PaymentStatus,
+            );
+
             Alert.alert("Success", "Thank you for confirming receipt!");
-            fetchOrders(); // Refresh the list
+
+            // Optional background refresh
+            setTimeout(() => {
+              fetchOrders();
+            }, 1000);
           } catch (error: any) {
             console.error("Confirm receipt error:", error);
             Alert.alert("Error", error.message || "Failed to confirm receipt");
@@ -356,7 +409,6 @@ const OrdersScreen = () => {
                 <Text>No Image</Text>
               </View>
             )}
-
             <View style={orderStyles.itemContainer}>
               {/* Left side: Product name and shop name */}
               <View style={orderStyles.itemLeftColumn}>
@@ -365,7 +417,6 @@ const OrdersScreen = () => {
                 </Text>
                 <Text style={orderStyles.itemVendor}>{item.vendor}</Text>
               </View>
-
               {/* Right side: Price and total items */}
               <View style={orderStyles.itemRightColumn}>
                 <Text style={orderStyles.itemPrice}>
@@ -373,7 +424,7 @@ const OrdersScreen = () => {
                 </Text>
                 <View style={{ height: 4 }} />
                 <Text style={orderStyles.totalItems}>
-                  Total Items:{item.quantity}
+                  Total Items: {item.quantity}
                 </Text>
               </View>
             </View>
@@ -385,7 +436,7 @@ const OrdersScreen = () => {
           {/* Payment Method */}
           <View style={{ marginBottom: 12 }}>
             <Text style={{ fontSize: 12, color: "#666" }}>
-              Payment: {order.paymentMethod} ({order.paymentStatus})
+              Payment: {order.paymentMethod}
             </Text>
           </View>
 
@@ -397,7 +448,6 @@ const OrdersScreen = () => {
                 ₱{subtotal.toLocaleString()}
               </Text>
             </View>
-
             {order.deliveryFee > 0 && (
               <View style={orderStyles.priceRow}>
                 <Text style={orderStyles.priceLabel}>Delivery Fee:</Text>
@@ -406,7 +456,6 @@ const OrdersScreen = () => {
                 </Text>
               </View>
             )}
-
             <View style={[orderStyles.priceRow, { marginTop: 4 }]}>
               <Text style={[orderStyles.priceLabel, { fontWeight: "bold" }]}>
                 Total Amount:
@@ -459,7 +508,6 @@ const OrdersScreen = () => {
                     Track Order
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={orderStyles.primaryButton}
                   onPress={() =>

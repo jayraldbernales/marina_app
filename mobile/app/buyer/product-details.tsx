@@ -66,6 +66,7 @@ export default function BuyerProductDetail() {
 
   const [product, setProduct] = useState<any | null>(null);
   const [vendor, setVendor] = useState<any | null>(null);
+  const [vendorAddress, setVendorAddress] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [addingToCart, setAddingToCart] = useState(false);
@@ -95,6 +96,7 @@ export default function BuyerProductDetail() {
           category_id,
           is_active,
           vendor_user_id,
+          sold_quantity,
           categories!inner(category_name)
         `,
         )
@@ -108,12 +110,14 @@ export default function BuyerProductDetail() {
       }
 
       setProduct(productData);
+      setSoldCount(productData.sold_quantity || 0);
 
       // Reset quantity to 1 when product changes
       setSelectedQuantity(1);
 
       // Fetch vendor information
       if (productData.vendor_user_id) {
+        // Fetch vendor profile
         const { data: vendorData, error: vendorError } = await supabase
           .from("vendor_profiles")
           .select(
@@ -130,11 +134,23 @@ export default function BuyerProductDetail() {
         if (!vendorError) {
           setVendor(vendorData);
         }
+
+        // Fetch vendor's business address
+        const { data: addressData, error: addressError } = await supabase
+          .from("addresses")
+          .select("full_address")
+          .eq("user_id", productData.vendor_user_id)
+          .eq("address_type", "business")
+          .maybeSingle();
+
+        if (!addressError && addressData) {
+          setVendorAddress(addressData);
+        }
       }
 
-      // Fetch product rating and sold count
-      setRating(4.5);
-      setSoldCount(42);
+      // Fetch product rating (you'll need to implement this based on your rating system)
+      // For now, we'll use a placeholder or fetch from a ratings table if you have one
+      fetchProductRating();
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Unexpected error loading product.");
@@ -143,11 +159,44 @@ export default function BuyerProductDetail() {
     }
   }, [productId]);
 
+  // Fetch product rating from database
+  const fetchProductRating = async () => {
+    try {
+      // Example: If you have a ratings/reviews table
+      // const { data: ratingsData, error } = await supabase
+      //   .from("reviews")
+      //   .select("rating")
+      //   .eq("product_id", productId);
+
+      // if (!error && ratingsData && ratingsData.length > 0) {
+      //   const totalRating = ratingsData.reduce((sum, review) => sum + review.rating, 0);
+      //   const averageRating = totalRating / ratingsData.length;
+      //   setRating(averageRating);
+      // } else {
+      //   setRating(null);
+      // }
+
+      // For now, using a placeholder rating
+      setRating(4.5); // Replace with actual rating logic
+    } catch (error) {
+      console.error("Error fetching rating:", error);
+      setRating(null);
+    }
+  };
+
   useEffect(() => {
     loadProduct();
   }, [loadProduct]);
 
   const goBack = useCallback(() => router.back(), []);
+
+  // Format vendor address for display
+  const formatVendorAddress = () => {
+    if (!vendorAddress || !vendorAddress.full_address) {
+      return "Address not specified";
+    }
+    return vendorAddress.full_address;
+  };
 
   // Render image item
   const renderImageItem = ({
@@ -542,6 +591,18 @@ export default function BuyerProductDetail() {
               </View>
               <Ionicons name="chevron-forward" size={20} color="#999" />
             </TouchableOpacity>
+          )}
+
+          {/* Vendor Address Section */}
+          {vendorAddress && vendorAddress.full_address && (
+            <View style={styles.vendorAddressSection}>
+              <View style={styles.vendorAddressHeader}>
+                <Text style={styles.vendorAddressTitle}>Seller Address</Text>
+              </View>
+              <Text style={styles.vendorAddressText}>
+                {vendorAddress.full_address}
+              </Text>
+            </View>
           )}
 
           {/* Category & Stock Section */}
@@ -1004,6 +1065,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#757575",
     marginTop: 2,
+  },
+
+  // NEW: Vendor Address Section
+  vendorAddressSection: {
+    backgroundColor: "#fff",
+    padding: 16,
+    marginBottom: 8,
+  },
+  vendorAddressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  vendorAddressTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#212121",
+  },
+  vendorAddressText: {
+    fontSize: 14,
+    color: "#666",
+    lineHeight: 20,
   },
 
   // Category & Status Section

@@ -11,12 +11,15 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Modal,
+  StyleSheet,
 } from "react-native";
 import {
   Ionicons,
   Feather,
   FontAwesome5,
   MaterialCommunityIcons,
+  Entypo,
 } from "@expo/vector-icons";
 import { useNavigation, router, useLocalSearchParams } from "expo-router";
 import { cartScreenStyles } from "../styles/cartScreenStyles";
@@ -25,13 +28,11 @@ import { useUserStore } from "@/store/userStore";
 // Navigation types (top-level)
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "@/constants";
-
 type RootStackParamList = {
   OrderTracking: undefined;
   BuyerDashboard: undefined;
 };
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
 // Define for type safety/reuse
 type CartItem = {
   cartItemId: string;
@@ -46,14 +47,12 @@ type CartItem = {
   vendorUserId: string;
   unit: string;
 };
-
 const DirectOrderScreen = () => {
   const params = useLocalSearchParams();
   const productId = params?.product_id as string;
   const initialQuantity = params?.quantity
     ? parseInt(params.quantity as string)
     : 1;
-
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<any>(null);
   const [vendor, setVendor] = useState<any>(null);
@@ -62,10 +61,9 @@ const DirectOrderScreen = () => {
   const [hasHomeAddress, setHasHomeAddress] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [quantity, setQuantity] = useState(initialQuantity);
-
+  const [showPreview, setShowPreview] = useState(false); // New state for preview modal
   const navigation = useNavigation<NavigationProp>();
   const user = useUserStore((state) => state.user);
-
   // Fetch product details
   const fetchProductDetails = async () => {
     try {
@@ -74,7 +72,6 @@ const DirectOrderScreen = () => {
         Alert.alert("Error", "No product selected");
         return;
       }
-
       // Fetch product with vendor info
       const { data: productData, error: productError } = await supabase
         .from("products")
@@ -96,15 +93,12 @@ const DirectOrderScreen = () => {
         )
         .eq("product_id", productId)
         .single();
-
       if (productError) {
         console.error(productError);
         Alert.alert("Error", "Failed to load product.");
         return;
       }
-
       setProduct(productData);
-
       // Fetch vendor information
       if (productData.vendor_user_id) {
         const { data: vendorData, error: vendorError } = await supabase
@@ -119,7 +113,6 @@ const DirectOrderScreen = () => {
           )
           .eq("user_id", productData.vendor_user_id)
           .single();
-
         if (!vendorError) {
           setVendor(vendorData);
         }
@@ -131,11 +124,9 @@ const DirectOrderScreen = () => {
       setLoading(false);
     }
   };
-
   // Fetch home address
   const fetchHomeAddress = async () => {
     if (!user?.id) return;
-
     try {
       const { data, error } = await supabase
         .from("addresses")
@@ -144,14 +135,12 @@ const DirectOrderScreen = () => {
         .eq("is_default", true)
         .in("address_type", ["home", "work"])
         .maybeSingle();
-
       if (error) {
         console.error("Error fetching address:", error);
         setDeliveryAddress("");
         setHasHomeAddress(false);
         return;
       }
-
       if (data) {
         setDeliveryAddress(data.full_address || "Address not specified");
         setHasHomeAddress(true);
@@ -165,12 +154,10 @@ const DirectOrderScreen = () => {
       setHasHomeAddress(false);
     }
   };
-
   useEffect(() => {
     fetchProductDetails();
     fetchHomeAddress();
   }, [productId, user?.id]);
-
   // Create cart item from product
   const cartItem: CartItem | null = product
     ? {
@@ -187,30 +174,26 @@ const DirectOrderScreen = () => {
         unit: product.unit,
       }
     : null;
-
   const subtotal = cartItem ? cartItem.price * cartItem.quantity : 0;
   const deliveryFee = 50;
   const total = subtotal + deliveryFee;
-
   // Quantity handlers
   const increaseQuantity = () => {
     if (product && quantity < product.stock) {
       setQuantity(quantity + 1);
     }
   };
-
   const decreaseQuantity = () => {
     if (quantity > 1) {
       setQuantity(quantity - 1);
     }
   };
-
-  const handleCheckout = async () => {
+  // Show preview instead of directly placing order
+  const handlePlaceOrderPreview = () => {
     if (!cartItem || !product) {
       Alert.alert("Error", "No product selected.");
       return;
     }
-
     if (!hasHomeAddress) {
       Alert.alert(
         "Delivery Address Required",
@@ -225,11 +208,17 @@ const DirectOrderScreen = () => {
       );
       return;
     }
-
+    if (product.stock < quantity) {
+      Alert.alert("Insufficient Stock", "Not enough stock available.");
+      return;
+    }
+    // Show preview modal
+    setShowPreview(true);
+  };
+  // Actual checkout function - UPDATED WITH DATABASE FUNCTION
+  const handleConfirmOrder = async () => {
+    setShowPreview(false); // Close preview modal
     try {
-      // Generate unique order number
-      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
       // Step 1: Get the user's default address ID
       const { data: addressData, error: addressError } = await supabase
         .from("addresses")
@@ -239,7 +228,6 @@ const DirectOrderScreen = () => {
         .maybeSingle();
 
       if (addressError) throw addressError;
-
       if (!addressData) {
         Alert.alert(
           "Error",
@@ -248,53 +236,58 @@ const DirectOrderScreen = () => {
         return;
       }
 
-      // Step 2: Create an order with proper schema fields
-      const { data: orderData, error: orderError } = await supabase
+      // Step 2: Call the database function to create order atomically
+      const { data: orderId, error: rpcError } = await supabase.rpc(
+        "place_direct_order",
+        {
+          p_user_id: user?.id,
+          p_vendor_user_id: product.vendor_user_id,
+          p_product_id: product.product_id,
+          p_address_id: addressData.address_id,
+          p_quantity: quantity,
+          p_payment_method: paymentMethod,
+          p_note: specialInstructions,
+        },
+      );
+
+      if (rpcError) {
+        if (rpcError.message.includes("Insufficient stock")) {
+          Alert.alert(
+            "Insufficient Stock",
+            "Product stock has been updated. Please adjust your quantity.",
+          );
+          // Refresh product details to get latest stock
+          await fetchProductDetails();
+          return;
+        }
+        throw rpcError;
+      }
+
+      // Step 3: Fetch the created order details for confirmation
+      const { data: orderData, error: orderFetchError } = await supabase
         .from("orders")
-        .insert({
-          order_number: orderNumber,
-          user_id: user?.id,
-          vendor_user_id: product.vendor_user_id,
-          address_id: addressData.address_id,
-          payment_method: paymentMethod,
-          payment_status: paymentMethod === "cod" ? "pending" : "unpaid",
-          order_status: "pending",
-          total_amount: total,
-          delivery_fee: deliveryFee,
-          note: specialInstructions,
-        })
-        .select("order_id, order_number")
+        .select("order_number, total_amount")
+        .eq("order_id", orderId)
         .single();
 
-      if (orderError) throw orderError;
+      if (orderFetchError) throw orderFetchError;
 
-      // Step 3: Create order item (note: your schema uses unit_price and subtotal)
-      const { error: itemError } = await supabase.from("order_items").insert({
-        order_id: orderData.order_id,
-        product_id: product.product_id,
-        quantity: quantity,
-        unit_price: product.price,
-        subtotal: subtotal,
-      });
+      // Step 4: Update local UI state only
+      setProduct((prev: any) => ({
+        ...prev,
+        stock: prev.stock - quantity,
+        sold_quantity: (prev.sold_quantity || 0) + quantity,
+      }));
 
-      if (itemError) throw itemError;
+      // Reset quantity to 1 after successful order
+      setQuantity(1);
+      setSpecialInstructions("");
 
-      // Step 4: Update product stock and sold quantity
-      const { error: stockError } = await supabase
-        .from("products")
-        .update({
-          stock: product.stock - quantity,
-          sold_quantity: (product.sold_quantity || 0) + quantity,
-        })
-        .eq("product_id", product.product_id);
-
-      if (stockError) throw stockError;
-
-      // For COD, show success message
+      // Step 5: Show success message
       if (paymentMethod === "cod") {
         Alert.alert(
           "Order Placed Successfully!",
-          `Your order #${orderData.order_number} has been placed successfully. You'll pay ₱${total.toLocaleString()} upon delivery.`,
+          `Your order #${orderData.order_number} has been placed successfully. You'll pay ₱${orderData.total_amount.toLocaleString()} upon delivery.`,
           [
             {
               text: "Track Order",
@@ -302,7 +295,7 @@ const DirectOrderScreen = () => {
             },
             {
               text: "Continue Shopping",
-              onPress: () => router.back(),
+              onPress: () => router.push("/(tabs)"),
             },
           ],
         );
@@ -331,15 +324,162 @@ const DirectOrderScreen = () => {
       Alert.alert("Error", `Failed to place order: ${error.message}`);
     }
   };
-
   const handleBackToPrevious = () => {
     router.back();
   };
-
   const navigateToProfileEdit = () => {
     router.push("/account-information");
   };
-
+  // Preview Modal Component
+  const OrderPreviewModal = () => (
+    <Modal
+      visible={showPreview}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setShowPreview(false)}
+    >
+      <View style={cartScreenStyles.modalOverlay}>
+        <View style={cartScreenStyles.modalContainer}>
+          <View style={cartScreenStyles.modalHeader}>
+            <Text style={cartScreenStyles.modalTitle}>Review Your Order</Text>
+            <TouchableOpacity
+              onPress={() => setShowPreview(false)}
+              style={cartScreenStyles.closeButton}
+            >
+              <Entypo name="cross" size={24} color="#666" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={cartScreenStyles.modalContent}>
+            {/* Order Details */}
+            <View style={cartScreenStyles.section}>
+              <Text style={cartScreenStyles.sectionHeader}>Order Details</Text>
+              {cartItem && (
+                <View style={cartScreenStyles.productCard}>
+                  {cartItem.image ? (
+                    <Image
+                      source={{ uri: cartItem.image }}
+                      style={cartScreenStyles.productImage}
+                    />
+                  ) : (
+                    <View style={cartScreenStyles.placeholderImage}>
+                      <Feather name="image" size={24} color="#999" />
+                    </View>
+                  )}
+                  <View style={cartScreenStyles.productDetails}>
+                    <Text style={cartScreenStyles.productName}>
+                      {cartItem.name}
+                    </Text>
+                    <Text style={cartScreenStyles.productVendor}>
+                      {cartItem.vendor}
+                    </Text>
+                    <Text style={cartScreenStyles.productPrice}>
+                      ₱{cartItem.price.toLocaleString()} × {quantity}{" "}
+                      {cartItem.unit}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+            {/* Delivery Information */}
+            <View style={cartScreenStyles.section}>
+              <Text style={cartScreenStyles.sectionHeader}>
+                Delivery Information
+              </Text>
+              <View style={cartScreenStyles.infoRow}>
+                <Feather name="map-pin" size={16} color="#666" />
+                <Text style={cartScreenStyles.infoText}>{deliveryAddress}</Text>
+              </View>
+              <View style={cartScreenStyles.infoRow}>
+                <Feather name="clock" size={16} color="#666" />
+                <Text style={cartScreenStyles.infoText}>
+                  Estimated delivery: 30-60 minutes
+                </Text>
+              </View>
+            </View>
+            {/* Payment Method */}
+            <View style={cartScreenStyles.section}>
+              <Text style={cartScreenStyles.sectionHeader}>Payment Method</Text>
+              <View style={cartScreenStyles.infoRow}>
+                {paymentMethod === "cod" ? (
+                  <>
+                    <FontAwesome5 name="wallet" size={16} color="#666" />
+                    <Text style={cartScreenStyles.infoText}>
+                      Cash on Delivery
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <FontAwesome5 name="mobile-alt" size={16} color="#666" />
+                    <Text style={cartScreenStyles.infoText}>GCash</Text>
+                  </>
+                )}
+              </View>
+            </View>
+            {/* Special Instructions */}
+            {specialInstructions ? (
+              <View style={cartScreenStyles.section}>
+                <Text style={cartScreenStyles.sectionHeader}>
+                  Special Instructions
+                </Text>
+                <Text style={cartScreenStyles.instructionsText}>
+                  {specialInstructions}
+                </Text>
+              </View>
+            ) : null}
+            {/* Order Summary */}
+            <View style={cartScreenStyles.section}>
+              <Text style={cartScreenStyles.sectionHeader}>Order Summary</Text>
+              <View style={cartScreenStyles.summaryRow}>
+                <Text style={cartScreenStyles.summaryLabel}>Subtotal</Text>
+                <Text style={cartScreenStyles.summaryValue}>
+                  ₱{subtotal.toLocaleString()}
+                </Text>
+              </View>
+              <View style={cartScreenStyles.summaryRow}>
+                <Text style={cartScreenStyles.summaryLabel}>Delivery Fee</Text>
+                <Text style={cartScreenStyles.summaryValue}>
+                  ₱{deliveryFee}
+                </Text>
+              </View>
+              <View style={cartScreenStyles.totalRow}>
+                <Text style={cartScreenStyles.totalLabel}>Total Amount</Text>
+                <Text style={cartScreenStyles.totalValue}>
+                  ₱{total.toLocaleString()}
+                </Text>
+              </View>
+            </View>
+            {/* Terms and Conditions */}
+            <View style={cartScreenStyles.termsContainer}>
+              <Text style={cartScreenStyles.termsText}>
+                By placing this order, you agree to our Terms of Service and
+                Privacy Policy. You can cancel your order within 5 minutes of
+                placing it.
+              </Text>
+            </View>
+          </ScrollView>
+          {/* Action Buttons */}
+          <View style={cartScreenStyles.modalActions}>
+            <TouchableOpacity
+              style={cartScreenStyles.editButton}
+              onPress={() => setShowPreview(false)}
+            >
+              <Text style={cartScreenStyles.editButtonText}>Edit Order</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cartScreenStyles.confirmButton}
+              onPress={handleConfirmOrder}
+            >
+              <Text style={cartScreenStyles.confirmButtonText}>
+                {paymentMethod === "cod"
+                  ? "Confirm Order"
+                  : "Proceed to Payment"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
   if (loading) {
     return (
       <SafeAreaView
@@ -348,7 +488,7 @@ const DirectOrderScreen = () => {
         <View
           style={[
             cartScreenStyles.emptyContainer,
-            { justifyContent: "center" },
+            { justifyContent: "center" as const },
           ]}
         >
           <ActivityIndicator size="large" color={COLORS.light.primary} />
@@ -359,7 +499,6 @@ const DirectOrderScreen = () => {
       </SafeAreaView>
     );
   }
-
   if (!product) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#e0fbfc" }}>
@@ -398,7 +537,6 @@ const DirectOrderScreen = () => {
       </SafeAreaView>
     );
   }
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.background }}>
       <KeyboardAvoidingView
@@ -420,7 +558,6 @@ const DirectOrderScreen = () => {
           <Text style={cartScreenStyles.headerTitleCart}>Direct Order</Text>
           <View style={{ width: 40 }} />
         </View>
-
         <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
           {/* Product Item */}
           {cartItem && (
@@ -437,15 +574,14 @@ const DirectOrderScreen = () => {
                     cartScreenStyles.cartImage,
                     {
                       backgroundColor: "#e0e0e0",
-                      justifyContent: "center",
-                      alignItems: "center",
+                      justifyContent: "center" as const,
+                      alignItems: "center" as const,
                     },
                   ]}
                 >
                   <Feather name="image" size={24} color="#999" />
                 </View>
               )}
-
               {/* Product Details */}
               <View style={{ flex: 1 }}>
                 <Text style={cartScreenStyles.cartName}>{cartItem.name}</Text>
@@ -456,17 +592,16 @@ const DirectOrderScreen = () => {
                   ₱{cartItem.price.toLocaleString()} per {cartItem.unit}
                 </Text>
               </View>
-
               {/* Price per item */}
-              <View style={{ alignItems: "flex-end" }}>
+              <View style={{ alignItems: "flex-end" as const }}>
                 <Text style={{ marginLeft: 8, color: "#666", fontSize: 12 }}>
                   stock: {product.stock} {product.unit}
                 </Text>
                 {/* Quantity Controls */}
                 <View
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
+                    flexDirection: "row" as const,
+                    alignItems: "center" as const,
                     marginTop: 8,
                   }}
                 >
@@ -482,11 +617,9 @@ const DirectOrderScreen = () => {
                       color={quantity <= 1 ? "#ccc" : "#005f73"}
                     />
                   </TouchableOpacity>
-
                   <TouchableOpacity>
                     <Text style={cartScreenStyles.qtyText}>{quantity}</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity
                     onPress={increaseQuantity}
                     style={cartScreenStyles.qtyBtn}
@@ -503,13 +636,12 @@ const DirectOrderScreen = () => {
               </View>
             </View>
           )}
-
           {/* Delivery Address */}
           <View style={cartScreenStyles.sectionCard}>
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "center",
+                flexDirection: "row" as const,
+                alignItems: "center" as const,
                 marginBottom: 8,
               }}
             >
@@ -518,7 +650,6 @@ const DirectOrderScreen = () => {
                 Delivery Address
               </Text>
             </View>
-
             {!hasHomeAddress ? (
               <>
                 <View
@@ -548,7 +679,7 @@ const DirectOrderScreen = () => {
                       paddingVertical: 10,
                       paddingHorizontal: 16,
                       borderRadius: 6,
-                      alignSelf: "flex-end",
+                      alignSelf: "flex-end" as const,
                     }}
                   >
                     <Text
@@ -584,11 +715,9 @@ const DirectOrderScreen = () => {
               </Text>
             )}
           </View>
-
           {/* Payment Method */}
           <View style={cartScreenStyles.sectionCard}>
             <Text style={cartScreenStyles.sectionTitle}>Payment Option</Text>
-
             {/* Cash on Delivery */}
             <TouchableOpacity
               style={[
@@ -613,7 +742,6 @@ const DirectOrderScreen = () => {
                 </Text>
               </View>
             </TouchableOpacity>
-
             {/* GCash */}
             <TouchableOpacity
               style={[
@@ -637,13 +765,12 @@ const DirectOrderScreen = () => {
               </View>
             </TouchableOpacity>
           </View>
-
           {/* Special Instructions */}
           <View style={cartScreenStyles.sectionCard}>
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "center",
+                flexDirection: "row" as const,
+                alignItems: "center" as const,
                 marginBottom: 8,
               }}
             >
@@ -656,13 +783,12 @@ const DirectOrderScreen = () => {
                 Special Instructions
               </Text>
             </View>
-
             <TextInput
               style={[
                 cartScreenStyles.input,
                 {
                   height: 80,
-                  textAlignVertical: "top",
+                  textAlignVertical: "top" as const,
                   paddingTop: 12,
                   paddingBottom: 12,
                 },
@@ -676,25 +802,20 @@ const DirectOrderScreen = () => {
               accessibilityLabel="Special instructions for order"
             />
           </View>
-
           {/* Order Summary */}
           <View style={[cartScreenStyles.sectionCard, { marginBottom: 40 }]}>
             <Text style={cartScreenStyles.sectionTitle}>Order Summary</Text>
-
             <View style={cartScreenStyles.summaryRow}>
               <Text style={cartScreenStyles.summaryLabel}>Subtotal</Text>
               <Text style={cartScreenStyles.summaryValue}>
                 ₱{subtotal.toLocaleString()}
               </Text>
             </View>
-
             <View style={cartScreenStyles.summaryRow}>
               <Text style={cartScreenStyles.summaryLabel}>Delivery Fee</Text>
               <Text style={cartScreenStyles.summaryValue}>₱{deliveryFee}</Text>
             </View>
-
             <View style={cartScreenStyles.summaryDivider} />
-
             <View style={cartScreenStyles.summaryRow}>
               <Text
                 style={[cartScreenStyles.summaryLabel, { fontWeight: "bold" }]}
@@ -709,7 +830,6 @@ const DirectOrderScreen = () => {
             </View>
           </View>
         </ScrollView>
-
         {/* Checkout Button */}
         <View style={[cartScreenStyles.checkoutBar, { marginBottom: 36 }]}>
           <TouchableOpacity
@@ -719,17 +839,16 @@ const DirectOrderScreen = () => {
                 opacity: 0.5,
               },
             ]}
-            onPress={handleCheckout}
+            onPress={handlePlaceOrderPreview} // Changed to show preview
             disabled={!hasHomeAddress || product.stock < quantity}
             accessibilityLabel="Place order"
           >
-            <Text style={cartScreenStyles.checkoutBtnText}>
-              {paymentMethod === "cod" ? "Place Order" : "Pay with GCash"} - ₱
-              {total.toLocaleString()}
-            </Text>
+            <Text style={cartScreenStyles.checkoutBtnText}>Place Order</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+      {/* Order Preview Modal */}
+      <OrderPreviewModal />
     </SafeAreaView>
   );
 };
