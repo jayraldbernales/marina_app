@@ -132,7 +132,7 @@ const ChatRider = () => {
   const filteredConversations = conversations.filter(
     (conv) =>
       conv.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+      conv.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const scrollToBottom = () => {

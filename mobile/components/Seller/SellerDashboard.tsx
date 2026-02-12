@@ -1,19 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react"; // Add useCallback
+import { useFocusEffect } from "expo-router"; // Add this import
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { COLORS } from "../../constants";
 import { sellerDashboardStyles } from "./styles/sellerDashboardStyles";
+import { supabase } from "../../lib/supabase";
+
 // Types
-type OrderStatus = "pending" | "preparing" | "shipped";
+type OrderStatus =
+  | "pending"
+  | "preparing"
+  | "ready-to-ship"
+  | "shipped"
+  | "rejected"
+  | "delivered"
+  | "cancelled";
 interface RecentOrder {
   id: string;
+  order_number: string;
   customerName: string;
   address: string;
   status: OrderStatus;
@@ -30,42 +42,130 @@ interface DashboardData {
   stats: Stats;
   recentOrders: RecentOrder[];
 }
-// Mock data for dashboard
-const dashboardData: DashboardData = {
-  stats: {
-    orders: 12,
-    revenue: 5200,
-    pending: 4,
-    rating: 4.8,
-  },
-  recentOrders: [
-    {
-      id: "ORD-001",
-      customerName: "John Santos",
-      address: "123 Seaside Avenue",
-      status: "pending",
-      amount: 1010,
-      items: 2,
-    },
-    {
-      id: "ORD-005",
-      customerName: "Maria Cruz",
-      address: "321 Harbor Street",
-      status: "preparing",
-      amount: 1350,
-      items: 2,
-    },
-    {
-      id: "ORD-003",
-      customerName: "Pedro Reyes",
-      address: "789 Ocean Boulevard",
-      status: "pending",
-      amount: 530,
-      items: 1,
-    },
-  ],
-};
+
 const SellerDashboard = () => {
+  const [dashboardData, setDashboardData] = useState<DashboardData>({
+    stats: { orders: 0, revenue: 0, pending: 0, rating: 0 },
+    recentOrders: [],
+  });
+  const [loading, setLoading] = useState(true);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return;
+
+      const vendorUserId = session.user.id;
+
+      // Fetch all orders for this vendor
+      const { data: ordersData, error: ordersError } = await supabase
+        .from("orders")
+        .select(
+          `
+          order_id,
+          order_number,
+          order_status,
+          total_amount,
+          delivery_fee,
+          payment_status,
+          created_at,
+          user_id,
+          profiles!orders_user_fkey(full_name),
+          addresses!orders_address_fkey(full_address)
+        `,
+        )
+        .eq("vendor_user_id", vendorUserId)
+        .order("created_at", { ascending: false });
+
+      if (ordersError) {
+        console.error("Error fetching orders:", ordersError);
+      }
+
+      // Fetch order items to count items per order
+      const { data: orderItemsData, error: orderItemsError } = await supabase
+        .from("order_items")
+        .select("order_id, quantity");
+
+      if (orderItemsError) {
+        console.error("Error fetching order items:", orderItemsError);
+      }
+
+      // Count items per order
+      const itemCountMap = (orderItemsData || []).reduce(
+        (acc: any, item: any) => {
+          acc[item.order_id] = (acc[item.order_id] || 0) + item.quantity;
+          return acc;
+        },
+        {},
+      );
+
+      // Process orders data
+      const allOrders = (ordersData || []).map((order: any) => ({
+        id: order.order_id,
+        order_number: order.order_number,
+        customerName: order.profiles?.full_name || "Unknown Customer",
+        address: order.addresses?.full_address || "No address",
+        status: order.order_status || "pending",
+        amount: Number(order.total_amount) || 0,
+        delivery_fee: Number(order.delivery_fee) || 0,
+        payment_status: order.payment_status,
+        items: itemCountMap[order.order_id] || 0,
+      }));
+
+      // Calculate stats
+      const totalOrders = allOrders.length;
+
+      // Only count orders that are delivered AND paid for revenue
+      const completedOrders = allOrders.filter(
+        (order) =>
+          order.status === "delivered" && order.payment_status === "paid",
+      );
+
+      // Calculate revenue: sum of (total_amount - delivery_fee) for completed orders
+      const totalRevenue = completedOrders.reduce((sum: number, order: any) => {
+        const amount = Number(order.amount) || 0;
+        const deliveryFee = Number(order.delivery_fee) || 0;
+        return sum + (amount - deliveryFee);
+      }, 0);
+
+      const pendingOrders = allOrders.filter(
+        (o) => o.status === "pending",
+      ).length;
+
+      // Temporary rating - leave as is for now
+      const avgRating = 4.8;
+
+      setDashboardData({
+        stats: {
+          orders: totalOrders,
+          revenue: Math.round(totalRevenue * 100) / 100,
+          pending: pendingOrders,
+          rating: avgRating,
+        },
+        recentOrders: allOrders.slice(0, 3),
+      });
+    } catch (err) {
+      console.error("Error loading dashboard data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load data when component mounts
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  // Load data every time screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboardData();
+    }, []),
+  );
+
   interface StatCardProps {
     icon: keyof typeof MaterialCommunityIcons.glyphMap;
     label: string;
@@ -98,6 +198,7 @@ const SellerDashboard = () => {
       </View>
     </View>
   );
+
   interface OrderItemProps {
     order: RecentOrder;
   }
@@ -107,9 +208,17 @@ const SellerDashboard = () => {
         case "pending":
           return "#f59e0b";
         case "preparing":
-          return COLORS.light.primary;
+          return "#3b82f6";
+        case "ready-to-ship":
+          return "#8b5cf6";
         case "shipped":
           return "#10b981";
+        case "delivered":
+          return "#10b981";
+        case "cancelled":
+          return "#6b7280";
+        case "rejected":
+          return "#ef4444";
         default:
           return COLORS.light.primary;
       }
@@ -117,11 +226,13 @@ const SellerDashboard = () => {
     return (
       <TouchableOpacity
         style={sellerDashboardStyles.orderItem}
-        onPress={() => router.push("/(seller-tabs)")}
+        onPress={() => router.push("/(seller-tabs)/orders")}
       >
         <View style={sellerDashboardStyles.orderItemHeader}>
           <View>
-            <Text style={sellerDashboardStyles.orderId}>{order.id}</Text>
+            <Text style={sellerDashboardStyles.orderId}>
+              #{order.order_number}
+            </Text>
             <Text style={sellerDashboardStyles.orderCustomer}>
               {order.customerName}
             </Text>
@@ -156,6 +267,50 @@ const SellerDashboard = () => {
       </TouchableOpacity>
     );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={sellerDashboardStyles.container}>
+        <View style={sellerDashboardStyles.headerBar}>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/profile")}
+            style={sellerDashboardStyles.headerBackBtn}
+            accessibilityLabel="Back to profile"
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={COLORS.light.primary}
+            />
+          </TouchableOpacity>
+          <Text style={sellerDashboardStyles.headerTitle}>
+            Seller Dashboard
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push("/seller/chat")}
+            style={sellerDashboardStyles.headerMessageBtn}
+            accessibilityLabel="View messages"
+          >
+            <Ionicons
+              name="chatbox-ellipses"
+              size={24}
+              color={COLORS.light.primary}
+            />
+          </TouchableOpacity>
+        </View>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <ActivityIndicator size="large" color={COLORS.light.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={sellerDashboardStyles.container}>
       {/* Header */}
@@ -195,17 +350,15 @@ const SellerDashboard = () => {
             <StatCard
               icon="cash-multiple"
               label="Revenue"
-              value={`₱${dashboardData.stats.revenue}`}
+              value={`₱${dashboardData.stats.revenue.toLocaleString()}`}
               color={COLORS.light.oceanMedium}
             />
-            {/* Pending Orders */}
             <StatCard
               icon="progress-clock"
               label="Pending Orders"
               value={dashboardData.stats.pending}
               color={COLORS.light.coral}
             />
-            {/* Store Rating */}
             <StatCard
               icon="star"
               label="Rating"
@@ -214,22 +367,33 @@ const SellerDashboard = () => {
             />
           </View>
         </View>
+
         {/* Recent Orders */}
         <View style={sellerDashboardStyles.section}>
           <View style={sellerDashboardStyles.sectionHeader}>
             <Text style={sellerDashboardStyles.sectionTitle}>
               Recent Orders
             </Text>
-            <TouchableOpacity onPress={() => router.push("/(seller-tabs)")}>
+            <TouchableOpacity
+              onPress={() => router.push("/(seller-tabs)/orders")}
+            >
               <Text style={sellerDashboardStyles.seeAllText}>See All</Text>
             </TouchableOpacity>
           </View>
           {dashboardData.recentOrders.map((order) => (
             <OrderItem key={order.id} order={order} />
           ))}
+          {dashboardData.recentOrders.length === 0 && (
+            <View style={sellerDashboardStyles.emptyOrders}>
+              <Text style={sellerDashboardStyles.emptyOrdersText}>
+                No recent orders
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 };
+
 export default SellerDashboard;

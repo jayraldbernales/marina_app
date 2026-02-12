@@ -126,7 +126,7 @@ const ProfileTab = () => {
       title: "Settings",
       subtitle: "Account preferences",
       icon: "settings-outline" as const,
-      onPress: () => console.log("Navigate to Settings"),
+      onPress: () => router.push("/settings"),
     },
   ];
 
@@ -154,14 +154,14 @@ const ProfileTab = () => {
       title: "Support and Help",
       subtitle: "Get assistance",
       icon: "help-circle-outline" as const,
-      onPress: () => router.push("/terms"),
+      onPress: () => router.push("/support&help"),
     },
     {
       id: 6,
       title: "About",
       subtitle: "App information and terms",
       icon: "information-circle-outline" as const,
-      onPress: () => router.push("/order-tracking"),
+      onPress: () => router.push("/about"),
     },
   ];
 

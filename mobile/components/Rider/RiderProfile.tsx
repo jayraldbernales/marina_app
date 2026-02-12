@@ -54,14 +54,14 @@ const RiderProfile = () => {
       title: "Support",
       subtitle: "Get rider assistance",
       icon: "help-circle-outline" as const,
-      onPress: () => console.log("Navigate to Support"),
+      onPress: () => router.push("/support&help"),
     },
     {
       id: 6,
       title: "About",
       subtitle: "Learn more about this platform",
       icon: "information-circle-outline" as const,
-      onPress: () => console.log("Navigate to About"),
+      onPress: () => router.push("/about"),
     },
   ];
 

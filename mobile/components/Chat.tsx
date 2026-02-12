@@ -1,190 +1,507 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
   SafeAreaView,
+  Image,
+  TouchableOpacity,
+  FlatList,
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  FlatList,
+  ActivityIndicator,
+  Alert,
+  AppState,
+  ImageSourcePropType,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { COLORS } from "../constants";
-import { chatStyles } from "./styles/chatStyles";
+import { supabase } from "../lib/supabase";
+import { chatService, Message, ConversationWithDetails } from "../lib/chat";
+import { RealtimeChannel } from "@supabase/supabase-js";
+import { chatStyles } from "./Buyer/styles/chat.styles";
 
-type Message = {
-  id: string;
-  text: string;
-  isOwn: boolean;
-  timestamp: string;
-};
+// Constants
+const DEFAULT_AVATAR = require("../assets/img/user.jpg");
 
-type Conversation = {
-  id: string;
-  sellerName: string;
-  lastMessage: string;
-  timestamp: string;
-  unreadCount: number;
-};
-
-const mockConversations: Conversation[] = [
-  {
-    id: "1",
-    sellerName: "Maria's Catch",
-    lastMessage: "Your order has been shipped!",
-    timestamp: "Today",
-    unreadCount: 0,
-  },
-  {
-    id: "2",
-    sellerName: "Ocean Harvest",
-    lastMessage: "Do you need tracking info?",
-    timestamp: "Yesterday",
-    unreadCount: 2,
-  },
-  {
-    id: "3",
-    sellerName: "Fresh Market",
-    lastMessage: "Refund processed for your item.",
-    timestamp: "2 days ago",
-    unreadCount: 1,
-  },
-  {
-    id: "4",
-    sellerName: "Seafood Delights",
-    lastMessage: "Thanks for your purchase!",
-    timestamp: "Today",
-    unreadCount: 0,
-  },
-];
-
-const mockMessages: { [key: string]: Message[] } = {
-  "1": [
-    {
-      id: "1-1",
-      text: "Your order ORD-001 is on its way.",
-      isOwn: false,
-      timestamp: "10:30 AM",
+// Utility function for avatar source with caching
+const getAvatarSource = (uri?: string | null): ImageSourcePropType => {
+  if (!uri) return DEFAULT_AVATAR;
+  return {
+    uri,
+    cache: "force-cache",
+    headers: {
+      "Cache-Control": "max-age=86400",
     },
-    {
-      id: "1-2",
-      text: "Great, thanks for the update!",
-      isOwn: true,
-      timestamp: "10:31 AM",
-    },
-  ],
-  "2": [
-    {
-      id: "2-1",
-      text: "Hi, can I get the tracking number?",
-      isOwn: true,
-      timestamp: "9:15 AM",
-    },
-    {
-      id: "2-2",
-      text: "Sure, it's TK-12345.",
-      isOwn: false,
-      timestamp: "9:16 AM",
-    },
-    {
-      id: "2-3",
-      text: "Perfect, appreciate it.",
-      isOwn: true,
-      timestamp: "9:17 AM",
-    },
-  ],
-  "3": [
-    {
-      id: "3-1",
-      text: "Your refund is complete.",
-      isOwn: false,
-      timestamp: "8:45 AM",
-    },
-  ],
-  "4": [
-    {
-      id: "4-1",
-      text: "Enjoy your fresh catch!",
-      isOwn: false,
-      timestamp: "11:20 AM",
-    },
-    {
-      id: "4-2",
-      text: "Will do, thanks!",
-      isOwn: true,
-      timestamp: "11:21 AM",
-    },
-  ],
-};
-
-const ChatBuyer = () => {
-  const [view, setView] = useState<"list" | "chat">("list");
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState(mockMessages);
-  const [inputText, setInputText] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [conversations, setConversations] = useState(mockConversations);
-  const scrollViewRef = useRef<ScrollView>(null);
-
-  const filteredConversations = conversations.filter(
-    (conv) =>
-      conv.sellerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const scrollToBottom = () => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
   };
+};
+
+export default function ChatScreen() {
+  const params = useLocalSearchParams();
+  const vendorUserId = params?.vendor_user_id as string;
+  const vendorName = params?.vendor_name as string;
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<ConversationWithDetails[]>(
+    [],
+  );
+  const [inputText, setInputText] = useState("");
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserProfile, setOtherUserProfile] = useState<any>(null);
+
+  const flatListRef = useRef<FlatList>(null);
+  const messageChannel = useRef<RealtimeChannel | null>(null);
+  const conversationChannel = useRef<RealtimeChannel | null>(null);
+
+  // ==================== AUTHENTICATION ====================
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (view === "chat") {
-      scrollToBottom();
-    }
-  }, [messages, view]);
+    getCurrentUser();
+  }, []);
 
-  const handleSend = () => {
-    if (inputText.trim() && currentChatId) {
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        text: inputText.trim(),
-        isOwn: true,
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+  const getCurrentUser = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      setCurrentUserId(user.id);
+    }
+  };
+
+  // ==================== CONVERSATIONS LIST ====================
+  const loadConversations = async () => {
+    try {
+      setIsLoading(true);
+      const data = await chatService.getConversations();
+      setConversations(data);
+    } catch (error) {
+      console.error("Error loading conversations:", error);
+      Alert.alert("Error", "Failed to load conversations");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ==================== INDIVIDUAL CHAT ====================
+  const initializeConversation = useCallback(async () => {
+    if (!vendorUserId || !currentUserId) return;
+
+    try {
+      setIsLoading(true);
+
+      // Get or create conversation
+      const conversationId =
+        await chatService.getOrCreateConversation(vendorUserId);
+      setCurrentConversationId(conversationId);
+
+      // Load messages
+      const messagesData = await chatService.getMessages(conversationId);
+      setMessages(messagesData);
+
+      // Mark messages as read
+      await chatService.markMessagesAsRead(conversationId);
+
+      // Get other user's profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*, vendor_profiles(*)")
+        .eq("user_id", vendorUserId)
+        .single();
+
+      setOtherUserProfile(profile);
+    } catch (error) {
+      console.error("Error initializing conversation:", error);
+      Alert.alert("Error", "Failed to load chat");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [vendorUserId, currentUserId]);
+
+  // ==================== SUBSCRIPTIONS ====================
+  useEffect(() => {
+    if (currentConversationId) {
+      // Subscribe to new messages
+      messageChannel.current = chatService.subscribeToMessages(
+        currentConversationId,
+        (newMessage) => {
+          setMessages((prev) => [...prev, newMessage]);
+          // Mark as read if it's from someone else
+          if (newMessage.sender_id !== currentUserId) {
+            chatService.markMessagesAsRead(currentConversationId);
+          }
+        },
+      );
+
+      return () => {
+        if (messageChannel.current) {
+          chatService.unsubscribe(messageChannel.current);
+        }
       };
-      setMessages((prev) => ({
-        ...prev,
-        [currentChatId]: [...(prev[currentChatId] || []), newMessage],
-      }));
+    }
+  }, [currentConversationId, currentUserId]);
+
+  // Subscribe to new conversations when on the list screen
+  useEffect(() => {
+    if (!vendorUserId) {
+      conversationChannel.current = chatService.subscribeToNewConversations(
+        () => {
+          loadConversations();
+        },
+      );
+
+      return () => {
+        if (conversationChannel.current) {
+          chatService.unsubscribe(conversationChannel.current);
+        }
+      };
+    }
+  }, [vendorUserId]);
+
+  // Load conversations when on list screen
+  useEffect(() => {
+    if (!vendorUserId && currentUserId) {
+      loadConversations();
+    }
+  }, [vendorUserId, currentUserId]);
+
+  // Initialize conversation when on chat screen
+  useEffect(() => {
+    if (vendorUserId && currentUserId) {
+      initializeConversation();
+    }
+  }, [vendorUserId, currentUserId, initializeConversation]);
+
+  // Mark messages as read when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (currentConversationId && currentUserId) {
+        chatService.markMessagesAsRead(currentConversationId);
+      }
+    }, [currentConversationId, currentUserId]),
+  );
+
+  // Mark messages as read when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && currentConversationId && currentUserId) {
+        chatService.markMessagesAsRead(currentConversationId);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [currentConversationId, currentUserId]);
+
+  // ==================== ACTIONS ====================
+  const handleSend = async () => {
+    if (!inputText.trim() || !currentConversationId || isSending) return;
+
+    try {
+      setIsSending(true);
+      const message = await chatService.sendMessage(
+        currentConversationId,
+        inputText.trim(),
+      );
+      setMessages((prev) => [...prev, message]);
       setInputText("");
+    } catch (error) {
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message");
+    } finally {
+      setIsSending(false);
     }
   };
 
-  const handleSelectConversation = (id: string) => {
-    setCurrentChatId(id);
-    setView("chat");
+  // ==================== RENDERERS ====================
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const currentMessages = currentChatId ? messages[currentChatId] || [] : [];
-  const currentConversation = conversations.find((c) => c.id === currentChatId);
+  const handleImageError = useCallback((event: any) => {
+    // Force fallback to default avatar on error
+    event.currentTarget.source = DEFAULT_AVATAR;
+  }, []);
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.background }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+  const renderMessage = ({ item }: { item: Message }) => {
+    const isOwnMessage = item.sender_id === currentUserId;
+
+    return (
+      <View
+        style={[
+          chatStyles.messageContainer,
+          isOwnMessage
+            ? chatStyles.ownMessageContainer
+            : chatStyles.otherMessageContainer,
+        ]}
       >
-        {/* Header */}
-        <View style={chatStyles.headerBar}>
-          <TouchableOpacity
-            onPress={() =>
-              view === "chat" ? setView("list") : router.push("/(tabs)")
+        {!isOwnMessage && (
+          <Image
+            source={getAvatarSource(
+              item.sender?.avatar_url ||
+                otherUserProfile?.vendor_profiles?.[0]?.avatar_url,
+            )}
+            style={chatStyles.messageAvatar}
+            onError={handleImageError}
+          />
+        )}
+
+        <View
+          style={[
+            chatStyles.messageBubble,
+            isOwnMessage
+              ? chatStyles.ownMessageBubble
+              : chatStyles.otherMessageBubble,
+          ]}
+        >
+          <Text
+            style={[
+              chatStyles.messageText,
+              isOwnMessage
+                ? chatStyles.ownMessageText
+                : chatStyles.otherMessageText,
+            ]}
+          >
+            {item.content}
+          </Text>
+
+          <View style={chatStyles.messageFooter}>
+            <Text
+              style={[
+                chatStyles.messageTime,
+                isOwnMessage
+                  ? chatStyles.ownMessageTime
+                  : chatStyles.otherMessageTime,
+              ]}
+            >
+              {formatTime(item.created_at)}
+            </Text>
+            {isOwnMessage && (
+              <Ionicons
+                name={item.is_read ? "checkmark-done" : "checkmark"}
+                size={14}
+                color={item.is_read ? COLORS.light.primary : "#9e9e9e"}
+                style={chatStyles.messageStatus}
+              />
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderConversation = ({ item }: { item: ConversationWithDetails }) => {
+    const lastMessage = item.last_message;
+    const otherUser = item.other_participant;
+    const vendorName = otherUser?.shop_name || otherUser?.full_name || "Vendor";
+
+    return (
+      <TouchableOpacity
+        style={chatStyles.conversationItem}
+        onPress={() =>
+          router.push({
+            pathname: "/buyer/chat",
+            params: {
+              vendor_user_id: otherUser?.user_id,
+              vendor_name: vendorName,
+            },
+          })
+        }
+      >
+        <View style={chatStyles.conversationAvatarContainer}>
+          <Image
+            source={getAvatarSource(otherUser?.avatar_url)}
+            style={chatStyles.conversationAvatar}
+            onError={handleImageError}
+          />
+          {otherUser?.is_online && <View style={chatStyles.onlineIndicator} />}
+        </View>
+
+        <View style={chatStyles.conversationInfo}>
+          <View style={chatStyles.conversationHeader}>
+            <Text style={chatStyles.conversationName}>{vendorName}</Text>
+            <Text style={chatStyles.conversationTime}>
+              {lastMessage ? formatTime(lastMessage.created_at) : ""}
+            </Text>
+          </View>
+
+          <View style={chatStyles.conversationFooter}>
+            <Text style={chatStyles.conversationLastMessage} numberOfLines={1}>
+              {lastMessage?.content || "Start a conversation"}
+            </Text>
+            {item.unread_count > 0 && (
+              <View style={chatStyles.unreadBadge}>
+                <Text style={chatStyles.unreadCount}>{item.unread_count}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // ==================== RENDER ====================
+  // If we're in a specific chat (vendor_user_id is provided)
+  if (vendorUserId) {
+    if (isLoading) {
+      return (
+        <SafeAreaView style={chatStyles.container}>
+          <View style={chatStyles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.light.primary} />
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    return (
+      <SafeAreaView style={chatStyles.container}>
+        <KeyboardAvoidingView
+          style={chatStyles.keyboardView}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        >
+          {/* Chat Header */}
+          <View style={chatStyles.chatHeader}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={chatStyles.backButton}
+            >
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={chatStyles.chatHeaderInfo}
+              onPress={() => {
+                // Navigate to vendor profile
+                router.push({
+                  pathname: "/buyer/view-vendor",
+                  params: { vendor_user_id: vendorUserId },
+                });
+              }}
+            >
+              <View style={chatStyles.vendorAvatarContainer}>
+                <Image
+                  source={getAvatarSource(
+                    otherUserProfile?.vendor_profiles?.[0]?.avatar_url ||
+                      otherUserProfile?.avatar_url,
+                  )}
+                  style={chatStyles.chatHeaderAvatar}
+                  onError={handleImageError}
+                />
+                <View style={chatStyles.onlineIndicatorSmall} />
+              </View>
+              <View style={chatStyles.chatHeaderText}>
+                <Text style={chatStyles.chatHeaderName}>
+                  {otherUserProfile?.vendor_profiles?.[0]?.shop_name ||
+                    otherUserProfile?.full_name ||
+                    vendorName ||
+                    "Vendor"}
+                </Text>
+                <Text style={chatStyles.chatHeaderStatus}>Online</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={chatStyles.headerAction}>
+              <Ionicons
+                name="call-outline"
+                size={22}
+                color={COLORS.light.primary}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Messages List */}
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.message_id}
+            contentContainerStyle={chatStyles.messagesList}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() =>
+              flatListRef.current?.scrollToEnd({ animated: false })
             }
-            style={chatStyles.headerBackBtn}
+            onLayout={() =>
+              flatListRef.current?.scrollToEnd({ animated: false })
+            }
+          />
+
+          {/* Input Area */}
+          <View style={chatStyles.inputContainer}>
+            <TouchableOpacity style={chatStyles.attachButton}>
+              <Ionicons
+                name="add-circle-outline"
+                size={28}
+                color={COLORS.light.primary}
+              />
+            </TouchableOpacity>
+
+            <View style={chatStyles.textInputWrapper}>
+              <TextInput
+                style={chatStyles.textInput}
+                placeholder="Type a message..."
+                placeholderTextColor="#9ca3af"
+                value={inputText}
+                onChangeText={setInputText}
+                multiline
+                maxLength={500}
+                editable={!isSending}
+              />
+              <TouchableOpacity
+                style={[
+                  chatStyles.sendButton,
+                  (!inputText.trim() || isSending) &&
+                    chatStyles.sendButtonDisabled,
+                ]}
+                onPress={handleSend}
+                disabled={!inputText.trim() || isSending}
+              >
+                {isSending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons
+                    name="send"
+                    size={20}
+                    color={inputText.trim() ? "#fff" : "#9ca3af"}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  // Otherwise, show conversations list
+  return (
+    <SafeAreaView style={chatStyles.container}>
+      <View style={chatStyles.mainContent}>
+        {/* Header */}
+        <View style={chatStyles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={chatStyles.backButton}
           >
             <Ionicons
               name="arrow-back"
@@ -192,158 +509,42 @@ const ChatBuyer = () => {
               color={COLORS.light.primary}
             />
           </TouchableOpacity>
-          <Text style={chatStyles.headerTitle}>
-            {view === "list"
-              ? "Messages"
-              : currentConversation?.sellerName || "Chat"}
-          </Text>
-          {view === "chat" && (
-            <TouchableOpacity>
-              <Ionicons
-                name="call-outline"
-                size={24}
-                color={COLORS.light.primary}
-              />
-            </TouchableOpacity>
-          )}
+          <Text style={chatStyles.headerTitle}>Messages</Text>
+          <TouchableOpacity style={chatStyles.headerAction}>
+            <Ionicons name="search" size={24} color={COLORS.light.primary} />
+          </TouchableOpacity>
         </View>
-        {view === "list" ? (
-          <View style={{ flex: 1 }}>
-            {/* Search Bar */}
-            <View style={chatStyles.searchContainer}>
-              <Ionicons
-                name="search-outline"
-                size={20}
-                color={COLORS.light.oceanMedium}
-                style={chatStyles.searchIcon}
-              />
-              <TextInput
-                style={chatStyles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search messages..."
-                placeholderTextColor={COLORS.light.oceanMedium}
-              />
-            </View>
-            {/* Conversations List */}
-            <FlatList
-              data={filteredConversations}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={chatStyles.conversationItem}
-                  onPress={() => handleSelectConversation(item.id)}
-                >
-                  <View style={chatStyles.conversationAvatar}>
-                    <Text style={chatStyles.avatarText}>
-                      {item.sellerName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={chatStyles.conversationDetails}>
-                    <Text style={chatStyles.conversationName}>
-                      {item.sellerName}
-                    </Text>
-                    <Text
-                      style={chatStyles.conversationLastMessage}
-                      numberOfLines={1}
-                    >
-                      {item.lastMessage}
-                    </Text>
-                  </View>
-                  <View style={chatStyles.conversationMeta}>
-                    <Text style={chatStyles.conversationTimestamp}>
-                      {item.timestamp}
-                    </Text>
-                    {item.unreadCount > 0 && (
-                      <View style={chatStyles.unreadBadge}>
-                        <Text style={chatStyles.unreadText}>
-                          {item.unreadCount}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              )}
-              style={chatStyles.listContainer}
-            />
+
+        {/* Conversations List */}
+        {isLoading ? (
+          <View style={chatStyles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.light.primary} />
           </View>
         ) : (
-          <>
-            {/* Messages List */}
-            <ScrollView
-              ref={scrollViewRef}
-              style={chatStyles.messagesContainer}
-              contentContainerStyle={chatStyles.messagesContent}
-            >
-              {currentMessages.map((message) => (
-                <View
-                  key={message.id}
-                  style={[
-                    chatStyles.messageContainer,
-                    message.isOwn
-                      ? chatStyles.ownMessageContainer
-                      : chatStyles.otherMessageContainer,
-                  ]}
-                >
-                  <View
-                    style={[
-                      chatStyles.messageBubble,
-                      message.isOwn
-                        ? chatStyles.ownMessageBubble
-                        : chatStyles.otherMessageBubble,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        chatStyles.messageText,
-                        message.isOwn
-                          ? chatStyles.ownMessageText
-                          : chatStyles.otherMessageText,
-                      ]}
-                    >
-                      {message.text}
-                    </Text>
-                    <Text style={chatStyles.timestamp}>
-                      {message.timestamp}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            {/* Input Area */}
-            <View style={chatStyles.inputContainer}>
-              <TextInput
-                style={chatStyles.input}
-                value={inputText}
-                onChangeText={setInputText}
-                placeholder="Type a message..."
-                multiline
-                placeholderTextColor={COLORS.light.oceanMedium}
-              />
-              <TouchableOpacity
-                style={[
-                  chatStyles.sendButton,
-                  !inputText.trim() && chatStyles.sendButtonDisabled,
-                ]}
-                onPress={handleSend}
-                disabled={!inputText.trim()}
-              >
-                <Ionicons
-                  name="send"
-                  size={20}
-                  color={
-                    inputText.trim()
-                      ? COLORS.common.white
-                      : COLORS.light.oceanMedium
-                  }
+          <FlatList
+            data={conversations}
+            renderItem={renderConversation}
+            keyExtractor={(item) => item.conversation_id}
+            contentContainerStyle={chatStyles.conversationsList}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={chatStyles.emptyState}>
+                <MaterialCommunityIcons
+                  name="chat-outline"
+                  size={64}
+                  color="#cbd5e1"
                 />
-              </TouchableOpacity>
-            </View>
-          </>
+                <Text style={chatStyles.emptyStateTitle}>
+                  No conversations yet
+                </Text>
+                <Text style={chatStyles.emptyStateText}>
+                  Start chatting with vendors when you browse products
+                </Text>
+              </View>
+            }
+          />
         )}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
-};
-
-export default ChatBuyer;
+}

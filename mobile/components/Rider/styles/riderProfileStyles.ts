@@ -177,4 +177,14 @@ export const riderProfileStyles = StyleSheet.create({
     marginBottom: 10,
     opacity: 0.7,
   },
+  profileImagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+  },
 });

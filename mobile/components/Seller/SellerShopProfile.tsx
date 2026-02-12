@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,14 +6,80 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { COLORS } from "../../constants";
 import { sellerShopProfileStyles } from "./styles/sellerShopProfileStyles";
+import { supabase } from "../../lib/supabase";
+
+type VendorProfile = {
+  shop_name: string;
+  avatar_url: string;
+  email: string;
+};
 
 const SellerShopProfile = () => {
-  const navigation = useNavigation();
+  const [profile, setProfile] = useState<VendorProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchVendorProfile();
+  }, []);
+
+  const fetchVendorProfile = async () => {
+    try {
+      setLoading(true);
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.error("No user session found");
+        setLoading(false);
+        return;
+      }
+
+      const userId = session.user.id;
+      const userEmail = session.user.email || "";
+
+      // Fetch vendor profile
+      const { data, error } = await supabase
+        .from("vendor_profiles")
+        .select("shop_name, avatar_url")
+        .eq("user_id", userId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching vendor profile:", error);
+        setProfile({
+          shop_name: "My Shop",
+          avatar_url: "",
+          email: userEmail,
+        });
+      } else {
+        setProfile({
+          shop_name: data?.shop_name || "My Shop",
+          avatar_url: data?.avatar_url || "",
+          email: userEmail,
+        });
+      }
+    } catch (error) {
+      console.error("Error in fetchVendorProfile:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchVendorProfile();
+    setRefreshing(false);
+  };
 
   const shopMenus = [
     {
@@ -21,7 +87,7 @@ const SellerShopProfile = () => {
       title: "Edit Shop Details",
       subtitle: "Update store information",
       icon: "pencil-outline" as const,
-      onPress: () => console.log("Navigate to Edit Shop Details"),
+      onPress: () => router.push("/seller/edit-shop"),
     },
     {
       id: 2,
@@ -52,14 +118,14 @@ const SellerShopProfile = () => {
       title: "Support",
       subtitle: "Get help for your shop",
       icon: "help-circle-outline" as const,
-      onPress: () => console.log("Navigate to Support"),
+      onPress: () => router.push("/support&help"),
     },
     {
       id: 6,
       title: "About",
       subtitle: "Learn more about our platform",
       icon: "information-circle-outline" as const,
-      onPress: () => console.log("Navigate to About"),
+      onPress: () => router.push("/about"),
     },
   ];
 
@@ -96,6 +162,53 @@ const SellerShopProfile = () => {
     </TouchableOpacity>
   );
 
+  // Avatar component with conditional rendering
+  const renderAvatar = () => {
+    if (profile?.avatar_url) {
+      return (
+        <Image
+          source={{ uri: profile.avatar_url }}
+          style={sellerShopProfileStyles.profileImage}
+          resizeMode="cover"
+        />
+      );
+    } else {
+      return (
+        <View style={sellerShopProfileStyles.profileImagePlaceholder}>
+          <MaterialCommunityIcons name="store" size={40} color="#fff" />
+        </View>
+      );
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: COLORS.light.background }}
+      >
+        <View style={sellerShopProfileStyles.headerBar}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={sellerShopProfileStyles.headerBackBtn}
+            accessibilityLabel="Back to dashboard"
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={COLORS.light.primary}
+            />
+          </TouchableOpacity>
+          <Text style={sellerShopProfileStyles.headerTitle}>Shop Profile</Text>
+        </View>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
+          <ActivityIndicator size="large" color={COLORS.light.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={sellerShopProfileStyles.container}>
@@ -114,18 +227,23 @@ const SellerShopProfile = () => {
           </TouchableOpacity>
           <Text style={sellerShopProfileStyles.headerTitle}>Shop Profile</Text>
         </View>
+
         <ScrollView
           style={sellerShopProfileStyles.scrollView}
           contentContainerStyle={sellerShopProfileStyles.scrollContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[COLORS.light.primary]}
+            />
+          }
         >
           <View style={sellerShopProfileStyles.header}>
             <View style={sellerShopProfileStyles.profileSection}>
               <View style={sellerShopProfileStyles.imageContainer}>
-                <Image
-                  source={{ uri: "https://i.pravatar.cc/1800" }}
-                  style={sellerShopProfileStyles.profileImage}
-                />
+                {renderAvatar()}
                 <TouchableOpacity
                   style={sellerShopProfileStyles.editImageButton}
                   onPress={() => console.log("Edit shop logo")}
@@ -140,15 +258,15 @@ const SellerShopProfile = () => {
               </View>
               <View style={sellerShopProfileStyles.userDetails}>
                 <Text style={sellerShopProfileStyles.userName}>
-                  FreshCatch Seafood
+                  {profile?.shop_name || "My Shop"}
                 </Text>
                 <Text style={sellerShopProfileStyles.userEmail}>
-                  Premium fresh seafood.
+                  {profile?.email || "seller@example.com"}
                 </Text>
                 <View style={sellerShopProfileStyles.actionButtons}>
                   <TouchableOpacity
                     style={sellerShopProfileStyles.primaryButton}
-                    onPress={() => console.log("Edit Shop Profile")}
+                    onPress={() => router.push("/seller/edit-shop")}
                     activeOpacity={0.8}
                   >
                     <Ionicons
@@ -164,6 +282,7 @@ const SellerShopProfile = () => {
               </View>
             </View>
           </View>
+
           {/* Shop Sections */}
           <View style={sellerShopProfileStyles.sectionsContainer}>
             {/* Shop Management Section */}
@@ -172,12 +291,14 @@ const SellerShopProfile = () => {
                 {shopMenus.map(renderMenuItem)}
               </View>
             </View>
+
             {/* Support Section */}
             <View style={sellerShopProfileStyles.sectionContainer}>
               <View style={sellerShopProfileStyles.menuContainer}>
                 {supportMenus.map(renderMenuItem)}
               </View>
             </View>
+
             {/* App Version */}
             <Text style={sellerShopProfileStyles.versionText}>
               Version 1.0.0

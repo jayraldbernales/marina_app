@@ -385,7 +385,12 @@ export default function BuyerProductDetail() {
   };
 
   // View vendor profile
-  const handleViewVendor = () => {};
+  const handleViewVendor = () => {
+    router.push({
+      pathname: "/buyer/view-vendor",
+      params: { vendor_user_id: product.vendor_user_id },
+    });
+  };
 
   if (!productId) {
     return (

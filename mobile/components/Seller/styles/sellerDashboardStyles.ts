@@ -159,4 +159,18 @@ export const sellerDashboardStyles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.light.oceanMedium,
   },
+
+  emptyOrders: {
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  emptyOrdersText: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
+  },
 });
