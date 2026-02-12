@@ -252,12 +252,20 @@ const CartScreen = () => {
   const removeItem = async (cartItemId: string) => {
     try {
       setDeleting(cartItemId);
+
+      const item = cartItems.find((i) => i.cartItemId === cartItemId);
+      if (!item) return;
+
+      const cartId = item.cartId;
+
       const { error } = await supabase
-        .from("cart_items")
+        .from("carts")
         .delete()
-        .eq("cart_item_id", cartItemId);
+        .eq("cart_id", cartId);
+
       if (error) throw error;
-      setCartItems(cartItems.filter((item) => item.cartItemId !== cartItemId));
+
+      setCartItems(cartItems.filter((item) => item.cartId !== cartId));
     } catch (error: any) {
       Alert.alert("Error", `Failed to delete item: ${error.message}`);
     } finally {
@@ -345,7 +353,7 @@ const CartScreen = () => {
       const orderPromises = Object.entries(itemsByVendor).map(
         async ([vendorUserId, items]) => {
           // Generate order number
-          const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const orderNumber = `ORD-${Date.now()}`;
           const orderSubtotal = items.reduce(
             (sum, item) => sum + item.price * item.quantity,
             0,
@@ -399,6 +407,23 @@ const CartScreen = () => {
       // Refresh cart after successful order
       await fetchCartItems();
 
+      // Delete the carts that were checked out
+      const cartIdsToDelete = [
+        ...new Set(selectedItems.map((item) => item.cartId)),
+      ];
+
+      if (cartIdsToDelete.length > 0) {
+        const { error: deleteCartsError } = await supabase
+          .from("carts")
+          .delete()
+          .in("cart_id", cartIdsToDelete);
+
+        if (deleteCartsError) {
+          console.error("Error deleting carts:", deleteCartsError);
+          // Don't throw - orders are already created successfully
+        }
+      }
+
       // Show success message
       if (paymentMethod === "cod") {
         Alert.alert(
@@ -407,7 +432,7 @@ const CartScreen = () => {
           [
             {
               text: "Track Orders",
-              onPress: () => router.push("/order-tracking"),
+              onPress: () => router.push("/(tabs)/orders"),
             },
             {
               text: "Continue Shopping",

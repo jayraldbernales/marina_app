@@ -12,8 +12,7 @@ export const sellerOrderStyles = StyleSheet.create({
     backgroundColor: COLORS.common.white,
     paddingTop: 48,
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
+    borderBottomWidth: 0, // Removed to match orderStyles
   },
   backButton: {
     marginRight: 10,
@@ -25,8 +24,7 @@ export const sellerOrderStyles = StyleSheet.create({
     flex: 1,
   },
   tabsContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
+    backgroundColor: COLORS.common.white, // Added to match orderStyles
     maxHeight: 60,
   },
   tabsContent: {
@@ -37,8 +35,8 @@ export const sellerOrderStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: COLORS.common.white,
+    borderRadius: 20, // Changed from 12 to match orderStyles
+    backgroundColor: "transparent", // Changed to match orderStyles
   },
   activeTab: {
     backgroundColor: COLORS.light.primary,
@@ -59,39 +57,23 @@ export const sellerOrderStyles = StyleSheet.create({
   orderCard: {
     backgroundColor: COLORS.common.white,
     borderRadius: 16,
-    padding: 12,
+    padding: 16, // Increased from 12
     marginBottom: 12,
-    elevation: 2,
+    marginTop: 12, // Added to match orderStyles
+    shadowColor: "#000", // Added to match orderStyles
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1, // Reduced from 2
   },
-  orderHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#cce3de",
-  },
-  orderId: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.light.primary,
-  },
-  orderDate: {
-    fontSize: 12,
-    color: COLORS.light.oceanMedium,
-    marginTop: 2,
-  },
-  customerName: {
-    fontSize: 14,
-    color: COLORS.light.primary,
-    marginTop: 4,
-    fontWeight: "600",
-  },
+
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 20, // Changed from 12 to match orderStyles
   },
   statusText: {
     color: COLORS.common.white,
@@ -100,7 +82,7 @@ export const sellerOrderStyles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: "row",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   itemImage: {
     width: 50,
@@ -123,15 +105,16 @@ export const sellerOrderStyles = StyleSheet.create({
     marginTop: 2,
   },
   itemPrice: {
-    fontSize: 13,
+    fontSize: 14, // Increased from 13
+    fontWeight: "bold", // Added to match orderStyles
     color: COLORS.light.primary,
     marginTop: 4,
   },
   orderFooter: {
     borderTopWidth: 1,
-    borderTopColor: "#cce3de",
-    paddingTop: 8,
-    marginTop: 0,
+    borderTopColor: "#f0f0f0", // Changed from #cce3de
+    paddingTop: 12, // Increased from 8
+    marginTop: 4, // Changed from 0
   },
   totalRow: {
     flexDirection: "row",
@@ -171,7 +154,7 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
   },
   secondaryButton: {
-    backgroundColor: COLORS.common.gray,
+    backgroundColor: "transparent", // Changed to match orderStyles
     borderWidth: 1,
     borderColor: COLORS.light.primary,
     paddingHorizontal: 16,
@@ -204,13 +187,58 @@ export const sellerOrderStyles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     textAlign: "center",
   },
-  // Rider assignment
+  // Price summary styles (added to match orderStyles)
+  priceSummary: {
+    marginBottom: 16,
+    paddingTop: 0,
+  },
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  priceValue: {
+    fontSize: 14,
+    color: "#333",
+  },
+  itemContainer: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginLeft: 12,
+  },
+  itemLeftColumn: {
+    flex: 1,
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  itemRightColumn: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minWidth: 80,
+  },
+  itemQuantity: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  totalItems: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  // Rider assignment (kept from original seller styles)
   riderRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f4f6",
+    borderBottomColor: "#f0f0f0", // Updated to match
     marginBottom: 8,
   },
   riderAvatar: {
@@ -250,7 +278,7 @@ export const sellerOrderStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: COLORS.common.white,
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: COLORS.light.oceanMedium,
   },
@@ -266,5 +294,34 @@ export const sellerOrderStyles = StyleSheet.create({
   unassignedText: {
     fontSize: 13,
     color: "#999",
+  },
+
+  orderHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+
+  leftColumn: {
+    flex: 1,
+  },
+  orderId: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+  },
+  orderDate: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    marginTop: 2,
+  },
+  customerName: {
+    fontSize: 14,
+    color: COLORS.light.primary,
+    marginTop: 4,
+    fontWeight: "600",
   },
 });

@@ -246,7 +246,9 @@ const DirectOrderScreen = () => {
           p_address_id: addressData.address_id,
           p_quantity: quantity,
           p_payment_method: paymentMethod,
-          p_note: specialInstructions,
+          p_order_total: total,
+          p_delivery_fee: deliveryFee,
+          p_note: specialInstructions || null,
         },
       );
 
@@ -291,7 +293,7 @@ const DirectOrderScreen = () => {
           [
             {
               text: "Track Order",
-              onPress: () => router.push("/order-tracking"),
+              onPress: () => router.push("/(tabs)/orders"),
             },
             {
               text: "Continue Shopping",

@@ -17,13 +17,16 @@ import { orderStyles } from "../components/styles/orderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 
-// Types based on your database schema
+// UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
   | "pending"
-  | "processing"
+  | "preparing"
+  | "ready-to-ship"
   | "shipped"
   | "delivered"
-  | "cancelled";
+  | "cancelled"
+  | "rejected";
+
 type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
 
 interface DisplayOrder {
@@ -31,7 +34,7 @@ interface DisplayOrder {
   orderNumber: string;
   items: {
     id: string;
-    productId: string; // Added productId for stock restoration
+    productId: string;
     name: string;
     price: number;
     quantity: number;
@@ -62,22 +65,24 @@ const OrdersScreen = () => {
     { key: "to-ship", label: "To Ship" },
     { key: "to-receive", label: "To Receive" },
     { key: "completed", label: "Completed" },
-    { key: "canceled", label: "Canceled" },
+    { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
-  // Map database status to UI tab
+  // UPDATED: Map database status to UI tab - include rejected in cancelled tab
   const getUITabFromDBStatus = (dbStatus: OrderStatus): string => {
     switch (dbStatus) {
       case "pending":
         return "to-pay";
-      case "processing":
+      case "preparing":
+      case "ready-to-ship":
         return "to-ship";
       case "shipped":
         return "to-receive";
       case "delivered":
         return "completed";
       case "cancelled":
-        return "canceled";
+      case "rejected": // UPDATED: Add rejected to cancelled tab
+        return "cancelled";
       default:
         return "to-pay";
     }
@@ -161,7 +166,7 @@ const OrdersScreen = () => {
         // Transform items for display
         const displayItems = (itemsData || []).map((item: any) => ({
           id: item.order_item_id,
-          productId: item.product_id, // Store product_id for stock restoration
+          productId: item.product_id,
           name: item.products.product_name,
           price: item.unit_price,
           quantity: item.quantity,
@@ -212,39 +217,54 @@ const OrdersScreen = () => {
     await fetchOrders();
   };
 
-  const filteredOrders = orders.filter(
-    (order) => getUITabFromDBStatus(order.status) === activeTab,
-  );
+  // UPDATED: Filter to show both cancelled AND rejected in the cancelled tab
+  const filteredOrders = orders.filter((order) => {
+    const uiTab = getUITabFromDBStatus(order.status);
+    if (activeTab === "cancelled") {
+      return order.status === "cancelled" || order.status === "rejected";
+    }
+    return uiTab === activeTab;
+  });
 
+  // UPDATED: Add red color for rejected status
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case "pending":
         return "#f59e0b"; // yellow
-      case "processing":
+      case "preparing":
         return "#3b82f6"; // blue
-      case "shipped":
+      case "ready-to-ship":
         return "#8b5cf6"; // purple
+      case "shipped":
+        return "#10b981"; // green
       case "delivered":
         return "#10b981"; // green
       case "cancelled":
         return "#6b7280"; // gray
+      case "rejected":
+        return "#ef4444"; // red for rejected
       default:
         return COLORS.light.primary;
     }
   };
 
+  // UPDATED: Show proper text for rejected status
   const getStatusText = (status: OrderStatus) => {
     switch (status) {
       case "pending":
         return "To Pay";
-      case "processing":
-        return "To Ship";
+      case "preparing":
+        return "Preparing";
+      case "ready-to-ship":
+        return "Ready to Ship";
       case "shipped":
-        return "To Receive";
+        return "Shipped";
       case "delivered":
         return "Completed";
       case "cancelled":
-        return "Canceled";
+        return "Cancelled";
+      case "rejected":
+        return "Rejected"; // UPDATED: Show "Rejected" instead of "Cancelled / Rejected"
       default:
         return status;
     }
@@ -371,7 +391,7 @@ const OrdersScreen = () => {
       <View key={order.id} style={orderStyles.orderCard}>
         {/* Order Header */}
         <View style={orderStyles.orderHeader}>
-          <View>
+          <View style={orderStyles.leftColumn}>
             <Text style={orderStyles.orderId}>#{order.orderNumber}</Text>
             <Text style={orderStyles.orderDate}>{order.orderDate}</Text>
           </View>
@@ -387,7 +407,7 @@ const OrdersScreen = () => {
           </View>
         </View>
 
-        {/* Order Items - Updated Layout */}
+        {/* Order Items */}
         {order.items.map((item) => (
           <View key={item.id} style={orderStyles.itemRow}>
             {item.image ? (
@@ -440,7 +460,7 @@ const OrdersScreen = () => {
             </Text>
           </View>
 
-          {/* Price Summary - Added subtotal above delivery fee */}
+          {/* Price Summary */}
           <View style={orderStyles.priceSummary}>
             <View style={orderStyles.priceRow}>
               <Text style={orderStyles.priceLabel}>Subtotal:</Text>
@@ -491,7 +511,8 @@ const OrdersScreen = () => {
                 </TouchableOpacity>
               </>
             )}
-            {order.status === "processing" && (
+            {(order.status === "preparing" ||
+              order.status === "ready-to-ship") && (
               <TouchableOpacity style={orderStyles.secondaryButton}>
                 <Text style={orderStyles.secondaryButtonText}>
                   Contact Seller
@@ -535,6 +556,14 @@ const OrdersScreen = () => {
                   </Text>
                 </TouchableOpacity>
               </>
+            )}
+            {/* UPDATED: Show View Details button for both cancelled AND rejected */}
+            {(order.status === "cancelled" || order.status === "rejected") && (
+              <TouchableOpacity style={orderStyles.secondaryButton}>
+                <Text style={orderStyles.secondaryButtonText}>
+                  View Details
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         </View>

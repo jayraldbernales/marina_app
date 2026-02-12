@@ -71,11 +71,14 @@ export const orderStyles = StyleSheet.create({
   orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+  },
+  leftColumn: {
+    flex: 1,
   },
   orderId: {
     fontSize: 14,
