@@ -129,7 +129,7 @@ export const buyerDashboardStyles = StyleSheet.create({
   navItem: { alignItems: "center", flex: 1 },
   navLabel: { fontSize: 11, color: "#005f73", marginTop: 2 },
   chatButton: {
-    paddingRight: 6,
+    paddingRight: 10,
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
@@ -162,5 +162,24 @@ export const buyerDashboardStyles = StyleSheet.create({
   vendorProductCount: {
     fontSize: 12,
     color: "#666",
+  },
+  unreadBadge: {
+    position: "absolute" as "absolute",
+    top: -5,
+    right: -1,
+    backgroundColor: "#ff4444",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: "center" as "center",
+    alignItems: "center" as "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold" as "bold",
   },
 });

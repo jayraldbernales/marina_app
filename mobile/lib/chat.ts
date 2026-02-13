@@ -1,341 +1,282 @@
-// lib/chat.ts - FULLY FIXED WITH TYPES
-
 import { supabase } from "./supabase";
-import { RealtimeChannel } from "@supabase/supabase-js";
 
-export type Profile = {
-  user_id: string;
-  full_name: string | null;
-  avatar_url: string | null;
-  role: string;
-};
-
-export type Message = {
-  message_id: string;
-  conversation_id: string;
-  sender_id: string;
-  content: string;
-  message_type: "text" | "product" | "order";
-  is_read: boolean;
-  created_at: string;
-  sender?: Profile;
-};
-
-export type Conversation = {
-  conversation_id: string;
-  created_at: string;
-  last_message_at: string | null;
-  related_order_id: string | null;
-  related_vendor_id: string | null;
-  related_rider_id: string | null;
-};
-
-export type ConversationParticipant = {
+export interface Message {
   id: string;
   conversation_id: string;
-  user_id: string;
-  joined_at: string;
-  profile?: Profile;
-};
-
-export type ConversationWithDetails = {
-  conversation_id: string;
+  sender_id: string;
+  message: string;
+  is_read: boolean;
+  read_at: string | null;
   created_at: string;
-  last_message_at: string | null;
-  related_order_id: string | null;
-  related_vendor_id: string | null;
-  related_rider_id: string | null;
-  other_participant: {
-    user_id: string;
-    full_name: string | null;
+}
+
+export interface Conversation {
+  id: string;
+  buyer_id: string | null;
+  vendor_id: string | null;
+  rider_id: string | null;
+  last_message: string | null;
+  last_message_time: string;
+  last_message_sender_id: string | null;
+  buyer_unread_count: number;
+  vendor_unread_count: number;
+  rider_unread_count: number;
+  created_at: string;
+  updated_at: string;
+  // Joined data
+  buyer?: {
+    full_name: string;
     avatar_url: string | null;
-    role: string;
-    shop_name?: string;
-    is_online?: boolean;
-  };
-  last_message: Message | null;
-  unread_count: number;
-};
+  } | null;
+  vendor?: {
+    shop_name: string;
+    avatar_url: string | null;
+  } | null;
+  rider?: {
+    vehicle_type: string | null;
+    profiles: {
+      full_name: string;
+      avatar_url: string | null;
+    } | null;
+  } | null;
+}
 
-class ChatService {
-  // Get or create a conversation with another user
-  async getOrCreateConversation(otherUserId: string): Promise<string> {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user logged in");
+export const chatService = {
+  // Get or create a conversation between two parties - WITHOUT order_id
+  async getOrCreateConversation(participants: {
+    buyerId?: string;
+    vendorId?: string;
+    riderId?: string;
+  }) {
+    const { buyerId, vendorId, riderId } = participants;
 
-      const { data: existingConvo, error: findError } = await supabase.rpc(
-        "get_or_create_conversation",
-        {
-          other_user: otherUserId,
-        },
-      );
-
-      if (findError) throw findError;
-      return existingConvo;
-    } catch (error) {
-      console.error("Error getting/creating conversation:", error);
-      throw error;
-    }
-  }
-
-  // Get all conversations for current user with details - FIXED RECURSION & TYPES
-  async getConversations(): Promise<ConversationWithDetails[]> {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user logged in");
-
-      // STEP 1: Get all conversation IDs the user is in
-      const { data: userConversations, error: userConvosError } = await supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("user_id", user.id);
-
-      if (userConvosError) throw userConvosError;
-      if (!userConversations || userConversations.length === 0) return [];
-
-      const conversationIds = userConversations.map((c) => c.conversation_id);
-
-      // STEP 2: Get conversations data
-      const { data: conversations, error: conversationsError } = await supabase
-        .from("conversations")
-        .select("*")
-        .in("conversation_id", conversationIds);
-
-      if (conversationsError) throw conversationsError;
-      if (!conversations) return [];
-
-      // STEP 3: Get all participants for these conversations
-      const { data: allParticipants, error: participantsError } = await supabase
-        .from("conversation_participants")
-        .select(
-          `
-          conversation_id,
-          user_id,
-          profiles!conversation_participants_user_id_fkey (
-            user_id,
+    // Build query based on provided participants
+    let query = supabase.from("conversations").select(`
+        *,
+        buyer:profiles!buyer_id(
+          full_name,
+          avatar_url
+        ),
+        vendor:vendor_profiles!vendor_id(
+          shop_name,
+          avatar_url
+        ),
+        rider:rider_profiles!rider_id(
+          vehicle_type,
+          profiles!rider_profiles_user_id_fkey(
             full_name,
-            avatar_url,
-            role
+            avatar_url
           )
-        `,
         )
-        .in("conversation_id", conversationIds);
+      `);
 
-      if (participantsError) throw participantsError;
+    // Add filters based on provided IDs
+    if (buyerId) query = query.eq("buyer_id", buyerId);
+    if (vendorId) query = query.eq("vendor_id", vendorId);
+    if (riderId) query = query.eq("rider_id", riderId);
 
-      // STEP 4: Get last message for each conversation
-      const { data: messages, error: messagesError } = await supabase
-        .from("messages")
-        .select("*")
-        .in("conversation_id", conversationIds)
-        .order("created_at", { ascending: false });
+    // Try to get existing conversation
+    const { data: existingConv, error: fetchError } = await query.maybeSingle();
 
-      if (messagesError) throw messagesError;
-
-      // STEP 5: Get unread counts (without using .group())
-      const unreadCounts: Record<string, number> = {};
-
-      for (const convoId of conversationIds) {
-        const { count, error: countError } = await supabase
-          .from("messages")
-          .select("*", { count: "exact", head: true })
-          .eq("conversation_id", convoId)
-          .eq("is_read", false)
-          .neq("sender_id", user.id);
-
-        if (!countError) {
-          unreadCounts[convoId] = count || 0;
-        }
-      }
-
-      // STEP 6: Get vendor profiles
-      const vendorIds =
-        allParticipants
-          ?.filter((p) => p.profiles?.[0]?.role === "vendor")
-          .map((p) => p.user_id) || [];
-
-      let vendorProfiles: any[] = [];
-      if (vendorIds.length > 0) {
-        const { data: vendors, error: vendorError } = await supabase
-          .from("vendor_profiles")
-          .select("user_id, shop_name, avatar_url")
-          .in("user_id", vendorIds);
-
-        if (!vendorError) vendorProfiles = vendors || [];
-      }
-
-      // STEP 7: Create a map of messages by conversation
-      const messagesByConversation = new Map<string, Message[]>();
-      messages?.forEach((message) => {
-        if (!messagesByConversation.has(message.conversation_id)) {
-          messagesByConversation.set(message.conversation_id, []);
-        }
-        messagesByConversation.get(message.conversation_id)!.push(message);
-      });
-
-      // STEP 8: Build conversations
-      const conversationsWithDetails: ConversationWithDetails[] =
-        conversations.map((conv) => {
-          const conversationParticipants =
-            allParticipants?.filter(
-              (cp) => cp.conversation_id === conv.conversation_id,
-            ) || [];
-
-          const otherParticipant = conversationParticipants.find(
-            (cp) => cp.user_id !== user.id,
-          );
-
-          const otherUserProfile = otherParticipant?.profiles?.[0];
-          const vendorProfile = vendorProfiles.find(
-            (v) => v.user_id === otherParticipant?.user_id,
-          );
-
-          const convoMessages =
-            messagesByConversation.get(conv.conversation_id) || [];
-          const lastMessage = convoMessages[0] || null;
-
-          return {
-            conversation_id: conv.conversation_id,
-            created_at: conv.created_at,
-            last_message_at: conv.last_message_at,
-            related_order_id: conv.related_order_id,
-            related_vendor_id: conv.related_vendor_id,
-            related_rider_id: conv.related_rider_id,
-            other_participant: {
-              user_id: otherParticipant?.user_id || "",
-              full_name: otherUserProfile?.full_name || null,
-              avatar_url:
-                vendorProfile?.avatar_url ||
-                otherUserProfile?.avatar_url ||
-                null,
-              role: otherUserProfile?.role || "user",
-              shop_name: vendorProfile?.shop_name,
-              is_online: false,
-            },
-            last_message: lastMessage,
-            unread_count: unreadCounts[conv.conversation_id] || 0,
-          };
-        });
-
-      // Sort by last message time
-      return conversationsWithDetails.sort((a, b) => {
-        const aTime = a.last_message?.created_at || a.created_at;
-        const bTime = b.last_message?.created_at || b.created_at;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
-      });
-    } catch (error) {
-      console.error("Error getting conversations:", error);
-      throw error;
+    if (existingConv) {
+      return { data: existingConv, error: null };
     }
-  }
+
+    // If no conversation exists, create one
+    const insertData: any = {};
+    if (buyerId) insertData.buyer_id = buyerId;
+    if (vendorId) insertData.vendor_id = vendorId;
+    if (riderId) insertData.rider_id = riderId;
+
+    // Set unread counts based on participants
+    insertData.buyer_unread_count = 0;
+    insertData.vendor_unread_count = 0;
+    insertData.rider_unread_count = 0;
+
+    const { data: newConv, error: createError } = await supabase
+      .from("conversations")
+      .insert([insertData])
+      .select(
+        `
+        *,
+        buyer:profiles!buyer_id(
+          full_name,
+          avatar_url
+        ),
+        vendor:vendor_profiles!vendor_id(
+          shop_name,
+          avatar_url
+        ),
+        rider:rider_profiles!rider_id(
+          vehicle_type,
+          profiles!rider_profiles_user_id_fkey(
+            full_name,
+            avatar_url
+          )
+        )
+      `,
+      )
+      .single();
+
+    return { data: newConv, error: createError };
+  },
+
+  // Get all conversations for a user (buyer, vendor, or rider)
+  async getUserConversations(userId: string) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select(
+        `
+        *,
+        buyer:profiles!buyer_id(
+          full_name,
+          avatar_url
+        ),
+        vendor:vendor_profiles!vendor_id(
+          shop_name,
+          avatar_url
+        ),
+        rider:rider_profiles!rider_id(
+          vehicle_type,
+          profiles!rider_profiles_user_id_fkey(
+            full_name,
+            avatar_url
+          )
+        )
+      `,
+      )
+      .or(`buyer_id.eq.${userId},vendor_id.eq.${userId},rider_id.eq.${userId}`)
+      .order("updated_at", { ascending: false });
+
+    return { data, error };
+  },
 
   // Get messages for a conversation
-  async getMessages(conversationId: string, limit = 50): Promise<Message[]> {
+  async getMessages(conversationId: string) {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+
+    return { data, error };
+  },
+
+  // Send a message
+  async sendMessage(conversationId: string, senderId: string, message: string) {
     try {
-      const { data, error } = await supabase
-        .from("messages")
+      // First, get the conversation to know who the participants are
+      const { data: conversation, error: convError } = await supabase
+        .from("conversations")
         .select(
-          `
-          *,
-          sender:profiles!sender_id(
-            user_id,
-            full_name,
-            avatar_url,
-            role
-          )
-        `,
+          "buyer_id, vendor_id, rider_id, buyer_unread_count, vendor_unread_count, rider_unread_count",
         )
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(limit);
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error("Error getting messages:", error);
-      throw error;
-    }
-  }
-
-  // Send a new message
-  async sendMessage(
-    conversationId: string,
-    content: string,
-    type: "text" | "product" | "order" = "text",
-  ): Promise<Message> {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user logged in");
-
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          content,
-          message_type: type,
-          is_read: false,
-        })
-        .select(
-          `
-          *,
-          sender:profiles!sender_id(
-            user_id,
-            full_name,
-            avatar_url,
-            role
-          )
-        `,
-        )
+        .eq("id", conversationId)
         .single();
 
-      if (error) throw error;
+      if (convError || !conversation) {
+        console.error("Error fetching conversation:", convError);
+        return { data: null, error: convError };
+      }
 
-      // Update conversation's last_message_at
-      await supabase
+      // Insert the message
+      const { data: messageData, error: messageError } = await supabase
+        .from("messages")
+        .insert([
+          {
+            conversation_id: conversationId,
+            sender_id: senderId,
+            message: message,
+            is_read: false,
+          },
+        ])
+        .select()
+        .single();
+
+      if (messageError) {
+        console.error("Error inserting message:", messageError);
+        return { data: null, error: messageError };
+      }
+
+      // Update conversation's last message and unread counts
+      const updates: any = {
+        last_message: message,
+        last_message_time: new Date().toISOString(),
+        last_message_sender_id: senderId,
+      };
+
+      // Increment the appropriate unread counts for other participants
+      if (conversation.buyer_id && conversation.buyer_id !== senderId) {
+        updates.buyer_unread_count = (conversation.buyer_unread_count || 0) + 1;
+      }
+      if (conversation.vendor_id && conversation.vendor_id !== senderId) {
+        updates.vendor_unread_count =
+          (conversation.vendor_unread_count || 0) + 1;
+      }
+      if (conversation.rider_id && conversation.rider_id !== senderId) {
+        updates.rider_unread_count = (conversation.rider_unread_count || 0) + 1;
+      }
+
+      const { error: updateError } = await supabase
         .from("conversations")
-        .update({ last_message_at: new Date().toISOString() })
-        .eq("conversation_id", conversationId);
+        .update(updates)
+        .eq("id", conversationId);
 
-      return data;
-    } catch (error) {
-      console.error("Error sending message:", error);
-      throw error;
+      if (updateError) {
+        console.error("Error updating conversation:", updateError);
+      }
+
+      return { data: messageData, error: null };
+    } catch (err) {
+      console.error("Error in sendMessage:", err);
+      return { data: null, error: err };
     }
-  }
+  },
 
   // Mark messages as read
-  async markMessagesAsRead(conversationId: string): Promise<void> {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user logged in");
+  async markMessagesAsRead(conversationId: string, userId: string) {
+    // Mark individual messages as read
+    await supabase
+      .from("messages")
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", userId)
+      .eq("is_read", false);
 
-      await supabase
-        .from("messages")
-        .update({ is_read: true })
-        .eq("conversation_id", conversationId)
-        .neq("sender_id", user.id)
-        .eq("is_read", false);
-    } catch (error) {
-      console.error("Error marking messages as read:", error);
+    // Reset unread count for the user
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("buyer_id, vendor_id, rider_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (conv) {
+      const updates: any = {};
+      if (conv.buyer_id === userId) {
+        updates.buyer_unread_count = 0;
+      }
+      if (conv.vendor_id === userId) {
+        updates.vendor_unread_count = 0;
+      }
+      if (conv.rider_id === userId) {
+        updates.rider_unread_count = 0;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await supabase
+          .from("conversations")
+          .update(updates)
+          .eq("id", conversationId);
+      }
     }
-  }
+  },
 
-  // Subscribe to new messages
+  // Subscribe to new messages in a conversation
   subscribeToMessages(
     conversationId: string,
     callback: (message: Message) => void,
-  ): RealtimeChannel {
-    return supabase
+  ) {
+    const subscription = supabase
       .channel(`messages:${conversationId}`)
       .on(
         "postgres_changes",
@@ -345,58 +286,15 @@ class ChatService {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload) => {
-          const { data } = await supabase
-            .from("messages")
-            .select(
-              `
-              *,
-              sender:profiles!sender_id(
-                user_id,
-                full_name,
-                avatar_url,
-                role
-              )
-            `,
-            )
-            .eq("message_id", payload.new.message_id)
-            .single();
-
-          if (data) callback(data);
+        (payload) => {
+          console.log("New message received via subscription:", payload);
+          callback(payload.new as Message);
         },
       )
-      .subscribe();
-  }
+      .subscribe((status) => {
+        console.log(`Subscription status for ${conversationId}:`, status);
+      });
 
-  // Subscribe to new conversations
-  subscribeToNewConversations(
-    callback: (conversationId: string) => void,
-  ): RealtimeChannel {
-    return supabase
-      .channel("new-conversations")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "conversation_participants",
-        },
-        async (payload) => {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user && payload.new.user_id === user.id) {
-            callback(payload.new.conversation_id);
-          }
-        },
-      )
-      .subscribe();
-  }
-
-  // Unsubscribe from channel
-  unsubscribe(channel: RealtimeChannel): void {
-    supabase.removeChannel(channel);
-  }
-}
-
-export const chatService = new ChatService();
+    return subscription;
+  },
+};

@@ -1,3 +1,3 @@
-import Chat from "@/components/Rider/Chat";
+import RiderConversationsScreen from "@/components/Rider/RiderConversations";
 
-export default Chat;
+export default RiderConversationsScreen;

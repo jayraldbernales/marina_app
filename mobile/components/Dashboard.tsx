@@ -13,7 +13,7 @@ import {
   FlatList,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
 import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
@@ -96,13 +96,101 @@ const BuyerDashboard = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [fullName, setFullName] = useState("");
   const [greeting, setGreeting] = useState("");
-  const [allProducts, setAllProducts] = useState<Product[]>([]); // Store ALL products
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]); // Products after filtering
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [freshnessFilter, setFreshnessFilter] =
     useState<FreshnessFilter>("all");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null); // Add category filter state
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
+
+  // New state for unread messages count
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Fetch current user
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+    } catch (error) {
+      console.error("Error fetching current user:", error);
+    }
+  }, []);
+
+  // Fetch unread messages count
+  const fetchUnreadMessagesCount = useCallback(async () => {
+    if (!currentUserId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("buyer_unread_count")
+        .eq("buyer_id", currentUserId);
+
+      if (error) {
+        console.error("Error fetching unread count:", error);
+        return;
+      }
+
+      const totalUnread = (data || []).reduce(
+        (sum, conv) => sum + (conv.buyer_unread_count || 0),
+        0,
+      );
+      setUnreadMessagesCount(totalUnread);
+    } catch (error) {
+      console.error("Error in fetchUnreadMessagesCount:", error);
+    }
+  }, [currentUserId]);
+
+  // Set up real-time subscription for unread messages
+  const setupUnreadSubscription = useCallback(() => {
+    if (!currentUserId) return;
+
+    const subscription = supabase
+      .channel("unread-messages-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversations",
+          filter: `buyer_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          console.log("Conversation updated for unread count:", payload);
+          fetchUnreadMessagesCount();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+        },
+        async (payload) => {
+          // Check if this message belongs to a conversation where current user is the buyer
+          const { data } = await supabase
+            .from("conversations")
+            .select("buyer_id")
+            .eq("id", payload.new.conversation_id)
+            .single();
+
+          if (data && data.buyer_id === currentUserId) {
+            // Message is for the current user, refresh unread count
+            fetchUnreadMessagesCount();
+          }
+        },
+      )
+      .subscribe();
+
+    return subscription;
+  }, [currentUserId, fetchUnreadMessagesCount]);
 
   // Fetch user profile
   const fetchUserProfile = useCallback(async () => {
@@ -280,11 +368,10 @@ const BuyerDashboard = () => {
       setLoading(true);
 
       await Promise.all([
+        fetchCurrentUser(),
         fetchUserProfile(),
         fetchProducts().then((productsData) => {
-          // Store all products
           setAllProducts(productsData);
-          // Initial filter will be applied by useEffect
         }),
         fetchCategories().then(setCategories),
       ]);
@@ -295,7 +382,35 @@ const BuyerDashboard = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fetchUserProfile, fetchProducts, fetchCategories]);
+  }, [fetchCurrentUser, fetchUserProfile, fetchProducts, fetchCategories]);
+
+  // Load unread count after user ID is set
+  useEffect(() => {
+    if (currentUserId) {
+      fetchUnreadMessagesCount();
+    }
+  }, [currentUserId, fetchUnreadMessagesCount]);
+
+  // Set up real-time subscription
+  useEffect(() => {
+    if (currentUserId) {
+      const subscription = setupUnreadSubscription();
+      return () => {
+        if (subscription) {
+          subscription.unsubscribe();
+        }
+      };
+    }
+  }, [currentUserId, setupUnreadSubscription]);
+
+  // Refresh unread count when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (currentUserId) {
+        fetchUnreadMessagesCount();
+      }
+    }, [currentUserId, fetchUnreadMessagesCount]),
+  );
 
   // Initial load
   useEffect(() => {
@@ -316,8 +431,8 @@ const BuyerDashboard = () => {
   // Pull to refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
-  }, [loadData]);
+    Promise.all([loadData(), fetchUnreadMessagesCount()]);
+  }, [loadData, fetchUnreadMessagesCount]);
 
   // Handlers
   const handleProductPress = useCallback((product: Product) => {
@@ -327,7 +442,6 @@ const BuyerDashboard = () => {
   const handleCategoryPress = useCallback(
     (category: string) => {
       if (selectedCategory === category) {
-        // If same category is clicked again, deselect it
         setSelectedCategory(null);
       } else {
         setSelectedCategory(category);
@@ -345,6 +459,10 @@ const BuyerDashboard = () => {
   const handleFilterPress = (filterValue: FreshnessFilter) => {
     setFreshnessFilter(filterValue);
     setShowFilterModal(false);
+  };
+
+  const handleChatPress = () => {
+    router.push("/buyer/conversation");
   };
 
   // Clear all filters
@@ -395,9 +513,10 @@ const BuyerDashboard = () => {
               </Text>
             </View>
 
+            {/* Chat Button with Unread Badge */}
             <TouchableOpacity
               style={buyerDashboardStyles.chatButton}
-              onPress={() => router.push("/buyer/chat")}
+              onPress={handleChatPress}
               accessibilityLabel="Open chat"
             >
               <Ionicons
@@ -405,6 +524,13 @@ const BuyerDashboard = () => {
                 size={25}
                 color="#fff"
               />
+              {unreadMessagesCount > 0 && (
+                <View style={buyerDashboardStyles.unreadBadge}>
+                  <Text style={buyerDashboardStyles.unreadBadgeText}>
+                    {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
 

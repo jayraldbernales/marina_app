@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react"; // Add useCallback
-import { useFocusEffect } from "expo-router"; // Add this import
+// app/seller/index.tsx - With unread badge on chat button
+import React, { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   View,
   Text,
@@ -49,6 +50,96 @@ const SellerDashboard = () => {
     recentOrders: [],
   });
   const [loading, setLoading] = useState(true);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Fetch current user
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+    } catch (error) {
+      console.error("Error fetching current user:", error);
+    }
+  }, []);
+
+  // Fetch unread messages count for vendor
+  const fetchUnreadMessagesCount = useCallback(async () => {
+    if (!currentUserId) return;
+
+    try {
+      console.log("Fetching unread count for vendor:", currentUserId);
+
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("vendor_unread_count")
+        .eq("vendor_id", currentUserId);
+
+      if (error) {
+        console.error("Error fetching unread count:", error);
+        return;
+      }
+
+      const totalUnread = (data || []).reduce(
+        (sum, conv) => sum + (conv.vendor_unread_count || 0),
+        0,
+      );
+
+      console.log("Total unread for vendor:", totalUnread);
+      setUnreadMessagesCount(totalUnread);
+    } catch (error) {
+      console.error("Error in fetchUnreadMessagesCount:", error);
+    }
+  }, [currentUserId]);
+
+  // Set up real-time subscription for unread messages
+  const setupUnreadSubscription = useCallback(() => {
+    if (!currentUserId) return;
+
+    const subscription = supabase
+      .channel("vendor-unread-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversations",
+          filter: `vendor_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          console.log("Vendor conversation updated:", payload);
+          fetchUnreadMessagesCount();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+        },
+        async (payload) => {
+          // Check if this message belongs to a conversation where current user is the vendor
+          const { data } = await supabase
+            .from("conversations")
+            .select("vendor_id")
+            .eq("id", payload.new.conversation_id)
+            .single();
+
+          if (data && data.vendor_id === currentUserId) {
+            console.log("New message for vendor, refreshing count");
+            fetchUnreadMessagesCount();
+          }
+        },
+      )
+      .subscribe();
+
+    return subscription;
+  }, [currentUserId, fetchUnreadMessagesCount]);
 
   const loadDashboardData = async () => {
     try {
@@ -59,6 +150,7 @@ const SellerDashboard = () => {
       if (!session?.user) return;
 
       const vendorUserId = session.user.id;
+      setCurrentUserId(vendorUserId);
 
       // Fetch all orders for this vendor
       const { data: ordersData, error: ordersError } = await supabase
@@ -156,15 +248,42 @@ const SellerDashboard = () => {
 
   // Load data when component mounts
   useEffect(() => {
+    fetchCurrentUser();
     loadDashboardData();
   }, []);
 
-  // Load data every time screen comes into focus
+  // Fetch unread count after user ID is set
+  useEffect(() => {
+    if (currentUserId) {
+      fetchUnreadMessagesCount();
+    }
+  }, [currentUserId, fetchUnreadMessagesCount]);
+
+  // Set up real-time subscription
+  useEffect(() => {
+    if (currentUserId) {
+      const subscription = setupUnreadSubscription();
+      return () => {
+        if (subscription) {
+          subscription.unsubscribe();
+        }
+      };
+    }
+  }, [currentUserId, setupUnreadSubscription]);
+
+  // Load data and unread count every time screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
-    }, []),
+      if (currentUserId) {
+        fetchUnreadMessagesCount();
+      }
+    }, [currentUserId]),
   );
+
+  const handleChatPress = () => {
+    router.push("/seller/conversation");
+  };
 
   interface StatCardProps {
     icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -287,7 +406,7 @@ const SellerDashboard = () => {
             Seller Dashboard
           </Text>
           <TouchableOpacity
-            onPress={() => router.push("/seller/chat")}
+            onPress={handleChatPress}
             style={sellerDashboardStyles.headerMessageBtn}
             accessibilityLabel="View messages"
           >
@@ -296,6 +415,13 @@ const SellerDashboard = () => {
               size={24}
               color={COLORS.light.primary}
             />
+            {unreadMessagesCount > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>
+                  {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
         <View
@@ -324,7 +450,7 @@ const SellerDashboard = () => {
         </TouchableOpacity>
         <Text style={sellerDashboardStyles.headerTitle}>Seller Dashboard</Text>
         <TouchableOpacity
-          onPress={() => router.push("/seller/chat")}
+          onPress={handleChatPress}
           style={sellerDashboardStyles.headerMessageBtn}
           accessibilityLabel="View messages"
         >
@@ -333,6 +459,13 @@ const SellerDashboard = () => {
             size={24}
             color={COLORS.light.primary}
           />
+          {unreadMessagesCount > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>
+                {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
       <ScrollView
@@ -394,6 +527,29 @@ const SellerDashboard = () => {
       </ScrollView>
     </SafeAreaView>
   );
+};
+
+// Add these styles
+const styles = {
+  unreadBadge: {
+    position: "absolute" as "absolute",
+    top: -5,
+    right: -5,
+    backgroundColor: "#ff4444",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: "center" as "center",
+    alignItems: "center" as "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold" as "bold",
+  },
 };
 
 export default SellerDashboard;

@@ -20,29 +20,38 @@ export const cartScreenStyles = StyleSheet.create({
     flex: 1,
   },
   headerItemsCount: { color: COLORS.light.oceanMedium, fontSize: 13 },
-  emptyContent: {
+  emptyState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 32,
+  },
+  emptyIcon: {
+    fontSize: 60,
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: COLORS.light.primary,
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  emptyDesc: { color: COLORS.light.oceanMedium, marginBottom: 18 },
+  emptyDescription: {
+    fontSize: 14,
+    marginBottom: 16,
+    color: COLORS.light.oceanMedium,
+    textAlign: "center",
+  },
+
   startShoppingBtn: {
     backgroundColor: COLORS.light.primary,
-    borderRadius: 16,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
-  startShoppingBtnText: {
+  primaryButtonText: {
     color: COLORS.common.white,
     fontWeight: "bold",
-    fontSize: 16,
+    fontSize: 14,
   },
   cartCard: {
     flexDirection: "row",

@@ -21,6 +21,7 @@ import { COLORS } from "../../constants";
 import { supabase } from "../../lib/supabase";
 import { computeFreshness } from "../../utils/freshness";
 import LoadingSpinner from "../../components/Loading";
+import { chatService } from "../../lib/chat";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const PRODUCT_CARD_WIDTH = (SCREEN_WIDTH - 24) / 2;
@@ -184,26 +185,47 @@ export default function ViewVendorScreen() {
     });
   };
 
+  // app/buyer/view-vendor.tsx (add this function)
+
   const handleChatWithVendor = async () => {
     try {
+      // Get current user
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
       if (!user) {
-        Alert.alert("Please login", "You need to login to chat with vendors");
+        Alert.alert("Error", "Please login to chat with vendors");
         return;
       }
 
+      // Get or create conversation - now using object parameter
+      const { data: conversation, error } =
+        await chatService.getOrCreateConversation({
+          buyerId: user.id,
+          vendorId: vendorUserId,
+        });
+
+      if (error) {
+        console.error("Error creating conversation:", error);
+        Alert.alert("Error", "Failed to start chat");
+        return;
+      }
+
+      // Navigate to chat screen with conversation details
       router.push({
-        pathname: "/buyer/chat",
+        pathname: "./chat",
         params: {
-          vendor_user_id: vendorUserId,
-          vendor_name: vendor?.shop_name,
+          conversationId: conversation.id,
+          otherPartyName: vendor?.shop_name || "Vendor",
+          otherPartyId: vendorUserId,
+          otherPartyType: "vendor",
+          otherPartyAvatar: vendor?.avatar_url,
         },
       });
-    } catch (error) {
-      console.error("Error opening chat:", error);
-      Alert.alert("Error", "Failed to open chat");
+    } catch (err) {
+      console.error("Error in chat:", err);
+      Alert.alert("Error", "Something went wrong");
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -92,10 +92,15 @@ const DirectOrderScreen = () => {
         `,
         )
         .eq("product_id", productId)
-        .single();
+        .maybeSingle();
       if (productError) {
         console.error(productError);
         Alert.alert("Error", "Failed to load product.");
+        return;
+      }
+
+      if (!productData) {
+        Alert.alert("Error", "Product not found.");
         return;
       }
       setProduct(productData);
@@ -112,7 +117,7 @@ const DirectOrderScreen = () => {
           `,
           )
           .eq("user_id", productData.vendor_user_id)
-          .single();
+          .maybeSingle();
         if (!vendorError) {
           setVendor(vendorData);
         }
@@ -270,9 +275,13 @@ const DirectOrderScreen = () => {
         .from("orders")
         .select("order_number, total_amount")
         .eq("order_id", orderId)
-        .single();
+        .maybeSingle();
 
       if (orderFetchError) throw orderFetchError;
+
+      if (!orderData) {
+        throw new Error("Failed to retrieve order details after creation");
+      }
 
       // Step 4: Update local UI state only
       setProduct((prev: any) => ({
@@ -519,10 +528,10 @@ const DirectOrderScreen = () => {
             </TouchableOpacity>
             <Text style={cartScreenStyles.headerTitleCart}>Direct Order</Text>
           </View>
-          <View style={cartScreenStyles.emptyContent}>
+          <View style={cartScreenStyles.emptyState}>
             <Text style={{ fontSize: 60, marginBottom: 12 }}>📦</Text>
             <Text style={cartScreenStyles.emptyTitle}>Product not found</Text>
-            <Text style={cartScreenStyles.emptyDesc}>
+            <Text style={cartScreenStyles.emptyDescription}>
               The product you're looking for is unavailable.
             </Text>
             <TouchableOpacity
@@ -530,7 +539,7 @@ const DirectOrderScreen = () => {
               onPress={handleBackToPrevious}
               accessibilityLabel="Start shopping"
             >
-              <Text style={cartScreenStyles.startShoppingBtnText}>
+              <Text style={cartScreenStyles.primaryButtonText}>
                 Continue Shopping
               </Text>
             </TouchableOpacity>

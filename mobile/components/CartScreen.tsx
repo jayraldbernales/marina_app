@@ -696,10 +696,10 @@ const CartScreen = () => {
             </TouchableOpacity>
             <Text style={cartScreenStyles.headerTitleCart}>Shopping Cart</Text>
           </View>
-          <View style={cartScreenStyles.emptyContent}>
-            <Text style={{ fontSize: 60, marginBottom: 12 }}>🛒</Text>
+          <View style={cartScreenStyles.emptyState}>
+            <Text style={cartScreenStyles.emptyIcon}>🛒</Text>
             <Text style={cartScreenStyles.emptyTitle}>Your cart is empty</Text>
-            <Text style={cartScreenStyles.emptyDesc}>
+            <Text style={cartScreenStyles.emptyDescription}>
               Add some fresh seafood to get started!
             </Text>
             <TouchableOpacity
@@ -707,7 +707,7 @@ const CartScreen = () => {
               onPress={handleBackToDashboard}
               accessibilityLabel="Start shopping"
             >
-              <Text style={cartScreenStyles.startShoppingBtnText}>
+              <Text style={cartScreenStyles.primaryButtonText}>
                 Start Shopping
               </Text>
             </TouchableOpacity>

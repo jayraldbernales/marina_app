@@ -353,7 +353,7 @@ const EditShopProfile = () => {
         barangay: addressData.barangay,
         municipality: addressData.municipality,
         address_type: "business",
-        is_default: true, // Business address is always default for shop
+        is_default: false,
       };
 
       if (addressData.address_id) {

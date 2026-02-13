@@ -223,7 +223,7 @@ export const saveVendorRegistration = async (
           barangay: data.barangay,
           municipality: data.municipality,
           address_type: "business",
-          is_default: true,
+          is_default: false,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -391,7 +391,7 @@ export const saveRiderRegistration = async (
               barangay: data.barangay,
               municipality: data.municipality,
               address_type: "residential",
-              is_default: true,
+              is_default: false,
               created_at: new Date().toISOString(),
             },
           ]);
