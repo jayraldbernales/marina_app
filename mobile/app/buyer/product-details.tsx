@@ -23,6 +23,7 @@ import { supabase } from "../../lib/supabase";
 import { computeFreshness } from "../../utils/freshness";
 import { formatHoursAgo } from "../../utils/time";
 import LoadingSpinner from "../../components/Loading";
+import { chatService } from "../../lib/chat";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -59,6 +60,28 @@ const formatTimeForDisplay = (dateString?: string | null) => {
   }
 };
 
+// Helper function to format pre-order time
+const formatPreOrderTime = (harvestedAt?: string | null) => {
+  if (!harvestedAt) return null;
+
+  const harvestDate = new Date(harvestedAt);
+  const now = new Date();
+  const diffMs = harvestDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 0) {
+    return `Available in ${diffDays} day${diffDays > 1 ? "s" : ""}`;
+  }
+
+  const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  if (diffHours > 0) {
+    return `Available in ${diffHours} hr${diffHours > 1 ? "s" : ""}`;
+  }
+
+  const diffMinutes = Math.ceil(diffMs / (1000 * 60));
+  return `Available in ${diffMinutes} min`;
+};
+
 export default function BuyerProductDetail() {
   const params = useLocalSearchParams();
   const productId =
@@ -74,6 +97,7 @@ export default function BuyerProductDetail() {
   const [soldCount, setSoldCount] = useState<number>(0);
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
+  const [chatting, setChatting] = useState(false);
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
@@ -148,8 +172,7 @@ export default function BuyerProductDetail() {
         }
       }
 
-      // Fetch product rating (you'll need to implement this based on your rating system)
-      // For now, we'll use a placeholder or fetch from a ratings table if you have one
+      // Fetch product rating
       fetchProductRating();
     } catch (err) {
       console.error(err);
@@ -162,22 +185,7 @@ export default function BuyerProductDetail() {
   // Fetch product rating from database
   const fetchProductRating = async () => {
     try {
-      // Example: If you have a ratings/reviews table
-      // const { data: ratingsData, error } = await supabase
-      //   .from("reviews")
-      //   .select("rating")
-      //   .eq("product_id", productId);
-
-      // if (!error && ratingsData && ratingsData.length > 0) {
-      //   const totalRating = ratingsData.reduce((sum, review) => sum + review.rating, 0);
-      //   const averageRating = totalRating / ratingsData.length;
-      //   setRating(averageRating);
-      // } else {
-      //   setRating(null);
-      // }
-
-      // For now, using a placeholder rating
-      setRating(4.5); // Replace with actual rating logic
+      setRating(4.5);
     } catch (error) {
       console.error("Error fetching rating:", error);
       setRating(null);
@@ -189,14 +197,6 @@ export default function BuyerProductDetail() {
   }, [loadProduct]);
 
   const goBack = useCallback(() => router.back(), []);
-
-  // Format vendor address for display
-  const formatVendorAddress = () => {
-    if (!vendorAddress || !vendorAddress.full_address) {
-      return "Address not specified";
-    }
-    return vendorAddress.full_address;
-  };
 
   // Render image item
   const renderImageItem = ({
@@ -228,7 +228,7 @@ export default function BuyerProductDetail() {
     }
   };
 
-  // Show quantity modal when clicking Add to Cart
+  // Show quantity modal when clicking Add to Cart / Pre-order
   const handleAddToCartClick = () => {
     if (!product || stockAvailable <= 0) {
       Alert.alert("Error", "Product is out of stock or unavailable.");
@@ -355,8 +355,13 @@ export default function BuyerProductDetail() {
         }
       }
 
-      // Step 5: Success - Show alert and optionally navigate
-      Alert.alert("Success", `${selectedQuantity} item(s) added to cart!`);
+      // Step 5: Success - Show alert
+      Alert.alert(
+        "Success",
+        freshness.isPreOrder
+          ? `${selectedQuantity} item(s) added to pre-order!`
+          : `${selectedQuantity} item(s) added to cart!`,
+      );
       // Reset quantity after successful add
       setSelectedQuantity(1);
     } catch (err) {
@@ -367,7 +372,7 @@ export default function BuyerProductDetail() {
     }
   };
 
-  // Direct order function
+  // Direct order / Pre-order now function
   const handleDirectOrder = () => {
     if (!productId || stockAvailable === 0) {
       Alert.alert("Error", "Product is out of stock or unavailable.");
@@ -379,9 +384,62 @@ export default function BuyerProductDetail() {
       pathname: "/buyer/direct-order",
       params: {
         product_id: productId,
-        quantity: selectedQuantity.toString(), // Pass the selected quantity
+        quantity: selectedQuantity.toString(),
+        isPreOrder: freshness.isPreOrder ? "true" : "false",
       },
     });
+  };
+
+  // Chat with vendor function
+  const handleChatWithVendor = async () => {
+    if (!product?.vendor_user_id || !vendor) {
+      Alert.alert("Error", "Vendor information not available");
+      return;
+    }
+
+    try {
+      setChatting(true);
+
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat with vendors");
+        return;
+      }
+
+      // Get or create conversation
+      const { data: conversation, error } =
+        await chatService.getOrCreateConversation({
+          buyerId: user.id,
+          vendorId: product.vendor_user_id,
+        });
+
+      if (error) {
+        console.error("Error creating conversation:", error);
+        Alert.alert("Error", "Failed to start chat");
+        return;
+      }
+
+      // Navigate to chat screen with conversation details
+      router.push({
+        pathname: "./chat",
+        params: {
+          conversationId: conversation.id,
+          otherPartyName: vendor?.shop_name || "Vendor",
+          otherPartyId: product.vendor_user_id,
+          otherPartyType: "vendor",
+          otherPartyAvatar: vendor?.avatar_url,
+        },
+      });
+    } catch (err) {
+      console.error("Error in chat:", err);
+      Alert.alert("Error", "Something went wrong");
+    } finally {
+      setChatting(false);
+    }
   };
 
   // View vendor profile
@@ -431,7 +489,6 @@ export default function BuyerProductDetail() {
             <Text style={styles.headerTitle}>Product Details</Text>
             <View style={{ width: 40 }} />
           </View>
-          {/* Use the reusable loading component */}
           <LoadingSpinner />
         </View>
       </SafeAreaView>
@@ -450,7 +507,7 @@ export default function BuyerProductDetail() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
-        {/* Header - Centered */}
+        {/* Header */}
         <View style={styles.headerBar}>
           <TouchableOpacity onPress={goBack} style={styles.backButton}>
             <Ionicons
@@ -487,7 +544,6 @@ export default function BuyerProductDetail() {
                   }}
                   keyExtractor={(item, index) => `${item}-${index}`}
                 />
-                {/* Image indicator as numbers instead of dots */}
                 {images.length > 1 && (
                   <View style={styles.imageIndicatorNumber}>
                     <View style={styles.indicatorNumberContainer}>
@@ -524,7 +580,6 @@ export default function BuyerProductDetail() {
                 <Text style={styles.productTitle}>{product.product_name}</Text>
               </View>
 
-              {/* Sold and Rating on the right side */}
               <View style={styles.priceRightColumn}>
                 <View style={styles.soldRatingContainer}>
                   <View style={styles.soldContainer}>
@@ -554,15 +609,31 @@ export default function BuyerProductDetail() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <View
-                  style={[
-                    styles.freshnessDot,
-                    { backgroundColor: freshness.color },
-                  ]}
-                />
-                <Text style={[styles.statText, { color: freshness.color }]}>
-                  {freshness.label} • {formatHoursAgo(freshness.hoursElapsed)}
-                </Text>
+                {freshness.isPreOrder ? (
+                  <>
+                    <MaterialCommunityIcons
+                      name="calendar-clock"
+                      size={14}
+                      color={freshness.color}
+                    />
+                    <Text style={[styles.statText, { color: freshness.color }]}>
+                      {formatPreOrderTime(product?.harvested_at)}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <View
+                      style={[
+                        styles.freshnessDot,
+                        { backgroundColor: freshness.color },
+                      ]}
+                    />
+                    <Text style={[styles.statText, { color: freshness.color }]}>
+                      {freshness.label} •{" "}
+                      {formatHoursAgo(freshness.hoursElapsed)}
+                    </Text>
+                  </>
+                )}
               </View>
             </View>
           </View>
@@ -610,7 +681,7 @@ export default function BuyerProductDetail() {
             </View>
           )}
 
-          {/* Category & Stock Section */}
+          {/* Category & Stock Section - UPDATED for pre-order */}
           <View style={styles.categorySection}>
             {categoryName && (
               <>
@@ -623,27 +694,33 @@ export default function BuyerProductDetail() {
             )}
 
             <View style={styles.categoryItem}>
-              <Text style={styles.categoryLabel}>Availability</Text>
+              <Text style={styles.categoryLabel}>{"Availability"}</Text>
               <View style={styles.statusBadge}>
                 <View
                   style={[
                     styles.statusDot,
-                    product.is_active && stockAvailable > 0
-                      ? styles.statusDotActive
-                      : styles.statusDotInactive,
+                    freshness.isPreOrder
+                      ? { backgroundColor: freshness.color }
+                      : product.is_active && stockAvailable > 0
+                        ? styles.statusDotActive
+                        : styles.statusDotInactive,
                   ]}
                 />
                 <Text
                   style={[
                     styles.statusText,
-                    product.is_active && stockAvailable > 0
-                      ? styles.statusTextActive
-                      : styles.statusTextInactive,
+                    freshness.isPreOrder
+                      ? { color: freshness.color }
+                      : product.is_active && stockAvailable > 0
+                        ? styles.statusTextActive
+                        : styles.statusTextInactive,
                   ]}
                 >
-                  {product.is_active && stockAvailable > 0
-                    ? "Available"
-                    : "Out of Stock"}
+                  {freshness.isPreOrder
+                    ? "Pre-order"
+                    : product.is_active && stockAvailable > 0
+                      ? "Available"
+                      : "Out of Stock"}
                 </Text>
               </View>
             </View>
@@ -663,11 +740,15 @@ export default function BuyerProductDetail() {
           <View style={styles.harvestSection}>
             <View style={styles.sectionHeader}>
               <MaterialCommunityIcons
-                name="fish"
+                name={freshness.isPreOrder ? "calendar-clock" : "fish"}
                 size={20}
                 color={COLORS.light.primary}
               />
-              <Text style={styles.sectionTitle}>Freshness Information</Text>
+              <Text style={styles.sectionTitle}>
+                {freshness.isPreOrder
+                  ? "Harvest Date"
+                  : "Freshness Information"}
+              </Text>
             </View>
 
             <View style={styles.harvestGrid}>
@@ -677,7 +758,9 @@ export default function BuyerProductDetail() {
                   size={24}
                   color={COLORS.light.primary}
                 />
-                <Text style={styles.harvestCardLabel}>Harvest Date</Text>
+                <Text style={styles.harvestCardLabel}>
+                  {freshness.isPreOrder ? "Harvest Date" : "Harvest Date"}
+                </Text>
                 <Text style={styles.harvestCardValue}>{harvestDate}</Text>
               </View>
 
@@ -688,7 +771,9 @@ export default function BuyerProductDetail() {
                     size={24}
                     color={COLORS.light.primary}
                   />
-                  <Text style={styles.harvestCardLabel}>Harvest Time</Text>
+                  <Text style={styles.harvestCardLabel}>
+                    {freshness.isPreOrder ? "Harvest Time" : "Harvest Time"}
+                  </Text>
                   <Text style={styles.harvestCardValue}>{harvestTime}</Text>
                 </View>
               )}
@@ -696,10 +781,30 @@ export default function BuyerProductDetail() {
           </View>
         </ScrollView>
 
-        {/* Fixed Bottom Action Bar with Quantity Selector */}
+        {/* Fixed Bottom Action Bar */}
         <View style={styles.actionBar}>
-          {/* Action Buttons */}
           <View style={styles.actionButtons}>
+            {/* Chat Button - Unchanged */}
+            <TouchableOpacity
+              style={[
+                styles.chatButton,
+                (stockAvailable === 0 || chatting) && styles.buttonDisabled,
+              ]}
+              onPress={handleChatWithVendor}
+              disabled={stockAvailable === 0 || chatting}
+            >
+              <Ionicons
+                name="chatbox-ellipses"
+                size={20}
+                color={
+                  stockAvailable === 0 || chatting
+                    ? "#ccc"
+                    : COLORS.light.primary
+                }
+              />
+            </TouchableOpacity>
+
+            {/* Add to Cart Button - Unchanged */}
             <TouchableOpacity
               style={[
                 styles.addToCartButton,
@@ -709,7 +814,7 @@ export default function BuyerProductDetail() {
               disabled={stockAvailable === 0 || addingToCart}
             >
               <Ionicons
-                name="cart"
+                name={"cart"}
                 size={20}
                 color={
                   stockAvailable === 0 || addingToCart
@@ -723,10 +828,11 @@ export default function BuyerProductDetail() {
                   (stockAvailable === 0 || addingToCart) && styles.disabledText,
                 ]}
               >
-                {addingToCart ? "Adding..." : "Add to Cart"}
+                {"Add to Cart"}
               </Text>
             </TouchableOpacity>
 
+            {/* Order Now / Pre-order Now Button - UPDATED text only */}
             <TouchableOpacity
               style={[
                 styles.orderButton,
@@ -741,7 +847,7 @@ export default function BuyerProductDetail() {
                   stockAvailable === 0 && styles.disabledText,
                 ]}
               >
-                Order Now
+                {freshness.isPreOrder ? "Pre-order" : "Order Now"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -758,7 +864,9 @@ export default function BuyerProductDetail() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Quantity</Text>
+              <Text style={styles.modalTitle}>
+                {freshness.isPreOrder ? "Select Quantity" : "Select Quantity"}
+              </Text>
               <TouchableOpacity
                 onPress={() => setShowQuantityModal(false)}
                 style={styles.modalCloseButton}
@@ -768,7 +876,6 @@ export default function BuyerProductDetail() {
             </View>
 
             <View style={styles.modalContent}>
-              {/* Price and Stock displayed side by side */}
               <View style={styles.priceStockRow}>
                 <Text style={styles.priceText}>
                   ₱{price.toLocaleString()}/{product?.unit}
@@ -778,7 +885,6 @@ export default function BuyerProductDetail() {
                 </Text>
               </View>
 
-              {/* Improved Quantity Selection */}
               <View style={styles.quantitySection}>
                 <View style={styles.quantityLabelRow}>
                   <Text style={styles.quantityLabel}>Quantity:</Text>
@@ -834,7 +940,9 @@ export default function BuyerProductDetail() {
                 onPress={handleAddToCart}
               >
                 <Text style={styles.confirmButtonText}>
-                  Add {selectedQuantity} to Cart
+                  {freshness.isPreOrder
+                    ? `Pre-order ${selectedQuantity} ${selectedQuantity > 1 ? "items" : "item"}`
+                    : `Add ${selectedQuantity} to Cart`}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -844,7 +952,6 @@ export default function BuyerProductDetail() {
     </SafeAreaView>
   );
 }
-
 /* ---------------------- STYLES ---------------------- */
 const styles = StyleSheet.create({
   container: {
@@ -1229,14 +1336,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  // Chat Button
+  chatButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: COLORS.light.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    width: 50,
+  },
+
   // Add to Cart Button
   addToCartButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#fff",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: COLORS.light.primary,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 14,
     borderRadius: 8,
     gap: 6,
@@ -1251,7 +1373,7 @@ const styles = StyleSheet.create({
   // Order Now Button
   orderButton: {
     backgroundColor: COLORS.light.primary,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 16,
     borderRadius: 8,
     flex: 1,

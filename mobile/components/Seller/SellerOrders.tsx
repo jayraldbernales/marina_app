@@ -17,6 +17,7 @@ import { COLORS } from "@/constants";
 import { sellerOrderStyles } from "./styles/sellerOrderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
+import { computeFreshness } from "@/utils/freshness"; // Add this import
 
 // UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
@@ -35,6 +36,7 @@ type OrderItem = {
   quantity: number;
   image: string | ImageSourcePropType | null;
   productId?: string;
+  harvested_at?: string; // Add this for pre-order detection
 };
 
 type DisplayOrder = {
@@ -67,6 +69,14 @@ const SellerOrders = () => {
     { key: "delivered", label: "Delivered" },
     { key: "cancelled", label: "Cancelled / Rejected" }, // Keep same tab for both
   ];
+
+  // Navigate to product details
+  const handleProductPress = (productId: string) => {
+    router.push({
+      pathname: "../buyer/product-details",
+      params: { product_id: productId },
+    });
+  };
 
   // UPDATED: Added red color for rejected status
   const getStatusColor = (status: OrderStatus) => {
@@ -123,7 +133,9 @@ const SellerOrders = () => {
       for (const order of ordersData as any) {
         const { data: itemsData, error: itemsError } = await supabase
           .from("order_items")
-          .select(`*, products:products(product_id, product_name, images)`)
+          .select(
+            `*, products:products(product_id, product_name, images, harvested_at)`,
+          )
           .eq("order_id", order.order_id);
 
         if (itemsError) {
@@ -139,6 +151,7 @@ const SellerOrders = () => {
             price: parseFloat(item.unit_price) || 0,
             quantity: item.quantity,
             image: item.products?.images?.[0] || null,
+            harvested_at: item.products?.harvested_at,
           }),
         );
 
@@ -347,7 +360,7 @@ const SellerOrders = () => {
         {
           text: "Reject",
           style: "destructive",
-          onPress: () => updateOrderStatus(orderId, "rejected"), // UPDATED: Changed from "cancelled" to "rejected"
+          onPress: () => updateOrderStatus(orderId, "rejected"),
         },
       ],
     );
@@ -463,27 +476,52 @@ const SellerOrders = () => {
           </View>
         )}
 
-        {order.items.map((item) => (
-          <View key={item.id} style={sellerOrderStyles.itemRow}>
-            {typeof item.image === "string" && item.image ? (
-              <Image
-                source={{ uri: item.image }}
-                style={sellerOrderStyles.itemImage}
-              />
-            ) : (
-              <Image
-                source={(item.image as any) || require("@/assets/img/user.jpg")}
-                style={sellerOrderStyles.itemImage}
-              />
-            )}
-            <View style={sellerOrderStyles.itemDetails}>
-              <Text style={sellerOrderStyles.itemName}>{item.name}</Text>
-              <Text style={sellerOrderStyles.itemPrice}>
-                ₱{item.price} × {item.quantity}
-              </Text>
-            </View>
-          </View>
-        ))}
+        {/* Order Items - UPDATED with touchable products and pre-order badge */}
+        {order.items.map((item) => {
+          const freshness = computeFreshness(item.harvested_at);
+
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={sellerOrderStyles.itemRow}
+              onPress={() =>
+                item.productId && handleProductPress(item.productId)
+              }
+              activeOpacity={0.7}
+            >
+              {typeof item.image === "string" && item.image ? (
+                <Image
+                  source={{ uri: item.image }}
+                  style={sellerOrderStyles.itemImage}
+                />
+              ) : (
+                <Image
+                  source={
+                    (item.image as any) || require("@/assets/img/user.jpg")
+                  }
+                  style={sellerOrderStyles.itemImage}
+                />
+              )}
+              <View style={sellerOrderStyles.itemDetails}>
+                <View style={sellerOrderStyles.itemNameRow}>
+                  <Text style={sellerOrderStyles.itemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </View>
+                <Text style={sellerOrderStyles.itemPrice}>
+                  ₱{item.price} × {item.quantity}
+                </Text>
+                {freshness.isPreOrder && (
+                  <View style={sellerOrderStyles.preOrderBadge}>
+                    <Text style={sellerOrderStyles.preOrderBadgeText}>
+                      Pre-order
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
 
         <View style={sellerOrderStyles.orderFooter}>
           <View style={sellerOrderStyles.totalRow}>

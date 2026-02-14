@@ -16,6 +16,7 @@ import { COLORS } from "@/constants";
 import { orderStyles } from "../components/styles/orderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
+import { computeFreshness } from "@/utils/freshness";
 
 // UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
@@ -40,6 +41,7 @@ interface DisplayOrder {
     quantity: number;
     vendor: string;
     image: string | null;
+    harvested_at?: string; // Add this to check pre-order
   }[];
   status: OrderStatus;
   totalAmount: number;
@@ -81,7 +83,7 @@ const OrdersScreen = () => {
       case "delivered":
         return "completed";
       case "cancelled":
-      case "rejected": // UPDATED: Add rejected to cancelled tab
+      case "rejected":
         return "cancelled";
       default:
         return "to-pay";
@@ -105,6 +107,14 @@ const OrdersScreen = () => {
           : order,
       ),
     );
+  };
+
+  // Navigate to product details
+  const handleProductPress = (productId: string) => {
+    router.push({
+      pathname: "../buyer/product-details",
+      params: { product_id: productId },
+    });
   };
 
   // Fetch orders from Supabase
@@ -152,6 +162,7 @@ const OrdersScreen = () => {
               product_id,
               product_name,
               images,
+              harvested_at,
               vendor_profiles!inner(shop_name)
             )
           `,
@@ -172,6 +183,7 @@ const OrdersScreen = () => {
           quantity: item.quantity,
           vendor: item.products.vendor_profiles?.shop_name || "Unknown Vendor",
           image: item.products.images?.[0] || null,
+          harvested_at: item.products.harvested_at,
         }));
 
         // Create display order
@@ -264,7 +276,7 @@ const OrdersScreen = () => {
       case "cancelled":
         return "Cancelled";
       case "rejected":
-        return "Rejected"; // UPDATED: Show "Rejected" instead of "Cancelled / Rejected"
+        return "Rejected";
       default:
         return status;
     }
@@ -407,49 +419,65 @@ const OrdersScreen = () => {
           </View>
         </View>
 
-        {/* Order Items */}
-        {order.items.map((item) => (
-          <View key={item.id} style={orderStyles.itemRow}>
-            {item.image ? (
-              <Image
-                source={{ uri: item.image }}
-                style={orderStyles.itemImage}
-              />
-            ) : (
-              <View
-                style={[
-                  orderStyles.itemImage,
-                  {
-                    backgroundColor: "#e0e0e0",
-                    justifyContent: "center",
-                    alignItems: "center",
-                  },
-                ]}
-              >
-                <Text>No Image</Text>
+        {order.items.map((item) => {
+          const freshness = computeFreshness(item.harvested_at);
+
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={orderStyles.itemRow}
+              onPress={() => handleProductPress(item.productId)}
+              activeOpacity={0.7}
+            >
+              {item.image ? (
+                <Image
+                  source={{ uri: item.image }}
+                  style={orderStyles.itemImage}
+                />
+              ) : (
+                <View
+                  style={[
+                    orderStyles.itemImage,
+                    {
+                      backgroundColor: "#e0e0e0",
+                      justifyContent: "center",
+                      alignItems: "center",
+                    },
+                  ]}
+                >
+                  <Text>No Image</Text>
+                </View>
+              )}
+              <View style={orderStyles.itemContainer}>
+                {/* Left side: Product name, shop name, and pre-order badge */}
+                <View style={orderStyles.itemLeftColumn}>
+                  <Text style={orderStyles.itemName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={orderStyles.itemVendor}>{item.vendor}</Text>
+                  {/* UPDATED: Add pre-order badge if applicable */}
+                  {freshness.isPreOrder && (
+                    <View style={orderStyles.preOrderBadge}>
+                      <Text style={orderStyles.preOrderBadgeText}>
+                        Pre-order
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                {/* Right side: Price and total items */}
+                <View style={orderStyles.itemRightColumn}>
+                  <Text style={orderStyles.itemPrice}>
+                    ₱{item.price.toLocaleString()}
+                  </Text>
+                  <View style={{ height: 4 }} />
+                  <Text style={orderStyles.totalItems}>
+                    Qty: {item.quantity}
+                  </Text>
+                </View>
               </View>
-            )}
-            <View style={orderStyles.itemContainer}>
-              {/* Left side: Product name and shop name */}
-              <View style={orderStyles.itemLeftColumn}>
-                <Text style={orderStyles.itemName} numberOfLines={2}>
-                  {item.name}
-                </Text>
-                <Text style={orderStyles.itemVendor}>{item.vendor}</Text>
-              </View>
-              {/* Right side: Price and total items */}
-              <View style={orderStyles.itemRightColumn}>
-                <Text style={orderStyles.itemPrice}>
-                  ₱{item.price.toLocaleString()}
-                </Text>
-                <View style={{ height: 4 }} />
-                <Text style={orderStyles.totalItems}>
-                  Total Items: {item.quantity}
-                </Text>
-              </View>
-            </View>
-          </View>
-        ))}
+            </TouchableOpacity>
+          );
+        })}
 
         {/* Order Footer - Payment and Pricing Info */}
         <View style={orderStyles.orderFooter}>
@@ -557,7 +585,6 @@ const OrdersScreen = () => {
                 </TouchableOpacity>
               </>
             )}
-            {/* UPDATED: Show View Details button for both cancelled AND rejected */}
             {(order.status === "cancelled" || order.status === "rejected") && (
               <TouchableOpacity style={orderStyles.secondaryButton}>
                 <Text style={orderStyles.secondaryButtonText}>

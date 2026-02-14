@@ -5,6 +5,9 @@
  * Assumes proper icing / chilled storage after harvest.
  */
 export enum FreshnessStatus {
+  /** Future harvest - pre-order item */
+  PRE_ORDER = "pre_order",
+
   /** Same-day catch */
   ULTRA_FRESH = "ultra_fresh",
 
@@ -29,15 +32,18 @@ export interface FreshnessResult {
   label: string;
   color: string;
   hoursElapsed: number;
+  harvestDate?: Date; // Add harvest date for reference
+  isPreOrder: boolean; // Flag for easy checking
 }
 
 /**
  * Badge colors (UI concern)
  */
 const COLORS: Record<FreshnessStatus, string> = {
+  [FreshnessStatus.PRE_ORDER]: "#64748b",
   [FreshnessStatus.ULTRA_FRESH]: "#10b981", // emerald
   [FreshnessStatus.FRESH]: "#06b6d4", // cyan
-  [FreshnessStatus.GOOD]: "#f59e0b", // amber
+  [FreshnessStatus.GOOD]: "#ceac00", // amber
   [FreshnessStatus.FAIR]: "#d97706", // orange
   [FreshnessStatus.NOT_FRESH]: "#dc2626", // red
   [FreshnessStatus.UNKNOWN]: "#6b7280", // gray
@@ -47,11 +53,12 @@ const COLORS: Record<FreshnessStatus, string> = {
  * Buyer-facing labels (market language)
  */
 const LABELS: Record<FreshnessStatus, string> = {
+  [FreshnessStatus.PRE_ORDER]: "Pre-order",
   [FreshnessStatus.ULTRA_FRESH]: "Today’s Catch",
   [FreshnessStatus.FRESH]: "Fresh (Iced)",
   [FreshnessStatus.GOOD]: "Still Fresh",
-  [FreshnessStatus.FAIR]: "Use Soon",
-  [FreshnessStatus.NOT_FRESH]: "Expired / Do Not Sell",
+  [FreshnessStatus.FAIR]: "Consume Soon",
+  [FreshnessStatus.NOT_FRESH]: "Not Fresh",
   [FreshnessStatus.UNKNOWN]: "Harvest Time Unknown",
 };
 
@@ -84,9 +91,16 @@ export function computeFreshness(harvestedAt?: string | null): FreshnessResult {
   const hoursElapsed =
     (now.getTime() - harvestDate.getTime()) / (1000 * 60 * 60);
 
-  // Future date guard (typo or manipulation)
+  // Check for pre-order (future harvest date)
   if (hoursElapsed < 0) {
-    return unknownResult();
+    return {
+      status: FreshnessStatus.PRE_ORDER,
+      label: LABELS[FreshnessStatus.PRE_ORDER],
+      color: COLORS[FreshnessStatus.PRE_ORDER],
+      hoursElapsed,
+      harvestDate,
+      isPreOrder: true,
+    };
   }
 
   let status: FreshnessStatus;
@@ -108,6 +122,8 @@ export function computeFreshness(harvestedAt?: string | null): FreshnessResult {
     label: LABELS[status],
     color: COLORS[status],
     hoursElapsed,
+    harvestDate,
+    isPreOrder: false,
   };
 }
 
@@ -119,12 +135,33 @@ export function isSellable(harvestedAt?: string | null): boolean {
   const { status } = computeFreshness(harvestedAt);
   return (
     status !== FreshnessStatus.NOT_FRESH && status !== FreshnessStatus.UNKNOWN
+    // Pre-order IS sellable, just not available yet
   );
 }
 
 export function needsUrgentSale(harvestedAt?: string | null): boolean {
   const { status } = computeFreshness(harvestedAt);
   return status === FreshnessStatus.FAIR;
+}
+
+export function isPreOrder(harvestedAt?: string | null): boolean {
+  const { isPreOrder } = computeFreshness(harvestedAt);
+  return isPreOrder;
+}
+
+export function getDaysUntilHarvest(
+  harvestedAt?: string | null,
+): number | null {
+  if (!harvestedAt) return null;
+
+  const harvestDate = new Date(harvestedAt);
+  if (isNaN(harvestDate.getTime())) return null;
+
+  const now = new Date();
+  const diffMs = harvestDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  return diffDays > 0 ? diffDays : null;
 }
 
 /**
@@ -136,5 +173,6 @@ function unknownResult(): FreshnessResult {
     label: LABELS[FreshnessStatus.UNKNOWN],
     color: COLORS[FreshnessStatus.UNKNOWN],
     hoursElapsed: 0,
+    isPreOrder: false,
   };
 }

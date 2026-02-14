@@ -520,7 +520,7 @@ const BuyerDashboard = () => {
               accessibilityLabel="Open chat"
             >
               <Ionicons
-                name="chatbubble-ellipses-outline"
+                name="chatbox-ellipses-outline"
                 size={25}
                 color="#fff"
               />

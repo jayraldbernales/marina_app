@@ -62,6 +62,8 @@ export default function AddProductScreen() {
   const [uploading, setUploading] = useState(false);
   const [showImageSourceModal, setShowImageSourceModal] = useState(false);
   const [showHarvestWarning, setShowHarvestWarning] = useState(false);
+  // New state for pre-order
+  const [isPreOrder, setIsPreOrder] = useState(false);
 
   const goBack = useCallback(() => {
     router.back();
@@ -264,6 +266,15 @@ export default function AddProductScreen() {
       return;
     }
 
+    // For pre-orders, validate that harvest date is in the future
+    if (isPreOrder && harvestDateTime <= new Date()) {
+      Alert.alert(
+        "Validation",
+        "For pre-orders, harvest date must be in the future.",
+      );
+      return;
+    }
+
     try {
       setSaving(true);
       setUploading(true);
@@ -304,12 +315,18 @@ export default function AddProductScreen() {
         return;
       }
 
-      Alert.alert("Success", "Product created.", [
-        {
-          text: "OK",
-          onPress: () => router.replace("/(seller-tabs)/products?refresh=1"),
-        },
-      ]);
+      Alert.alert(
+        "Success",
+        isPreOrder
+          ? "Pre-order product created successfully!"
+          : "Product created successfully!",
+        [
+          {
+            text: "OK",
+            onPress: () => router.replace("/(seller-tabs)/products?refresh=1"),
+          },
+        ],
+      );
     } catch (error) {
       console.error("Save error:", error);
       Alert.alert("Error", "Something went wrong.");
@@ -317,7 +334,16 @@ export default function AddProductScreen() {
       setSaving(false);
       setUploading(false);
     }
-  }, [name, description, price, stock, categoryId, images, harvestDateTime]);
+  }, [
+    name,
+    description,
+    price,
+    stock,
+    categoryId,
+    images,
+    harvestDateTime,
+    isPreOrder,
+  ]);
 
   /* ---------------------- IMAGE SOURCE MODAL ---------------------- */
   const renderImageSourceModal = () => (
@@ -464,8 +490,43 @@ export default function AddProductScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Product Details</Text>
+          {/* Pre-order Toggle - NEW SECTION */}
+          <View style={styles.inputGroup}>
+            <View style={styles.preOrderContainer}>
+              <TouchableOpacity
+                onPress={() => setIsPreOrder(!isPreOrder)}
+                style={[
+                  styles.toggleButton,
+                  isPreOrder && styles.toggleButtonActive,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.toggleIndicator,
+                    isPreOrder && styles.toggleIndicatorActive,
+                  ]}
+                />
+              </TouchableOpacity>
+              <View style={styles.preOrderHeader}>
+                <Text style={styles.preOrderTitle}>
+                  This is a pre-order product
+                </Text>
+              </View>
+            </View>
 
+            {isPreOrder && (
+              <View style={styles.preOrderInfo}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={16}
+                  color="#2563eb"
+                />
+                <Text style={styles.preOrderInfoText}>
+                  This product will be listed as a pre-order.
+                </Text>
+              </View>
+            )}
+          </View>
           {/* Product Name */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Product Name *</Text>
@@ -492,7 +553,11 @@ export default function AddProductScreen() {
           {/* Harvest Date & Time */}
           <View style={styles.inputGroup}>
             <View style={styles.harvestHeader}>
-              <Text style={styles.inputLabel}>Harvest Date & Time</Text>
+              <Text style={styles.inputLabel}>
+                {isPreOrder
+                  ? "Expected Harvest Date & Time *"
+                  : "Harvest Date & Time *"}
+              </Text>
               <TouchableOpacity onPress={showHarvestDateWarning}>
                 <Ionicons
                   name="information-circle-outline"
@@ -545,7 +610,8 @@ export default function AddProductScreen() {
               <DateTimePicker
                 value={harvestDateTime}
                 mode={pickerMode}
-                maximumDate={new Date()}
+                maximumDate={isPreOrder ? undefined : new Date()}
+                minimumDate={isPreOrder ? new Date() : undefined}
                 onChange={handleDateTimeChange}
               />
             )}
@@ -706,7 +772,9 @@ export default function AddProductScreen() {
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <>
-              <Text style={styles.saveButtonText}>Save Product</Text>
+              <Text style={styles.saveButtonText}>
+                {isPreOrder ? "Create Pre-order" : "Save Product"}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -790,7 +858,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: COLORS.light.primary,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   harvestHeader: {
     flexDirection: "row",
@@ -979,6 +1047,68 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 16,
     fontStyle: "italic",
+  },
+  // Pre-order Styles - NEW
+  preOrderContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#f8fafc",
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#cce3de",
+  },
+  preOrderHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  preOrderTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+  },
+  toggleButton: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#cbd5e1",
+    padding: 2,
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.light.primary,
+  },
+  toggleIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleIndicatorActive: {
+    transform: [{ translateX: 22 }],
+  },
+  preOrderInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+  },
+  preOrderInfoText: {
+    fontSize: 12,
+    color: "#2563eb",
+    flex: 1,
+    lineHeight: 16,
   },
   // Modal Styles
   modalOverlay: {

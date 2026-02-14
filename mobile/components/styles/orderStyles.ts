@@ -178,7 +178,7 @@ export const orderStyles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 80,
+    paddingTop: 160,
   },
   emptyIcon: {
     fontSize: 60,
@@ -244,5 +244,18 @@ export const orderStyles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 2,
+  },
+  preOrderBadge: {
+    backgroundColor: "#64748b",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  preOrderBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
   },
 });

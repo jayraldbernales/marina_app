@@ -324,4 +324,22 @@ export const sellerOrderStyles = StyleSheet.create({
     marginTop: 4,
     fontWeight: "600",
   },
+  itemNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  preOrderBadge: {
+    backgroundColor: "#64748b",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  preOrderBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
 });

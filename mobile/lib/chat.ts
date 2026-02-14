@@ -276,24 +276,19 @@ export const chatService = {
     conversationId: string,
     callback: (message: Message) => void,
   ) {
-    const subscription = supabase
-      .channel(`messages:${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          console.log("New message received via subscription:", payload);
-          callback(payload.new as Message);
-        },
-      )
-      .subscribe((status) => {
-        console.log(`Subscription status for ${conversationId}:`, status);
-      });
+    const subscription = supabase.channel(`messages:${conversationId}`).on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        console.log("New message received via subscription:", payload);
+        callback(payload.new as Message);
+      },
+    );
 
     return subscription;
   },

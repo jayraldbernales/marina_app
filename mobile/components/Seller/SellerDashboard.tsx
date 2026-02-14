@@ -72,8 +72,6 @@ const SellerDashboard = () => {
     if (!currentUserId) return;
 
     try {
-      console.log("Fetching unread count for vendor:", currentUserId);
-
       const { data, error } = await supabase
         .from("conversations")
         .select("vendor_unread_count")
@@ -89,7 +87,6 @@ const SellerDashboard = () => {
         0,
       );
 
-      console.log("Total unread for vendor:", totalUnread);
       setUnreadMessagesCount(totalUnread);
     } catch (error) {
       console.error("Error in fetchUnreadMessagesCount:", error);

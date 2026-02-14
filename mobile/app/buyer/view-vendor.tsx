@@ -185,8 +185,6 @@ export default function ViewVendorScreen() {
     });
   };
 
-  // app/buyer/view-vendor.tsx (add this function)
-
   const handleChatWithVendor = async () => {
     try {
       // Get current user
