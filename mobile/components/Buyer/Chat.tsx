@@ -1,4 +1,4 @@
-// app/chat.tsx - Fixed with proper party type display
+// app/chat.tsx - Fixed with proper party type display and avatar support
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -8,11 +8,11 @@ import {
   StyleSheet,
   FlatList,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   Keyboard,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -42,7 +42,7 @@ const getPartyTypeDisplay = (type: string): string => {
   }
 };
 
-// Helper function to get party icon
+// Helper function to get party icon (used as fallback)
 const getPartyIcon = (type: string): keyof typeof Ionicons.glyphMap => {
   switch (type) {
     case "vendor":
@@ -62,12 +62,16 @@ const ChatScreen = () => {
   const otherPartyName = params.otherPartyName as string;
   const otherPartyId = params.otherPartyId as string;
   const otherPartyType = params.otherPartyType as string;
+  const otherPartyAvatar = params.otherPartyAvatar as string | undefined;
 
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [otherPartyAvatarUrl, setOtherPartyAvatarUrl] = useState<string | null>(
+    otherPartyAvatar || null,
+  );
 
   const flatListRef = useRef<FlatList<Message>>(null);
 
@@ -78,6 +82,11 @@ const ChatScreen = () => {
   useEffect(() => {
     if (currentUserId && conversationId) {
       loadMessages();
+
+      // Fetch avatar if not provided in params
+      if (!otherPartyAvatar) {
+        fetchOtherPartyAvatar();
+      }
 
       // Set up subscription
       const subscription = setupSubscription();
@@ -122,6 +131,52 @@ const ChatScreen = () => {
     } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
+    }
+  };
+
+  const fetchOtherPartyAvatar = async () => {
+    if (!otherPartyId) return;
+
+    try {
+      let avatarUrl = null;
+
+      if (otherPartyType === "vendor") {
+        const { data, error } = await supabase
+          .from("vendor_profiles")
+          .select("avatar_url")
+          .eq("user_id", otherPartyId)
+          .single();
+
+        if (!error && data) {
+          avatarUrl = data.avatar_url;
+        }
+      } else if (otherPartyType === "rider") {
+        const { data, error } = await supabase
+          .from("rider_profiles")
+          .select("profiles(avatar_url)")
+          .eq("user_id", otherPartyId)
+          .single();
+
+        if (!error && data) {
+          // Handle nested profiles data
+          const profileData = data.profiles as { avatar_url?: string } | null;
+          avatarUrl = profileData?.avatar_url || null;
+        }
+      } else if (otherPartyType === "buyer") {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("user_id", otherPartyId) // Fixed: changed from "id" to "user_id"
+          .single();
+
+        if (!error && data) {
+          avatarUrl = data.avatar_url;
+        }
+      }
+
+      setOtherPartyAvatarUrl(avatarUrl);
+    } catch (error) {
+      console.error("Error fetching other party avatar:", error);
     }
   };
 
@@ -239,13 +294,20 @@ const ChatScreen = () => {
       >
         {!isUser && (
           <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Ionicons
-                name={getPartyIcon(otherPartyType)}
-                size={16}
-                color={COLORS.light.primary}
+            {otherPartyAvatarUrl ? (
+              <Image
+                source={{ uri: otherPartyAvatarUrl }}
+                style={styles.avatarImage}
               />
-            </View>
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons
+                  name={getPartyIcon(otherPartyType)}
+                  size={16}
+                  color={COLORS.light.primary}
+                />
+              </View>
+            )}
           </View>
         )}
         <View
@@ -273,7 +335,7 @@ const ChatScreen = () => {
         </View>
         {isUser && (
           <View style={styles.userAvatarContainer}>
-            <View style={styles.userAvatar}>
+            <View style={styles.userAvatarPlaceholder}>
               <Ionicons name="person" size={16} color={COLORS.light.primary} />
             </View>
           </View>
@@ -297,12 +359,21 @@ const ChatScreen = () => {
             />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <View style={styles.headerAvatar}>
-              <Ionicons
-                name={getPartyIcon(otherPartyType)}
-                size={20}
-                color={COLORS.light.primary}
-              />
+            <View style={styles.headerAvatarContainer}>
+              {otherPartyAvatarUrl ? (
+                <Image
+                  source={{ uri: otherPartyAvatarUrl }}
+                  style={styles.headerAvatarImage}
+                />
+              ) : (
+                <View style={styles.headerAvatarPlaceholder}>
+                  <Ionicons
+                    name={getPartyIcon(otherPartyType)}
+                    size={20}
+                    color={COLORS.light.primary}
+                  />
+                </View>
+              )}
             </View>
             <View style={styles.headerTextContainer}>
               <Text style={styles.headerTitle}>{otherPartyName}</Text>
@@ -333,12 +404,21 @@ const ChatScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.headerInfo}>
-          <View style={styles.headerAvatar}>
-            <Ionicons
-              name={getPartyIcon(otherPartyType)}
-              size={20}
-              color={COLORS.light.primary}
-            />
+          <View style={styles.headerAvatarContainer}>
+            {otherPartyAvatarUrl ? (
+              <Image
+                source={{ uri: otherPartyAvatarUrl }}
+                style={styles.headerAvatarImage}
+              />
+            ) : (
+              <View style={styles.headerAvatarPlaceholder}>
+                <Ionicons
+                  name={getPartyIcon(otherPartyType)}
+                  size={20}
+                  color={COLORS.light.primary}
+                />
+              </View>
+            )}
           </View>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>{otherPartyName}</Text>
@@ -357,65 +437,54 @@ const ChatScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* KeyboardAvoidingView wraps the content that needs to move */}
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
-        {/* Messages List */}
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messagesList}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }}
-        />
+      {/* Messages List - Now directly inside the container */}
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        renderItem={renderMessage}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.messagesList}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }}
+      />
 
-        {/* Input Area */}
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachButton} activeOpacity={0.7}>
-            <Ionicons
-              name="add-circle"
-              size={28}
-              color={COLORS.light.primary}
-            />
-          </TouchableOpacity>
+      {/* Input Area - Fixed at bottom */}
+      <View style={styles.inputContainer}>
+        <TouchableOpacity style={styles.attachButton} activeOpacity={0.7}>
+          <Ionicons name="add-circle" size={28} color={COLORS.light.primary} />
+        </TouchableOpacity>
 
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.input}
-              placeholder="Type a message..."
-              placeholderTextColor="#999"
-              value={message}
-              onChangeText={setMessage}
-              multiline
-              maxLength={500}
-              editable={!sending}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!message.trim() || sending) && styles.sendButtonDisabled,
-            ]}
-            activeOpacity={0.7}
-            onPress={handleSend}
-            disabled={!message.trim() || sending}
-          >
-            <Ionicons
-              name="send"
-              size={20}
-              color={message.trim() && !sending ? COLORS.common.white : "#ccc"}
-            />
-          </TouchableOpacity>
+        <View style={styles.inputWrapper}>
+          <TextInput
+            style={styles.input}
+            placeholder="Type a message..."
+            placeholderTextColor="#999"
+            value={message}
+            onChangeText={setMessage}
+            multiline
+            maxLength={500}
+            editable={!sending}
+          />
         </View>
-      </KeyboardAvoidingView>
+
+        <TouchableOpacity
+          style={[
+            styles.sendButton,
+            (!message.trim() || sending) && styles.sendButtonDisabled,
+          ]}
+          activeOpacity={0.7}
+          onPress={handleSend}
+          disabled={!message.trim() || sending}
+        >
+          <Ionicons
+            name="send"
+            size={20}
+            color={message.trim() && !sending ? COLORS.common.white : "#ccc"}
+          />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -457,7 +526,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginLeft: 12,
   },
-  headerAvatar: {
+  headerAvatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  headerAvatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  headerAvatarPlaceholder: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -482,9 +562,6 @@ const styles = StyleSheet.create({
   moreButton: {
     padding: 4,
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
   messagesList: {
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -504,10 +581,12 @@ const styles = StyleSheet.create({
   avatarContainer: {
     marginRight: 8,
   },
-  userAvatarContainer: {
-    marginLeft: 8,
+  avatarImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
-  avatar: {
+  avatarPlaceholder: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -515,7 +594,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  userAvatar: {
+  userAvatarContainer: {
+    marginLeft: 8,
+  },
+  userAvatarPlaceholder: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -568,7 +650,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingBottom: 12,
+    paddingBottom: 48,
     backgroundColor: COLORS.common.white,
     borderTopWidth: 1,
     borderTopColor: "#e0f2ed",

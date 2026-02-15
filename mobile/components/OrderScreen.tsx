@@ -1,3 +1,4 @@
+// app/buyer/orders/index.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -17,6 +18,7 @@ import { orderStyles } from "../components/styles/orderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
+import { chatService } from "@/lib/chat"; // Add this import
 
 // UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
@@ -30,6 +32,7 @@ type OrderStatus =
 
 type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
 
+// UPDATED: Added vendorId to items
 interface DisplayOrder {
   id: string;
   orderNumber: string;
@@ -40,8 +43,9 @@ interface DisplayOrder {
     price: number;
     quantity: number;
     vendor: string;
+    vendorId?: string; // Added vendorId
     image: string | null;
-    harvested_at?: string; // Add this to check pre-order
+    harvested_at?: string;
   }[];
   status: OrderStatus;
   totalAmount: number;
@@ -52,6 +56,7 @@ interface DisplayOrder {
   paymentStatus: PaymentStatus;
   deliveryAddress: string;
   vendorShopName?: string;
+  vendorId?: string; // Added vendorId at order level
 }
 
 const OrdersScreen = () => {
@@ -117,6 +122,54 @@ const OrdersScreen = () => {
     });
   };
 
+  // NEW: Handle contact seller
+  const handleContactSeller = async (vendorName: string, vendorId?: string) => {
+    if (!vendorId) {
+      Alert.alert("Error", "Vendor information not available");
+      return;
+    }
+
+    try {
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat with vendors");
+        return;
+      }
+
+      // Get or create conversation
+      const { data: conversation, error } =
+        await chatService.getOrCreateConversation({
+          buyerId: user.id,
+          vendorId: vendorId,
+        });
+
+      if (error) {
+        console.error("Error creating conversation:", error);
+        Alert.alert("Error", "Failed to start chat");
+        return;
+      }
+
+      // Navigate to chat screen with conversation details
+      router.push({
+        pathname: "../buyer/chat",
+        params: {
+          conversationId: conversation.id,
+          otherPartyName: vendorName,
+          otherPartyId: vendorId,
+          otherPartyType: "vendor",
+          otherPartyAvatar: "", // Vendor avatar will be fetched in chat screen
+        },
+      });
+    } catch (err) {
+      console.error("Error in chat:", err);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
   // Fetch orders from Supabase
   const fetchOrders = async () => {
     if (!user?.id) {
@@ -163,7 +216,10 @@ const OrdersScreen = () => {
               product_name,
               images,
               harvested_at,
-              vendor_profiles!inner(shop_name)
+              vendor_profiles!inner(
+                shop_name,
+                user_id
+              )
             )
           `,
           )
@@ -174,7 +230,7 @@ const OrdersScreen = () => {
           continue;
         }
 
-        // Transform items for display
+        // Transform items for display - UPDATED to include vendorId
         const displayItems = (itemsData || []).map((item: any) => ({
           id: item.order_item_id,
           productId: item.product_id,
@@ -182,11 +238,12 @@ const OrdersScreen = () => {
           price: item.unit_price,
           quantity: item.quantity,
           vendor: item.products.vendor_profiles?.shop_name || "Unknown Vendor",
+          vendorId: item.products.vendor_profiles?.user_id, // Added vendorId
           image: item.products.images?.[0] || null,
           harvested_at: item.products.harvested_at,
         }));
 
-        // Create display order
+        // Create display order - UPDATED to include vendorId
         const displayOrder: DisplayOrder = {
           id: order.order_id,
           orderNumber: order.order_number,
@@ -205,6 +262,7 @@ const OrdersScreen = () => {
           deliveryAddress:
             order.addresses?.full_address || "Address not specified",
           vendorShopName: displayItems[0]?.vendor,
+          vendorId: displayItems[0]?.vendorId, // Added vendorId
         };
 
         displayOrders.push(displayOrder);
@@ -519,7 +577,7 @@ const OrdersScreen = () => {
             </View>
           </View>
 
-          {/* Action Buttons based on status */}
+          {/* Action Buttons based on status - UPDATED with Contact Seller */}
           <View style={orderStyles.actionButtons}>
             {order.status === "pending" && (
               <>
@@ -541,7 +599,22 @@ const OrdersScreen = () => {
             )}
             {(order.status === "preparing" ||
               order.status === "ready-to-ship") && (
-              <TouchableOpacity style={orderStyles.secondaryButton}>
+              <TouchableOpacity
+                style={[
+                  orderStyles.secondaryButton,
+                  {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                ]}
+                onPress={() =>
+                  handleContactSeller(
+                    order.vendorShopName || "Vendor",
+                    order.vendorId,
+                  )
+                }
+              >
                 <Text style={orderStyles.secondaryButtonText}>
                   Contact Seller
                 </Text>
@@ -575,7 +648,15 @@ const OrdersScreen = () => {
             )}
             {order.status === "delivered" && (
               <>
-                <TouchableOpacity style={orderStyles.secondaryButton}>
+                <TouchableOpacity
+                  style={orderStyles.secondaryButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: "../buyer/view-vendor",
+                      params: { vendor_user_id: order.vendorId },
+                    });
+                  }}
+                >
                   <Text style={orderStyles.secondaryButtonText}>Buy Again</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={orderStyles.primaryButton}>
@@ -584,13 +665,6 @@ const OrdersScreen = () => {
                   </Text>
                 </TouchableOpacity>
               </>
-            )}
-            {(order.status === "cancelled" || order.status === "rejected") && (
-              <TouchableOpacity style={orderStyles.secondaryButton}>
-                <Text style={orderStyles.secondaryButtonText}>
-                  View Details
-                </Text>
-              </TouchableOpacity>
             )}
           </View>
         </View>

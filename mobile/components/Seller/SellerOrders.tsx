@@ -634,14 +634,6 @@ const SellerOrders = () => {
                 </TouchableOpacity>
               </>
             )}
-            {/* UPDATED: Show View Details button for both cancelled AND rejected */}
-            {(order.status === "cancelled" || order.status === "rejected") && (
-              <TouchableOpacity style={sellerOrderStyles.secondaryButton}>
-                <Text style={sellerOrderStyles.secondaryButtonText}>
-                  View Details
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         </View>
       </View>

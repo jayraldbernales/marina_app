@@ -1,4 +1,4 @@
-// app/vendor/conversations.tsx - Vendor conversations screen
+// app/vendor/conversations.tsx - Vendor conversations screen with avatar support
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   AppState,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -25,7 +26,7 @@ interface UIConversation {
   lastMessage: string;
   timestamp: string;
   unreadCount: number;
-  avatar?: string;
+  avatar?: string | null;
   isOnline: boolean;
   otherPartyId: string;
   otherPartyType: "buyer" | "rider"; // Vendors chat with buyers or riders
@@ -123,7 +124,7 @@ const VendorConversationsScreen = () => {
           (conv) => conv.vendor_id === currentUserId,
         );
 
-        const uiConversations = formatConversations(vendorConversations);
+        const uiConversations = await formatConversations(vendorConversations);
         setConversations(uiConversations);
       }
     } catch (error) {
@@ -139,15 +140,17 @@ const VendorConversationsScreen = () => {
     loadConversations();
   };
 
-  const formatConversations = (convos: Conversation[]): UIConversation[] => {
-    return convos
-      .map((conv) => {
+  const formatConversations = async (
+    convos: Conversation[],
+  ): Promise<UIConversation[]> => {
+    const formattedConvos = await Promise.all(
+      convos.map(async (conv) => {
         // Since we filtered for vendor conversations, current user is always the vendor
         let otherPartyName = "";
         let otherPartyId = "";
         let otherPartyType: "buyer" | "rider" = "buyer";
         let unreadCount = 0;
-        let avatar: string | undefined = undefined;
+        let avatar: string | null | undefined = undefined;
 
         // Current user is vendor, show buyer or rider
         if (conv.buyer_id) {
@@ -155,13 +158,25 @@ const VendorConversationsScreen = () => {
           otherPartyId = conv.buyer_id;
           otherPartyType = "buyer";
           unreadCount = conv.vendor_unread_count || 0;
-          avatar = conv.buyer?.avatar_url || undefined;
+
+          // Fetch buyer avatar if not already included
+          if (conv.buyer?.avatar_url) {
+            avatar = conv.buyer.avatar_url;
+          } else {
+            avatar = await fetchBuyerAvatar(otherPartyId);
+          }
         } else if (conv.rider_id) {
           otherPartyName = conv.rider?.profiles?.full_name || "Rider";
           otherPartyId = conv.rider_id;
           otherPartyType = "rider";
           unreadCount = conv.vendor_unread_count || 0;
-          avatar = conv.rider?.profiles?.avatar_url || undefined;
+
+          // Fetch rider avatar if not already included
+          if (conv.rider?.profiles?.avatar_url) {
+            avatar = conv.rider.profiles.avatar_url;
+          } else {
+            avatar = await fetchRiderAvatar(otherPartyId);
+          }
         }
 
         // Format timestamp
@@ -185,13 +200,86 @@ const VendorConversationsScreen = () => {
           otherPartyId: otherPartyId,
           otherPartyType: otherPartyType,
         };
-      })
-      .sort((a, b) => {
-        // Sort by timestamp (most recent first)
-        if (!a.timestamp) return 1;
-        if (!b.timestamp) return -1;
-        return b.timestamp.localeCompare(a.timestamp);
-      });
+      }),
+    );
+
+    return formattedConvos.sort((a, b) => {
+      // Sort by timestamp (most recent first)
+      if (!a.timestamp) return 1;
+      if (!b.timestamp) return -1;
+      return b.timestamp.localeCompare(a.timestamp);
+    });
+  };
+
+  // Helper function to fetch buyer avatar
+  const fetchBuyerAvatar = async (buyerId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("user_id", buyerId) // Changed from "id" to "user_id"
+        .single();
+
+      if (error) {
+        console.error("Error fetching buyer avatar:", error);
+        return null;
+      }
+
+      return data?.avatar_url || null;
+    } catch (error) {
+      console.error("Error in fetchBuyerAvatar:", error);
+      return null;
+    }
+  };
+
+  // Helper function to fetch rider avatar (updated with better error handling)
+  const fetchRiderAvatar = async (riderId: string): Promise<string | null> => {
+    try {
+      // Try to get from rider_profiles with join to profiles
+      const { data, error } = await supabase
+        .from("rider_profiles")
+        .select("user_id, profiles!inner(avatar_url)")
+        .eq("user_id", riderId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching rider avatar:", error);
+
+        // Fallback: try direct profiles query
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("user_id", riderId)
+          .single();
+
+        if (profileError) {
+          console.error("Error fetching rider profile avatar:", profileError);
+          return null;
+        }
+
+        return profileData?.avatar_url || null;
+      }
+
+      // Handle the nested data structure correctly
+      if (data && data.profiles) {
+        // Type assertion for the nested data
+        const profiles = data.profiles as
+          | { avatar_url?: string }
+          | { avatar_url?: string }[];
+
+        // Check if profiles is an array
+        if (Array.isArray(profiles)) {
+          return profiles[0]?.avatar_url || null;
+        } else {
+          return profiles?.avatar_url || null;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error in fetchRiderAvatar:", error);
+      return null;
+    }
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -309,7 +397,7 @@ const VendorConversationsScreen = () => {
   );
 
   const renderConversation = ({ item }: { item: UIConversation }) => {
-    // Determine icon based on party type
+    // Determine icon based on party type (used as fallback when no avatar)
     const getIconName = () => {
       switch (item.otherPartyType) {
         case "buyer":
@@ -328,13 +416,20 @@ const VendorConversationsScreen = () => {
         onPress={() => handleConversationPress(item)}
       >
         <View style={styles.avatarWrapper}>
-          <View style={styles.conversationAvatar}>
-            <Ionicons
-              name={getIconName()}
-              size={24}
-              color={COLORS.light.primary}
+          {item.avatar ? (
+            <Image
+              source={{ uri: item.avatar }}
+              style={styles.conversationAvatarImage}
             />
-          </View>
+          ) : (
+            <View style={styles.conversationAvatarPlaceholder}>
+              <Ionicons
+                name={getIconName()}
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </View>
+          )}
           {item.isOnline && <View style={styles.onlineIndicator} />}
         </View>
 
@@ -546,7 +641,12 @@ const styles = StyleSheet.create({
     position: "relative",
     marginRight: 12,
   },
-  conversationAvatar: {
+  conversationAvatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  conversationAvatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,

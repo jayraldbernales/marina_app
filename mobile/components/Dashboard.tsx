@@ -249,7 +249,7 @@ const BuyerDashboard = () => {
         .eq("is_active", true)
         .gt("stock", 0)
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(30);
 
       if (error) {
         console.error("Error fetching products:", error);
@@ -836,7 +836,11 @@ const BuyerDashboard = () => {
                           marginBottom: 2,
                         }}
                       >
-                        <Text style={buyerDashboardStyles.productName}>
+                        <Text
+                          style={buyerDashboardStyles.productName}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
                           {product.name}
                         </Text>
 
@@ -859,7 +863,11 @@ const BuyerDashboard = () => {
                           marginBottom: 2,
                         }}
                       >
-                        <Text style={buyerDashboardStyles.productVendor}>
+                        <Text
+                          style={buyerDashboardStyles.productVendor}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
                           {product.vendor.shop_name}
                         </Text>
                         <View

@@ -1,4 +1,4 @@
-// app/rider/conversations.tsx - Rider conversations screen
+// app/rider/conversations.tsx - Rider conversations screen with avatar support
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   AppState,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -25,7 +26,7 @@ interface UIConversation {
   lastMessage: string;
   timestamp: string;
   unreadCount: number;
-  avatar?: string;
+  avatar?: string | null;
   isOnline: boolean;
   otherPartyId: string;
   otherPartyType: "buyer" | "vendor"; // Riders chat with buyers or vendors
@@ -123,7 +124,7 @@ const RiderConversationsScreen = () => {
           (conv) => conv.rider_id === currentUserId,
         );
 
-        const uiConversations = formatConversations(riderConversations);
+        const uiConversations = await formatConversations(riderConversations);
         setConversations(uiConversations);
       }
     } catch (error) {
@@ -139,15 +140,17 @@ const RiderConversationsScreen = () => {
     loadConversations();
   };
 
-  const formatConversations = (convos: Conversation[]): UIConversation[] => {
-    return convos
-      .map((conv) => {
+  const formatConversations = async (
+    convos: Conversation[],
+  ): Promise<UIConversation[]> => {
+    const formattedConvos = await Promise.all(
+      convos.map(async (conv) => {
         // Since we filtered for rider conversations, current user is always the rider
         let otherPartyName = "";
         let otherPartyId = "";
         let otherPartyType: "buyer" | "vendor" = "buyer";
         let unreadCount = 0;
-        let avatar: string | undefined = undefined;
+        let avatar: string | null | undefined = undefined;
 
         // Current user is rider, show buyer or vendor
         if (conv.buyer_id) {
@@ -155,13 +158,25 @@ const RiderConversationsScreen = () => {
           otherPartyId = conv.buyer_id;
           otherPartyType = "buyer";
           unreadCount = conv.rider_unread_count || 0;
-          avatar = conv.buyer?.avatar_url || undefined;
+
+          // Fetch buyer avatar if not already included
+          if (conv.buyer?.avatar_url) {
+            avatar = conv.buyer.avatar_url;
+          } else {
+            avatar = await fetchBuyerAvatar(otherPartyId);
+          }
         } else if (conv.vendor_id) {
           otherPartyName = conv.vendor?.shop_name || "Vendor";
           otherPartyId = conv.vendor_id;
           otherPartyType = "vendor";
           unreadCount = conv.rider_unread_count || 0;
-          avatar = conv.vendor?.avatar_url || undefined;
+
+          // Fetch vendor avatar if not already included
+          if (conv.vendor?.avatar_url) {
+            avatar = conv.vendor.avatar_url;
+          } else {
+            avatar = await fetchVendorAvatar(otherPartyId);
+          }
         }
 
         // Format timestamp
@@ -185,13 +200,59 @@ const RiderConversationsScreen = () => {
           otherPartyId: otherPartyId,
           otherPartyType: otherPartyType,
         };
-      })
-      .sort((a, b) => {
-        // Sort by timestamp (most recent first)
-        if (!a.timestamp) return 1;
-        if (!b.timestamp) return -1;
-        return b.timestamp.localeCompare(a.timestamp);
-      });
+      }),
+    );
+
+    return formattedConvos.sort((a, b) => {
+      // Sort by timestamp (most recent first)
+      if (!a.timestamp) return 1;
+      if (!b.timestamp) return -1;
+      return b.timestamp.localeCompare(a.timestamp);
+    });
+  };
+
+  // Helper function to fetch buyer avatar
+  const fetchBuyerAvatar = async (buyerId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("user_id", buyerId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching buyer avatar:", error);
+        return null;
+      }
+
+      return data?.avatar_url || null;
+    } catch (error) {
+      console.error("Error in fetchBuyerAvatar:", error);
+      return null;
+    }
+  };
+
+  // Helper function to fetch vendor avatar
+  const fetchVendorAvatar = async (
+    vendorId: string,
+  ): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("vendor_profiles")
+        .select("avatar_url")
+        .eq("user_id", vendorId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching vendor avatar:", error);
+        return null;
+      }
+
+      return data?.avatar_url || null;
+    } catch (error) {
+      console.error("Error in fetchVendorAvatar:", error);
+      return null;
+    }
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -309,7 +370,7 @@ const RiderConversationsScreen = () => {
   );
 
   const renderConversation = ({ item }: { item: UIConversation }) => {
-    // Determine icon based on party type
+    // Determine icon based on party type (used as fallback when no avatar)
     const getIconName = () => {
       switch (item.otherPartyType) {
         case "buyer":
@@ -328,13 +389,20 @@ const RiderConversationsScreen = () => {
         onPress={() => handleConversationPress(item)}
       >
         <View style={styles.avatarWrapper}>
-          <View style={styles.conversationAvatar}>
-            <Ionicons
-              name={getIconName()}
-              size={24}
-              color={COLORS.light.primary}
+          {item.avatar ? (
+            <Image
+              source={{ uri: item.avatar }}
+              style={styles.conversationAvatarImage}
             />
-          </View>
+          ) : (
+            <View style={styles.conversationAvatarPlaceholder}>
+              <Ionicons
+                name={getIconName()}
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </View>
+          )}
           {item.isOnline && <View style={styles.onlineIndicator} />}
         </View>
 
@@ -546,7 +614,12 @@ const styles = StyleSheet.create({
     position: "relative",
     marginRight: 12,
   },
-  conversationAvatar: {
+  conversationAvatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  conversationAvatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,

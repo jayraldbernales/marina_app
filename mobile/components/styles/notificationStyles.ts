@@ -8,7 +8,7 @@ export const notificationStyles = StyleSheet.create({
   },
   header: {
     backgroundColor: COLORS.light.primary,
-    paddingTop: 64,
+    paddingTop: 60,
     padding: 12,
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,

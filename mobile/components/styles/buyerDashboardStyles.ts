@@ -6,7 +6,8 @@ export const buyerDashboardStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.light.background },
   header: {
     backgroundColor: COLORS.light.primary,
-    paddingTop: 50,
+    paddingTop: 60,
+
     padding: 12,
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
@@ -68,21 +69,11 @@ export const buyerDashboardStyles = StyleSheet.create({
     color: COLORS.light.primary,
     fontWeight: "600",
   },
-  productCard: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 6,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    flexDirection: "column",
-  },
   productImage: {
     width: "100%",
     height: 150,
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   freshnessOverlay: {
     position: "absolute",
@@ -99,18 +90,41 @@ export const buyerDashboardStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
+  productCard: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 6,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    flexDirection: "column",
+  },
   productName: {
     fontWeight: "bold",
     color: COLORS.light.primary,
-    fontSize: 18,
+    fontSize: 16,
+    flex: 1,
+    marginRight: 8,
   },
-  productPrice: { fontWeight: "bold", color: COLORS.light.coral, fontSize: 14 },
-  productUnit: { fontSize: 12, color: COLORS.light.oceanMedium },
+  productPrice: {
+    fontWeight: "bold",
+    color: COLORS.light.coral,
+    fontSize: 14,
+  },
+  productUnit: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    marginLeft: 2,
+  },
   productVendor: {
     fontSize: 11,
     color: COLORS.light.oceanMedium,
     marginBottom: 2,
+    flex: 1, // Add this to allow it to take available space
+    marginRight: 8, // Add some spacing between vendor name and rating
   },
+
   productRating: { fontSize: 11, color: "#333", marginLeft: 4, marginRight: 8 },
   bottomNav: {
     position: "absolute",

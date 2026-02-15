@@ -44,7 +44,7 @@ const BuyerDashboardSkeleton = () => {
                 accessibilityLabel="Open chat"
               >
                 <Ionicons
-                  name="chatbubble-ellipses-outline"
+                  name="chatbox-ellipses-outline"
                   size={25}
                   color="#fff"
                 />
@@ -144,7 +144,9 @@ const BuyerDashboardSkeleton = () => {
               Featured Catch
             </Text>
             <TouchableOpacity onPress={handleSeeAllPress}>
-              <Text style={{ color: "#00b4d8", fontSize: 14 }}>See All</Text>
+              <Text style={{ color: COLORS.light.primary, fontSize: 14 }}>
+                See All
+              </Text>
             </TouchableOpacity>
           </View>
           <View

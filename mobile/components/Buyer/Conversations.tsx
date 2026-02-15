@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   AppState,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -25,7 +26,7 @@ interface UIConversation {
   lastMessage: string;
   timestamp: string;
   unreadCount: number;
-  avatar?: string;
+  avatar?: string | null; // Make avatar optional and nullable
   isOnline: boolean;
   otherPartyId: string;
   otherPartyType: "vendor" | "rider"; // Only vendor or rider for buyer dashboard
@@ -107,7 +108,7 @@ const ConversationsScreen = () => {
           (conv) => conv.buyer_id === currentUserId,
         );
 
-        const uiConversations = formatConversations(buyerConversations);
+        const uiConversations = await formatConversations(buyerConversations);
         setConversations(uiConversations);
       }
     } catch (error) {
@@ -123,15 +124,17 @@ const ConversationsScreen = () => {
     loadConversations();
   };
 
-  const formatConversations = (convos: Conversation[]): UIConversation[] => {
-    return convos
-      .map((conv) => {
+  const formatConversations = async (
+    convos: Conversation[],
+  ): Promise<UIConversation[]> => {
+    const formattedConvos = await Promise.all(
+      convos.map(async (conv) => {
         // Since we filtered for buyer conversations, current user is always the buyer
         let otherPartyName = "";
         let otherPartyId = "";
         let otherPartyType: "vendor" | "rider" = "vendor";
         let unreadCount = 0;
-        let avatar: string | undefined = undefined;
+        let avatar: string | null | undefined = undefined;
 
         // Current user is buyer, show vendor or rider
         if (conv.vendor_id) {
@@ -139,13 +142,27 @@ const ConversationsScreen = () => {
           otherPartyId = conv.vendor_id;
           otherPartyType = "vendor";
           unreadCount = conv.buyer_unread_count || 0;
-          avatar = conv.vendor?.avatar_url || undefined;
+
+          // Fetch vendor avatar if not already included in the conversation data
+          if (conv.vendor?.avatar_url) {
+            avatar = conv.vendor.avatar_url;
+          } else {
+            // If avatar not in conversation data, fetch it separately
+            avatar = await fetchVendorAvatar(otherPartyId);
+          }
         } else if (conv.rider_id) {
           otherPartyName = conv.rider?.profiles?.full_name || "Rider";
           otherPartyId = conv.rider_id;
           otherPartyType = "rider";
           unreadCount = conv.buyer_unread_count || 0;
-          avatar = conv.rider?.profiles?.avatar_url || undefined;
+
+          // Fetch rider avatar if not already included
+          if (conv.rider?.profiles?.avatar_url) {
+            avatar = conv.rider.profiles.avatar_url;
+          } else {
+            // If avatar not in conversation data, fetch it separately
+            avatar = await fetchRiderAvatar(otherPartyId);
+          }
         }
 
         // Format timestamp
@@ -169,13 +186,65 @@ const ConversationsScreen = () => {
           otherPartyId: otherPartyId,
           otherPartyType: otherPartyType,
         };
-      })
-      .sort((a, b) => {
-        // Sort by timestamp (most recent first)
-        if (!a.timestamp) return 1;
-        if (!b.timestamp) return -1;
-        return b.timestamp.localeCompare(a.timestamp);
-      });
+      }),
+    );
+
+    return formattedConvos.sort((a, b) => {
+      // Sort by timestamp (most recent first)
+      if (!a.timestamp) return 1;
+      if (!b.timestamp) return -1;
+      return b.timestamp.localeCompare(a.timestamp);
+    });
+  };
+
+  // Helper function to fetch vendor avatar
+  const fetchVendorAvatar = async (
+    vendorId: string,
+  ): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("vendor_profiles")
+        .select("avatar_url")
+        .eq("user_id", vendorId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching vendor avatar:", error);
+        return null;
+      }
+
+      return data?.avatar_url || null;
+    } catch (error) {
+      console.error("Error in fetchVendorAvatar:", error);
+      return null;
+    }
+  };
+
+  // Helper function to fetch rider avatar
+  const fetchRiderAvatar = async (riderId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("rider_profiles")
+        .select("profiles(avatar_url)")
+        .eq("user_id", riderId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching rider avatar:", error);
+        return null;
+      }
+
+      // Handle nested profiles data
+      if (data && typeof data === "object" && "profiles" in data) {
+        const profileData = data.profiles as { avatar_url?: string } | null;
+        return profileData?.avatar_url || null;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error in fetchRiderAvatar:", error);
+      return null;
+    }
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -283,7 +352,7 @@ const ConversationsScreen = () => {
         otherPartyName: conversation.name,
         otherPartyId: conversation.otherPartyId,
         otherPartyType: conversation.otherPartyType,
-        otherPartyAvatar: conversation.avatar,
+        otherPartyAvatar: conversation.avatar, // Pass avatar to chat screen
       },
     });
   };
@@ -293,7 +362,7 @@ const ConversationsScreen = () => {
   );
 
   const renderConversation = ({ item }: { item: UIConversation }) => {
-    // Determine icon based on party type
+    // Determine icon based on party type (used as fallback when no avatar)
     const getIconName = () => {
       switch (item.otherPartyType) {
         case "vendor":
@@ -312,13 +381,22 @@ const ConversationsScreen = () => {
         onPress={() => handleConversationPress(item)}
       >
         <View style={styles.avatarWrapper}>
-          <View style={styles.conversationAvatar}>
-            <Ionicons
-              name={getIconName()}
-              size={24}
-              color={COLORS.light.primary}
+          {item.avatar ? (
+            // Show image if avatar exists
+            <Image
+              source={{ uri: item.avatar }}
+              style={styles.conversationAvatar}
             />
-          </View>
+          ) : (
+            // Show fallback icon if no avatar
+            <View style={styles.conversationAvatarPlaceholder}>
+              <Ionicons
+                name={getIconName()}
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </View>
+          )}
           {item.isOnline && <View style={styles.onlineIndicator} />}
         </View>
 
@@ -531,6 +609,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   conversationAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  conversationAvatarPlaceholder: {
     width: 56,
     height: 56,
     borderRadius: 28,

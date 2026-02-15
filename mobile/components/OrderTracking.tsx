@@ -9,20 +9,7 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-
-const COLORS = {
-  primary: "#0A4D68",
-  secondary: "#088395",
-  accent: "#05BFDB",
-  background: "#F0F7FF",
-  coral: "#FF6B6B",
-  white: "#FFFFFF",
-  lightBlue: "#E3F2FD",
-  darkBlue: "#1E3A5F",
-  green: "#4CAF50",
-  gray: "#666666",
-  lightGray: "#E0E0E0",
-};
+import { COLORS } from "../constants";
 
 const OrderTrackingScreen = () => {
   const orderStatuses: Array<{
@@ -64,33 +51,33 @@ const OrderTrackingScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Header - matching dashboard header exactly */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.push("/(tabs)/orders")}
-        >
-          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
-        </TouchableOpacity>
-        <View>
-          <Text style={styles.headerTitle}>Order Tracking</Text>
-          <Text style={styles.headerSubtitle}>MRN-2025-01</Text>
+        <View style={styles.headerTop}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.push("/(tabs)/orders")}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.headerTitle}>Order Tracking</Text>
+              <Text style={styles.headerSubtitle}>MRN-2025-01</Text>
+            </View>
+          </View>
+          {/* Empty view for spacing to match dashboard layout */}
+          <View style={{ width: 40 }} />
         </View>
-        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Estimated Delivery */}
-        <View style={styles.deliveryCard}>
-          <View style={styles.deliveryInfo}>
-            <Text style={styles.deliveryLabel}>Estimated Delivery</Text>
-            <Text style={styles.deliveryTime}>22 minutes</Text>
-          </View>
-          <MaterialCommunityIcons name="moped" size={40} color={COLORS.coral} />
-        </View>
-
-        {/* Order Status */}
-        <View style={styles.section}>
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={{ paddingBottom: 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Order Status Section */}
+        <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Order Status</Text>
           <View style={styles.statusContainer}>
             {orderStatuses.map((status, index) => (
@@ -107,7 +94,7 @@ const OrderTrackingScreen = () => {
                     <Ionicons
                       name={status.icon}
                       size={20}
-                      color={status.completed ? COLORS.white : COLORS.gray}
+                      color={status.completed ? "#fff" : COLORS.light.primary}
                     />
                   </View>
                   {index < orderStatuses.length - 1 && (
@@ -130,7 +117,7 @@ const OrderTrackingScreen = () => {
                   <Ionicons
                     name="checkmark-circle"
                     size={24}
-                    color={COLORS.green}
+                    color={COLORS.light.primary}
                     style={styles.checkmark}
                   />
                 )}
@@ -139,8 +126,8 @@ const OrderTrackingScreen = () => {
           </View>
         </View>
 
-        {/* Delivery Rider */}
-        <View style={styles.section}>
+        {/* Delivery Rider Section */}
+        <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Delivery Rider</Text>
           <View style={styles.riderCard}>
             <View style={styles.riderInfo}>
@@ -153,15 +140,19 @@ const OrderTrackingScreen = () => {
               </View>
             </View>
             <TouchableOpacity style={styles.callButton}>
-              <Ionicons name="call" size={24} color={COLORS.primary} />
+              <Ionicons name="call" size={24} color={COLORS.light.primary} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Delivery Address */}
-        <View style={styles.section}>
+        {/* Delivery Address Section */}
+        <View style={styles.sectionCard}>
           <View style={styles.addressHeader}>
-            <Ionicons name="location-sharp" size={20} color={COLORS.primary} />
+            <Ionicons
+              name="location-sharp"
+              size={20}
+              color={COLORS.light.primary}
+            />
             <Text style={styles.addressTitle}>Delivery Address</Text>
           </View>
           <Text style={styles.addressText}>
@@ -169,8 +160,8 @@ const OrderTrackingScreen = () => {
           </Text>
         </View>
 
-        {/* Order Summary */}
-        <View style={styles.section}>
+        {/* Order Summary Section */}
+        <View style={[styles.sectionCard, { marginBottom: 20 }]}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
           <View style={styles.summaryCard}>
             <View style={styles.summaryItem}>
@@ -197,10 +188,16 @@ const OrderTrackingScreen = () => {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.supportButton}>
+          <TouchableOpacity
+            style={styles.supportButton}
+            onPress={() => router.push("./support&help")}
+          >
             <Text style={styles.supportButtonText}>Contact Support</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.trackButton}>
+          <TouchableOpacity
+            style={styles.trackButton}
+            onPress={() => router.push("/(tabs)/orders")}
+          >
             <Text style={styles.trackButtonText}>Track another order</Text>
           </TouchableOpacity>
         </View>
@@ -212,76 +209,75 @@ const OrderTrackingScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.light.background,
   },
+  // Header - exact match from dashboard
   header: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    backgroundColor: COLORS.light.primary,
+    paddingTop: 60,
+    padding: 12,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 12,
   },
   backButton: {
     padding: 4,
   },
   headerTitle: {
-    fontSize: 20,
+    color: "#fff",
+    fontSize: 22,
     fontWeight: "bold",
-    color: COLORS.white,
   },
   headerSubtitle: {
+    color: "#7fffd4",
     fontSize: 14,
-    color: COLORS.accent,
   },
-  content: {
-    flex: 1,
-    padding: 16,
+  // Scroll area - matching dashboard
+  scrollArea: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
-  deliveryCard: {
-    backgroundColor: COLORS.secondary,
+
+  // Section Card - matching product card background
+  sectionCard: {
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  deliveryInfo: {
-    flex: 1,
-  },
-  deliveryLabel: {
-    fontSize: 14,
-    color: COLORS.white,
-    opacity: 0.9,
-    marginBottom: 4,
-  },
-  deliveryTime: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: COLORS.white,
-  },
-  section: {
-    marginBottom: 20,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "bold",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
     marginBottom: 12,
   },
+  // Status styles
   statusContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
+    marginTop: 4,
   },
   statusItem: {
     flexDirection: "row",
-    marginBottom: 24,
+    marginBottom: 20,
+    position: "relative",
   },
   statusIconContainer: {
     alignItems: "center",
-    marginRight: 16,
+    marginRight: 12,
   },
   statusIcon: {
     width: 40,
@@ -291,19 +287,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statusIconCompleted: {
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.light.primary,
   },
   statusIconPending: {
-    backgroundColor: COLORS.lightGray,
+    backgroundColor: COLORS.light.seafoam,
   },
   statusLine: {
     width: 2,
     flex: 1,
-    backgroundColor: COLORS.lightGray,
+    backgroundColor: COLORS.light.seafoam,
     marginTop: 4,
   },
   statusLineCompleted: {
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.light.primary,
   },
   statusContent: {
     flex: 1,
@@ -317,23 +313,21 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
   },
   statusTime: {
     fontSize: 12,
-    color: COLORS.gray,
+    color: "#666",
   },
   statusSubtitle: {
     fontSize: 13,
-    color: COLORS.gray,
+    color: "#666",
   },
   checkmark: {
     marginLeft: 8,
   },
+  // Rider styles
   riderCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -346,7 +340,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.light.primary,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -354,26 +348,27 @@ const styles = StyleSheet.create({
   riderAvatarText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: "#fff",
   },
   riderName: {
     fontSize: 15,
     fontWeight: "600",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
     marginBottom: 2,
   },
   riderPlate: {
     fontSize: 13,
-    color: COLORS.gray,
+    color: "#666",
   },
   callButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.lightBlue,
+    backgroundColor: COLORS.light.seafoam,
     justifyContent: "center",
     alignItems: "center",
   },
+  // Address styles
   addressHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -382,77 +377,77 @@ const styles = StyleSheet.create({
   addressTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
     marginLeft: 8,
   },
   addressText: {
     fontSize: 14,
-    color: COLORS.gray,
+    color: "#666",
     marginLeft: 28,
   },
+  // Summary styles
   summaryCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
+    marginTop: 4,
   },
   summaryItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   summaryProductName: {
     fontSize: 14,
     fontWeight: "500",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
     marginBottom: 2,
   },
   summaryProductQty: {
     fontSize: 12,
-    color: COLORS.gray,
+    color: "#666",
   },
   summaryPrice: {
     fontSize: 14,
     fontWeight: "600",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
   },
   divider: {
     height: 1,
-    backgroundColor: COLORS.lightGray,
+    backgroundColor: COLORS.light.seafoam,
     marginVertical: 8,
   },
   summaryTotal: {
     fontSize: 16,
     fontWeight: "bold",
-    color: COLORS.darkBlue,
+    color: COLORS.light.primary,
   },
   summaryTotalPrice: {
     fontSize: 18,
     fontWeight: "bold",
-    color: COLORS.primary,
+    color: COLORS.light.coral,
   },
+  // Action buttons
   actionButtons: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 20,
+    paddingBottom: 36,
   },
   supportButton: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#fff",
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: COLORS.primary,
+    borderColor: COLORS.light.primary,
   },
   supportButtonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: COLORS.primary,
+    color: COLORS.light.primary,
   },
   trackButton: {
     flex: 1,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.light.primary,
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
@@ -460,7 +455,7 @@ const styles = StyleSheet.create({
   trackButtonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: COLORS.white,
+    color: "#fff",
   },
 });
 
