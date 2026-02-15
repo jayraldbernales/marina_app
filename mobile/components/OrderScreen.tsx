@@ -9,7 +9,9 @@ import {
   SafeAreaView,
   RefreshControl,
   ActivityIndicator,
+  Linking,
   Alert,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
@@ -18,7 +20,7 @@ import { orderStyles } from "../components/styles/orderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
-import { chatService } from "@/lib/chat"; // Add this import
+import { chatService } from "@/lib/chat";
 
 // UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
@@ -30,7 +32,12 @@ type OrderStatus =
   | "cancelled"
   | "rejected";
 
-type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
+type PaymentStatus =
+  | "pending"
+  | "paid"
+  | "failed"
+  | "cancelled"
+  | "pending_verification";
 
 // UPDATED: Added vendorId to items
 interface DisplayOrder {
@@ -43,7 +50,7 @@ interface DisplayOrder {
     price: number;
     quantity: number;
     vendor: string;
-    vendorId?: string; // Added vendorId
+    vendorId?: string;
     image: string | null;
     harvested_at?: string;
   }[];
@@ -54,16 +61,325 @@ interface DisplayOrder {
   orderDate: string;
   paymentMethod: string;
   paymentStatus: PaymentStatus;
+  paymentProofUrl?: string; // ADD THIS
+  gcashReference?: string; // ADD THIS
+  note?: string; // ADD THIS (for special instructions)
   deliveryAddress: string;
   vendorShopName?: string;
-  vendorId?: string; // Added vendorId at order level
+  vendorId?: string;
 }
+
+// NEW: Order Details Modal Component with Special Instructions and GCash Proof
+const OrderDetailsModal = ({
+  visible,
+  onClose,
+  order,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  order: DisplayOrder | null;
+}) => {
+  if (!order) return null;
+
+  const subtotal =
+    order.subtotal ||
+    order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  const getStatusColor = (status: OrderStatus) => {
+    switch (status) {
+      case "pending":
+        return "#f59e0b";
+      case "preparing":
+        return "#3b82f6";
+      case "ready-to-ship":
+        return "#8b5cf6";
+      case "shipped":
+        return "#10b981";
+      case "delivered":
+        return "#10b981";
+      case "cancelled":
+        return "#6b7280";
+      case "rejected":
+        return "#ef4444";
+      default:
+        return COLORS.light.primary;
+    }
+  };
+
+  const getStatusText = (status: OrderStatus) => {
+    switch (status) {
+      case "pending":
+        return "Pending";
+      case "preparing":
+        return "Preparing";
+      case "ready-to-ship":
+        return "Ready to Ship";
+      case "shipped":
+        return "Shipped";
+      case "delivered":
+        return "Completed";
+      case "cancelled":
+        return "Cancelled";
+      case "rejected":
+        return "Rejected";
+      default:
+        return status;
+    }
+  };
+
+  const getPaymentStatusColor = (status?: PaymentStatus) => {
+    switch (status) {
+      case "paid":
+        return "#10b981";
+      case "pending":
+        return "#f59e0b";
+      case "pending_verification":
+        return "#8b5cf6";
+      case "failed":
+      case "cancelled":
+        return "#ef4444";
+      default:
+        return "#6b7280";
+    }
+  };
+
+  const getPaymentStatusText = (status?: PaymentStatus) => {
+    switch (status) {
+      case "paid":
+        return "Paid";
+      case "pending":
+        return "Pending";
+      case "pending_verification":
+        return "Pending Verification";
+      case "failed":
+        return "Failed";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return "Unknown";
+    }
+  };
+
+  const openProofImage = (url: string) => {
+    Linking.openURL(url);
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={orderStyles.modalOverlay}>
+        <View style={orderStyles.modalContent}>
+          {/* Modal Header */}
+          <View style={orderStyles.modalHeader}>
+            <Text style={orderStyles.modalTitle}>Order Details</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={orderStyles.modalCloseButton}
+            >
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Order Info */}
+            <View style={orderStyles.modalSection}>
+              <View style={orderStyles.modalOrderInfo}>
+                <View>
+                  <Text style={orderStyles.modalOrderLabel}>Order Number</Text>
+                  <Text style={orderStyles.modalOrderNumber}>
+                    #{order.orderNumber}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    orderStyles.statusBadge,
+                    { backgroundColor: getStatusColor(order.status) },
+                  ]}
+                >
+                  <Text style={orderStyles.statusText}>
+                    {getStatusText(order.status)}
+                  </Text>
+                </View>
+              </View>
+              <Text style={orderStyles.modalOrderDate}>{order.orderDate}</Text>
+            </View>
+
+            {/* Delivery Address */}
+            <View style={orderStyles.modalSection}>
+              <Text style={orderStyles.modalSectionTitle}>
+                Delivery Address
+              </Text>
+              <Text style={orderStyles.modalAddress}>
+                {order.deliveryAddress}
+              </Text>
+            </View>
+
+            {/* Special Instructions - ADD THIS SECTION */}
+            {order.note && (
+              <View style={orderStyles.modalSection}>
+                <Text style={orderStyles.modalSectionTitle}>
+                  Special Instructions
+                </Text>
+                <View style={orderStyles.specialInstructionsBox}>
+                  <Text style={orderStyles.specialInstructionsText}>
+                    {order.note}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Payment Info - UPDATED with GCash proof */}
+            <View style={orderStyles.modalSection}>
+              <Text style={orderStyles.modalSectionTitle}>
+                Payment Information
+              </Text>
+              <View style={orderStyles.modalPaymentRow}>
+                <Text style={orderStyles.modalPaymentLabel}>
+                  Payment Method:
+                </Text>
+                <Text style={orderStyles.modalPaymentValue}>
+                  {order.paymentMethod === "cod" ? "Cash on Delivery" : "GCash"}
+                </Text>
+              </View>
+              <View style={orderStyles.modalPaymentRow}>
+                <Text style={orderStyles.modalPaymentLabel}>
+                  Payment Status:
+                </Text>
+                <Text
+                  style={[
+                    orderStyles.modalPaymentValue,
+                    { color: getPaymentStatusColor(order.paymentStatus) },
+                  ]}
+                >
+                  {getPaymentStatusText(order.paymentStatus)}
+                </Text>
+              </View>
+
+              {/* GCash Payment Proof - ADD THIS SECTION */}
+              {order.paymentMethod === "gcash" && order.paymentProofUrl && (
+                <View style={orderStyles.gcashProofSection}>
+                  <Text style={orderStyles.proofLabel}>Payment Proof:</Text>
+                  <TouchableOpacity
+                    style={orderStyles.proofImageContainer}
+                    onPress={() => openProofImage(order.paymentProofUrl!)}
+                  >
+                    <Image
+                      source={{ uri: order.paymentProofUrl }}
+                      style={orderStyles.proofImage}
+                      resizeMode="contain"
+                    />
+                    <View style={orderStyles.proofOverlay}>
+                      <Ionicons name="eye-outline" size={24} color="#fff" />
+                      <Text style={orderStyles.proofOverlayText}>
+                        Tap to view full image
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {order.gcashReference && (
+                    <View style={orderStyles.referenceRow}>
+                      <Text style={orderStyles.referenceLabel}>
+                        Reference Number:
+                      </Text>
+                      <Text style={orderStyles.referenceValue}>
+                        {order.gcashReference}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Order Items */}
+            <View style={orderStyles.modalSection}>
+              <Text style={orderStyles.modalSectionTitle}>Items</Text>
+              {order.items.map((item) => {
+                const freshness = computeFreshness(item.harvested_at);
+                return (
+                  <View key={item.id} style={orderStyles.modalItemRow}>
+                    {item.image ? (
+                      <Image
+                        source={{ uri: item.image }}
+                        style={orderStyles.modalItemImage}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          orderStyles.modalItemImage,
+                          { backgroundColor: "#e0e0e0" },
+                        ]}
+                      />
+                    )}
+                    <View style={orderStyles.modalItemDetails}>
+                      <Text style={orderStyles.modalItemName}>{item.name}</Text>
+                      <Text style={orderStyles.modalItemVendor}>
+                        {item.vendor}
+                      </Text>
+                      {freshness.isPreOrder && (
+                        <View style={orderStyles.preOrderBadge}>
+                          <Text style={orderStyles.preOrderBadgeText}>
+                            Pre-order
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={orderStyles.modalItemPrice}>
+                      <Text style={orderStyles.modalItemPriceText}>
+                        ₱{item.price.toLocaleString()}
+                      </Text>
+                      <Text style={orderStyles.modalItemQuantity}>
+                        x{item.quantity}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Price Summary */}
+            <View style={orderStyles.modalSection}>
+              <Text style={orderStyles.modalSectionTitle}>Price Summary</Text>
+              <View style={orderStyles.modalPriceRow}>
+                <Text style={orderStyles.modalPriceLabel}>Subtotal</Text>
+                <Text style={orderStyles.modalPriceValue}>
+                  ₱{subtotal.toLocaleString()}
+                </Text>
+              </View>
+              {order.deliveryFee > 0 && (
+                <View style={orderStyles.modalPriceRow}>
+                  <Text style={orderStyles.modalPriceLabel}>Delivery Fee</Text>
+                  <Text style={orderStyles.modalPriceValue}>
+                    ₱{order.deliveryFee.toLocaleString()}
+                  </Text>
+                </View>
+              )}
+              <View
+                style={[orderStyles.modalPriceRow, orderStyles.modalTotalRow]}
+              >
+                <Text style={orderStyles.modalTotalLabel}>Total Amount</Text>
+                <Text style={orderStyles.modalTotalValue}>
+                  ₱{order.totalAmount.toLocaleString()}
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const OrdersScreen = () => {
   const [activeTab, setActiveTab] = useState<string>("to-pay");
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
   const navigation = useNavigation();
   const user = useUserStore((state) => state.user);
 
@@ -114,15 +430,13 @@ const OrdersScreen = () => {
     );
   };
 
-  // Navigate to product details
-  const handleProductPress = (productId: string) => {
-    router.push({
-      pathname: "../buyer/product-details",
-      params: { product_id: productId },
-    });
+  // UPDATED: Handle order card press to show modal instead of product details
+  const handleOrderPress = (order: DisplayOrder) => {
+    setSelectedOrder(order);
+    setModalVisible(true);
   };
 
-  // NEW: Handle contact seller
+  // Handle contact seller
   const handleContactSeller = async (vendorName: string, vendorId?: string) => {
     if (!vendorId) {
       Alert.alert("Error", "Vendor information not available");
@@ -130,7 +444,6 @@ const OrdersScreen = () => {
     }
 
     try {
-      // Get current user
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -140,7 +453,6 @@ const OrdersScreen = () => {
         return;
       }
 
-      // Get or create conversation
       const { data: conversation, error } =
         await chatService.getOrCreateConversation({
           buyerId: user.id,
@@ -153,7 +465,6 @@ const OrdersScreen = () => {
         return;
       }
 
-      // Navigate to chat screen with conversation details
       router.push({
         pathname: "../buyer/chat",
         params: {
@@ -161,7 +472,7 @@ const OrdersScreen = () => {
           otherPartyName: vendorName,
           otherPartyId: vendorId,
           otherPartyType: "vendor",
-          otherPartyAvatar: "", // Vendor avatar will be fetched in chat screen
+          otherPartyAvatar: "",
         },
       });
     } catch (err) {
@@ -178,7 +489,6 @@ const OrdersScreen = () => {
     }
     try {
       setLoading(true);
-      // Fetch orders with address information
       const { data: ordersData, error: ordersError } = await supabase
         .from("orders")
         .select(
@@ -201,11 +511,9 @@ const OrdersScreen = () => {
         return;
       }
 
-      // Transform data for display
       const displayOrders: DisplayOrder[] = [];
 
       for (const order of ordersData as any) {
-        // Fetch order items with product details
         const { data: itemsData, error: itemsError } = await supabase
           .from("order_items")
           .select(
@@ -230,7 +538,6 @@ const OrdersScreen = () => {
           continue;
         }
 
-        // Transform items for display - UPDATED to include vendorId
         const displayItems = (itemsData || []).map((item: any) => ({
           id: item.order_item_id,
           productId: item.product_id,
@@ -238,12 +545,12 @@ const OrdersScreen = () => {
           price: item.unit_price,
           quantity: item.quantity,
           vendor: item.products.vendor_profiles?.shop_name || "Unknown Vendor",
-          vendorId: item.products.vendor_profiles?.user_id, // Added vendorId
+          vendorId: item.products.vendor_profiles?.user_id,
           image: item.products.images?.[0] || null,
           harvested_at: item.products.harvested_at,
         }));
 
-        // Create display order - UPDATED to include vendorId
+        // In fetchOrders, when creating displayOrder:
         const displayOrder: DisplayOrder = {
           id: order.order_id,
           orderNumber: order.order_number,
@@ -259,12 +566,14 @@ const OrdersScreen = () => {
           }),
           paymentMethod: order.payment_method,
           paymentStatus: order.payment_status,
+          paymentProofUrl: order.payment_proof_url, // ADD THIS
+          gcashReference: order.gcash_reference, // ADD THIS
+          note: order.note, // ADD THIS (special instructions)
           deliveryAddress:
             order.addresses?.full_address || "Address not specified",
           vendorShopName: displayItems[0]?.vendor,
-          vendorId: displayItems[0]?.vendorId, // Added vendorId
+          vendorId: displayItems[0]?.vendorId,
         };
-
         displayOrders.push(displayOrder);
       }
 
@@ -287,7 +596,6 @@ const OrdersScreen = () => {
     await fetchOrders();
   };
 
-  // UPDATED: Filter to show both cancelled AND rejected in the cancelled tab
   const filteredOrders = orders.filter((order) => {
     const uiTab = getUITabFromDBStatus(order.status);
     if (activeTab === "cancelled") {
@@ -296,33 +604,31 @@ const OrdersScreen = () => {
     return uiTab === activeTab;
   });
 
-  // UPDATED: Add red color for rejected status
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case "pending":
-        return "#f59e0b"; // yellow
+        return "#f59e0b";
       case "preparing":
-        return "#3b82f6"; // blue
+        return "#3b82f6";
       case "ready-to-ship":
-        return "#8b5cf6"; // purple
+        return "#8b5cf6";
       case "shipped":
-        return "#10b981"; // green
+        return "#10b981";
       case "delivered":
-        return "#10b981"; // green
+        return "#10b981";
       case "cancelled":
-        return "#6b7280"; // gray
+        return "#6b7280";
       case "rejected":
-        return "#ef4444"; // red for rejected
+        return "#ef4444";
       default:
         return COLORS.light.primary;
     }
   };
 
-  // UPDATED: Show proper text for rejected status
   const getStatusText = (status: OrderStatus) => {
     switch (status) {
       case "pending":
-        return "To Pay";
+        return "Pending";
       case "preparing":
         return "Preparing";
       case "ready-to-ship":
@@ -340,9 +646,28 @@ const OrdersScreen = () => {
     }
   };
 
-  const handlePayNow = async (orderId: string) => {
-    Alert.alert("Payment", "This would redirect to payment gateway");
-    // Implement payment gateway integration here
+  // UPDATED: Pay Now handler with conditions
+  const handlePayNow = async (
+    orderId: string,
+    paymentMethod: string,
+    paymentStatus: string,
+  ) => {
+    // Don't show Pay Now if payment status is pending_verification
+    if (paymentStatus === "pending_verification") {
+      Alert.alert(
+        "Payment Pending Verification",
+        "Your payment is currently being verified. Please wait for confirmation.",
+      );
+      return;
+    }
+
+    // Only proceed with payment for COD orders or if payment is still pending
+    if (paymentMethod === "cod") {
+      Alert.alert("Payment", "This would redirect to payment gateway");
+      // Implement payment gateway integration here
+    } else {
+      Alert.alert("Payment Method", "Online payments will be processed here.");
+    }
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -352,7 +677,6 @@ const OrdersScreen = () => {
         text: "Yes",
         onPress: async () => {
           try {
-            // Call the database function to cancel order and restore stock atomically
             const { error } = await supabase.rpc("cancel_order_with_restock", {
               p_order_id: orderId,
               p_user_id: user?.id,
@@ -373,15 +697,12 @@ const OrdersScreen = () => {
               throw error;
             }
 
-            // Update local state immediately for better UX
             updateOrderStatusLocally(orderId, "cancelled", "cancelled");
-
             Alert.alert(
               "Success",
               "Order has been cancelled and stock has been restored",
             );
 
-            // Optional: Fetch fresh data in background to ensure consistency
             setTimeout(() => {
               fetchOrders();
             }, 1000);
@@ -429,7 +750,6 @@ const OrdersScreen = () => {
 
             if (error) throw error;
 
-            // Update local state immediately
             updateOrderStatusLocally(
               orderId,
               "delivered",
@@ -438,7 +758,6 @@ const OrdersScreen = () => {
 
             Alert.alert("Success", "Thank you for confirming receipt!");
 
-            // Optional background refresh
             setTimeout(() => {
               fetchOrders();
             }, 1000);
@@ -452,13 +771,23 @@ const OrdersScreen = () => {
   };
 
   const renderOrderCard = (order: DisplayOrder) => {
-    // Calculate subtotal if not available
     const subtotal =
       order.subtotal ||
       order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
+    // Determine if Pay Now button should be shown
+    const showPayNow =
+      order.status === "pending" &&
+      order.paymentStatus !== "pending_verification" &&
+      order.paymentMethod === "cod";
+
     return (
-      <View key={order.id} style={orderStyles.orderCard}>
+      <TouchableOpacity
+        key={order.id}
+        style={orderStyles.orderCard}
+        onPress={() => handleOrderPress(order)}
+        activeOpacity={0.7}
+      >
         {/* Order Header */}
         <View style={orderStyles.orderHeader}>
           <View style={orderStyles.leftColumn}>
@@ -481,12 +810,7 @@ const OrdersScreen = () => {
           const freshness = computeFreshness(item.harvested_at);
 
           return (
-            <TouchableOpacity
-              key={item.id}
-              style={orderStyles.itemRow}
-              onPress={() => handleProductPress(item.productId)}
-              activeOpacity={0.7}
-            >
+            <View key={item.id} style={orderStyles.itemRow}>
               {item.image ? (
                 <Image
                   source={{ uri: item.image }}
@@ -507,13 +831,11 @@ const OrdersScreen = () => {
                 </View>
               )}
               <View style={orderStyles.itemContainer}>
-                {/* Left side: Product name, shop name, and pre-order badge */}
                 <View style={orderStyles.itemLeftColumn}>
                   <Text style={orderStyles.itemName} numberOfLines={2}>
                     {item.name}
                   </Text>
                   <Text style={orderStyles.itemVendor}>{item.vendor}</Text>
-                  {/* UPDATED: Add pre-order badge if applicable */}
                   {freshness.isPreOrder && (
                     <View style={orderStyles.preOrderBadge}>
                       <Text style={orderStyles.preOrderBadgeText}>
@@ -522,7 +844,6 @@ const OrdersScreen = () => {
                     </View>
                   )}
                 </View>
-                {/* Right side: Price and total items */}
                 <View style={orderStyles.itemRightColumn}>
                   <Text style={orderStyles.itemPrice}>
                     ₱{item.price.toLocaleString()}
@@ -533,27 +854,14 @@ const OrdersScreen = () => {
                   </Text>
                 </View>
               </View>
-            </TouchableOpacity>
+            </View>
           );
         })}
 
         {/* Order Footer - Payment and Pricing Info */}
         <View style={orderStyles.orderFooter}>
-          {/* Payment Method */}
-          <View style={{ marginBottom: 12 }}>
-            <Text style={{ fontSize: 12, color: "#666" }}>
-              Payment: {order.paymentMethod}
-            </Text>
-          </View>
-
           {/* Price Summary */}
           <View style={orderStyles.priceSummary}>
-            <View style={orderStyles.priceRow}>
-              <Text style={orderStyles.priceLabel}>Subtotal:</Text>
-              <Text style={orderStyles.priceValue}>
-                ₱{subtotal.toLocaleString()}
-              </Text>
-            </View>
             {order.deliveryFee > 0 && (
               <View style={orderStyles.priceRow}>
                 <Text style={orderStyles.priceLabel}>Delivery Fee:</Text>
@@ -577,7 +885,7 @@ const OrdersScreen = () => {
             </View>
           </View>
 
-          {/* Action Buttons based on status - UPDATED with Contact Seller */}
+          {/* Action Buttons based on status - UPDATED with conditional Pay Now */}
           <View style={orderStyles.actionButtons}>
             {order.status === "pending" && (
               <>
@@ -589,12 +897,20 @@ const OrdersScreen = () => {
                     Cancel Order
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={orderStyles.primaryButton}
-                  onPress={() => handlePayNow(order.id)}
-                >
-                  <Text style={orderStyles.primaryButtonText}>Pay Now</Text>
-                </TouchableOpacity>
+                {showPayNow && (
+                  <TouchableOpacity
+                    style={orderStyles.primaryButton}
+                    onPress={() =>
+                      handlePayNow(
+                        order.id,
+                        order.paymentMethod,
+                        order.paymentStatus,
+                      )
+                    }
+                  >
+                    <Text style={orderStyles.primaryButtonText}>Pay Now</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
             {(order.status === "preparing" ||
@@ -668,7 +984,7 @@ const OrdersScreen = () => {
             )}
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -770,6 +1086,16 @@ const OrdersScreen = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* Order Details Modal */}
+      <OrderDetailsModal
+        visible={modalVisible}
+        onClose={() => {
+          setModalVisible(false);
+          setSelectedOrder(null);
+        }}
+        order={selectedOrder}
+      />
     </SafeAreaView>
   );
 };

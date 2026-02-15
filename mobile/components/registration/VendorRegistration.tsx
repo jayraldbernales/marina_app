@@ -42,6 +42,7 @@ const VendorRegistration = () => {
   const [address, setAddress] = useState("");
   const [mobile, setMobile] = useState("");
   const [gcash, setGcash] = useState("");
+  const [gcashName, setGcashName] = useState(""); // ADDED: GCash account name
   const [municipality, setMunicipality] = useState("");
 
   // Add separate state for address fields to track them individually
@@ -58,6 +59,7 @@ const VendorRegistration = () => {
     purok: false,
     mobile: false,
     gcash: false,
+    gcashName: false, // ADDED
     idType: false,
     validIdFront: false,
     validIdBack: false,
@@ -133,6 +135,7 @@ const VendorRegistration = () => {
       purok: isPurokEmpty,
       mobile: !mobile.trim(),
       gcash: !gcash.trim(),
+      gcashName: !gcashName.trim(), // ADDED
     };
 
     setErrors(newErrors);
@@ -143,7 +146,8 @@ const VendorRegistration = () => {
       newErrors.barangay ||
       newErrors.purok ||
       newErrors.mobile ||
-      newErrors.gcash;
+      newErrors.gcash ||
+      newErrors.gcashName; // ADDED
 
     return !hasErrors;
   };
@@ -223,6 +227,7 @@ const VendorRegistration = () => {
         email,
         mobile,
         gcash,
+        gcashName, // ADDED
         barangay: addressFields.barangay,
         purok: addressFields.purok,
         municipality,
@@ -375,6 +380,23 @@ const VendorRegistration = () => {
               )}
             </View>
 
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>GCash Account Name *</Text>
+              <TextInput
+                style={[styles.input, errors.gcashName && styles.inputError]}
+                placeholder="e.g., Juan Dela Cruz"
+                value={gcashName}
+                onChangeText={(text) => {
+                  setGcashName(text);
+                  setErrors({ ...errors, gcashName: false });
+                }}
+              />
+              {errors.gcashName && (
+                <Text style={styles.errorText}>
+                  GCash account name is required
+                </Text>
+              )}
+            </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>GCash Number *</Text>
               <TextInput
@@ -676,8 +698,13 @@ const VendorRegistration = () => {
                 <Text style={styles.summaryValue}>{mobile}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>GCash:</Text>
+                <Text style={styles.summaryLabel}>GCash Number:</Text>
                 <Text style={styles.summaryValue}>{gcash}</Text>
+              </View>
+              {/* ADDED: GCash Name in Summary */}
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>GCash Name:</Text>
+                <Text style={styles.summaryValue}>{gcashName}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Address:</Text>

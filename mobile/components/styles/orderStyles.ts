@@ -59,7 +59,7 @@ export const orderStyles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     marginTop: 12,
-    shadowColor: "#000",
+    shadowColor: COLORS.light.primary,
     shadowOffset: {
       width: 0,
       height: 1,
@@ -233,7 +233,7 @@ export const orderStyles = StyleSheet.create({
   itemPrice: {
     fontSize: 14,
     fontWeight: "bold",
-    color: "#000",
+    color: COLORS.light.primary,
   },
   itemQuantity: {
     fontSize: 12,
@@ -257,5 +257,218 @@ export const orderStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "600",
+  }, // Add these to your orderStyles.ts
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+    paddingHorizontal: 16,
+    maxHeight: "90%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+  },
+  modalCloseButton: {
+    padding: 8,
+  },
+  modalSection: {
+    marginBottom: 24,
+  },
+  modalOrderInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  modalOrderLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  modalOrderNumber: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginTop: 2,
+  },
+  modalOrderDate: {
+    fontSize: 14,
+    color: "#666",
+  },
+  modalSectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginBottom: 12,
+  },
+  modalAddress: {
+    fontSize: 14,
+    color: "#333",
+    lineHeight: 20,
+  },
+  modalPaymentRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  modalPaymentLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  modalPaymentValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+  },
+  modalItemRow: {
+    flexDirection: "row",
+    marginBottom: 16,
+  },
+  modalItemImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  modalItemDetails: {
+    flex: 1,
+  },
+  modalItemName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.light.primary,
+    marginBottom: 2,
+  },
+  modalItemVendor: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 4,
+  },
+  modalItemPrice: {
+    alignItems: "flex-end",
+  },
+  modalItemPriceText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginBottom: 2,
+  },
+  modalItemQuantity: {
+    fontSize: 12,
+    color: "#666",
+  },
+  modalPriceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  modalPriceLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  modalPriceValue: {
+    fontSize: 14,
+    color: "#333",
+  },
+  modalTotalRow: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+  },
+  modalTotalLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+  },
+  modalTotalValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+  },
+  // Add to orderStyles
+  specialInstructionsBox: {
+    flexDirection: "row",
+    backgroundColor: "#f8f9fa",
+    borderRadius: 8,
+    padding: 12,
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  specialInstructionsText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#333",
+    lineHeight: 20,
+  },
+  gcashProofSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+  },
+  proofLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+  proofImageContainer: {
+    position: "relative",
+    width: "100%",
+    height: 200,
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  proofImage: {
+    width: "100%",
+    height: "100%",
+  },
+  proofOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  proofOverlayText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 8,
+  },
+  referenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  referenceLabel: {
+    fontSize: 14,
+    color: "#666",
+    width: 120,
+  },
+  referenceValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    flex: 1,
   },
 });

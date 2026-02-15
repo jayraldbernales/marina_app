@@ -220,85 +220,77 @@ const DirectOrderScreen = () => {
     // Show preview modal
     setShowPreview(true);
   };
-  // Actual checkout function - UPDATED WITH DATABASE FUNCTION
+  // Actual checkout function - UPDATED to NOT create order for GCash
   const handleConfirmOrder = async () => {
     setShowPreview(false); // Close preview modal
-    try {
-      // Step 1: Get the user's default address ID
-      const { data: addressData, error: addressError } = await supabase
-        .from("addresses")
-        .select("address_id")
-        .eq("user_id", user?.id)
-        .eq("is_default", true)
-        .maybeSingle();
 
-      if (addressError) throw addressError;
-      if (!addressData) {
-        Alert.alert(
-          "Error",
-          "No default address found. Please set a default address.",
-        );
-        return;
-      }
+    // For COD - create order immediately
+    if (paymentMethod === "cod") {
+      try {
+        // Get address
+        const { data: addressData, error: addressError } = await supabase
+          .from("addresses")
+          .select("address_id")
+          .eq("user_id", user?.id)
+          .eq("is_default", true)
+          .maybeSingle();
 
-      // Step 2: Call the database function to create order atomically
-      const { data: orderId, error: rpcError } = await supabase.rpc(
-        "place_direct_order",
-        {
-          p_user_id: user?.id,
-          p_vendor_user_id: product.vendor_user_id,
-          p_product_id: product.product_id,
-          p_address_id: addressData.address_id,
-          p_quantity: quantity,
-          p_payment_method: paymentMethod,
-          p_order_total: total,
-          p_delivery_fee: deliveryFee,
-          p_note: specialInstructions || null,
-        },
-      );
-
-      if (rpcError) {
-        if (rpcError.message.includes("Insufficient stock")) {
-          Alert.alert(
-            "Insufficient Stock",
-            "Product stock has been updated. Please adjust your quantity.",
-          );
-          // Refresh product details to get latest stock
-          await fetchProductDetails();
+        if (addressError) throw addressError;
+        if (!addressData) {
+          Alert.alert("Error", "No default address found.");
           return;
         }
-        throw rpcError;
-      }
 
-      // Step 3: Fetch the created order details for confirmation
-      const { data: orderData, error: orderFetchError } = await supabase
-        .from("orders")
-        .select("order_number, total_amount")
-        .eq("order_id", orderId)
-        .maybeSingle();
+        // Create order
+        const { data: orderId, error: rpcError } = await supabase.rpc(
+          "place_direct_order",
+          {
+            p_user_id: user?.id,
+            p_vendor_user_id: product.vendor_user_id,
+            p_product_id: product.product_id,
+            p_address_id: addressData.address_id,
+            p_quantity: quantity,
+            p_payment_method: "cod",
+            p_order_total: total,
+            p_delivery_fee: deliveryFee,
+            p_note: specialInstructions || null,
+            p_payment_proof_url: null,
+            p_gcash_reference: null,
+          },
+        );
 
-      if (orderFetchError) throw orderFetchError;
+        if (rpcError) {
+          if (rpcError.message.includes("Insufficient stock")) {
+            Alert.alert("Insufficient Stock", "Please adjust quantity.");
+            await fetchProductDetails();
+            return;
+          }
+          throw rpcError;
+        }
 
-      if (!orderData) {
-        throw new Error("Failed to retrieve order details after creation");
-      }
+        // Get order details
+        const { data: orderData, error: orderFetchError } = await supabase
+          .from("orders")
+          .select("order_number, total_amount")
+          .eq("order_id", orderId)
+          .maybeSingle();
 
-      // Step 4: Update local UI state only
-      setProduct((prev: any) => ({
-        ...prev,
-        stock: prev.stock - quantity,
-        sold_quantity: (prev.sold_quantity || 0) + quantity,
-      }));
+        if (orderFetchError) throw orderFetchError;
+        if (!orderData) throw new Error("Failed to get order details");
 
-      // Reset quantity to 1 after successful order
-      setQuantity(1);
-      setSpecialInstructions("");
+        // Update local state
+        setProduct((prev: any) => ({
+          ...prev,
+          stock: prev.stock - quantity,
+          sold_quantity: (prev.sold_quantity || 0) + quantity,
+        }));
 
-      // Step 5: Show success message
-      if (paymentMethod === "cod") {
+        setQuantity(1);
+        setSpecialInstructions("");
+
         Alert.alert(
           "Order Placed Successfully!",
-          `Your order #${orderData.order_number} has been placed successfully. You'll pay ₱${orderData.total_amount.toLocaleString()} upon delivery.`,
+          `Your order #${orderData.order_number} has been placed. You'll pay ₱${orderData.total_amount.toLocaleString()} upon delivery.`,
           [
             {
               text: "Track Order",
@@ -310,34 +302,51 @@ const DirectOrderScreen = () => {
             },
           ],
         );
-      } else {
-        // For GCash, you would redirect to payment
-        Alert.alert(
-          "Proceed to Payment",
-          `Order #${orderData.order_number} created. Please proceed to GCash payment.`,
-          [
-            {
-              text: "Pay Now",
-              onPress: () => {
-                // Handle GCash payment integration here
-                console.log("Redirect to GCash payment");
-              },
-            },
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-          ],
-        );
+      } catch (error: any) {
+        console.error("Checkout error:", error);
+        Alert.alert("Error", `Failed to place order: ${error.message}`);
       }
-    } catch (error: any) {
-      console.error("Checkout error:", error);
-      Alert.alert("Error", `Failed to place order: ${error.message}`);
+    } else {
+      // For GCash - DO NOT CREATE ORDER, just navigate to payment screen
+      try {
+        // Get address
+        const { data: addressData, error: addressError } = await supabase
+          .from("addresses")
+          .select("address_id")
+          .eq("user_id", user?.id)
+          .eq("is_default", true)
+          .maybeSingle();
+
+        if (addressError) throw addressError;
+        if (!addressData) {
+          Alert.alert("Error", "No default address found.");
+          return;
+        }
+
+        router.push({
+          pathname: "./payment",
+          params: {
+            productId: product.product_id,
+            vendorUserId: product.vendor_user_id,
+            quantity: quantity.toString(),
+            subtotal: subtotal.toString(),
+            deliveryFee: deliveryFee.toString(),
+            total: total.toString(),
+            specialInstructions: specialInstructions || "",
+            addressId: addressData.address_id,
+          },
+        });
+      } catch (error: any) {
+        console.error("Error:", error);
+        Alert.alert("Error", `Failed to prepare payment: ${error.message}`);
+      }
     }
   };
+
   const handleBackToPrevious = () => {
     router.back();
   };
+
   const navigateToProfileEdit = () => {
     router.push("/account-information");
   };

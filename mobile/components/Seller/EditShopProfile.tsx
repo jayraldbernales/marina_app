@@ -51,6 +51,7 @@ const EditShopProfile = () => {
   const [form, setForm] = useState({
     shop_name: "",
     gcash_number: "",
+    gcash_name: "", // ADDED: GCash account name
     avatar_url: "",
   });
 
@@ -85,10 +86,10 @@ const EditShopProfile = () => {
 
       const userId = session.user.id;
 
-      // Load vendor profile
+      // Load vendor profile - ADDED gcash_name to the select
       const { data: vendorData, error: vendorError } = await supabase
         .from("vendor_profiles")
-        .select("shop_name, avatar_url, gcash_number, created_at")
+        .select("shop_name, avatar_url, gcash_number, gcash_name, created_at")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -116,6 +117,7 @@ const EditShopProfile = () => {
         ...prev,
         shop_name: vendorData?.shop_name ?? "",
         gcash_number: vendorData?.gcash_number ?? "",
+        gcash_name: vendorData?.gcash_name ?? "", // ADDED
         avatar_url: vendorData?.avatar_url ?? "",
       }));
 
@@ -186,6 +188,7 @@ const EditShopProfile = () => {
         shop_name: updates.shop_name?.trim(),
         avatar_url: updates.avatar_url,
         gcash_number: updates.gcash_number?.trim(),
+        gcash_name: updates.gcash_name?.trim(), // ADDED
       };
 
       if (!payload.shop_name) {
@@ -308,6 +311,10 @@ const EditShopProfile = () => {
   const handleGcashNumberChange = (text: string) => {
     const validatedNumber = validateGcashNumber(text);
     setForm((prev) => ({ ...prev, gcash_number: validatedNumber }));
+  };
+
+  const handleGcashNameChange = (text: string) => {
+    setForm((prev) => ({ ...prev, gcash_name: text }));
   };
 
   const handleSave = async () => {
@@ -607,6 +614,16 @@ const EditShopProfile = () => {
                 onChangeText={(t) => setForm((p) => ({ ...p, shop_name: t }))}
                 style={styles.input}
                 placeholder="Enter shop name"
+                placeholderTextColor="#999"
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>GCash Account Name</Text>
+              <TextInput
+                value={form.gcash_name}
+                onChangeText={handleGcashNameChange}
+                style={styles.input}
+                placeholder="e.g., Juan Dela Cruz"
                 placeholderTextColor="#999"
               />
             </View>

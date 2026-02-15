@@ -10,6 +10,7 @@ export interface VendorRegistrationData {
   email: string;
   mobile: string;
   gcash: string;
+  gcashName: string;
   barangay: string;
   purok: string;
   municipality: string;
@@ -26,6 +27,7 @@ export interface RiderRegistrationData {
   email: string;
   mobile: string;
   gcashNumber: string;
+  gcashName: string;
   emergencyContactName: string;
   emergencyContactNumber: string;
   barangay: string;
@@ -143,6 +145,7 @@ export const saveVendorRegistration = async (
         .update({
           shop_name: data.shopName,
           gcash_number: data.gcash,
+          gcash_name: data.gcashName,
           approval_status: "pending", // Reset to pending
           approval_notes: null, // Clear previous notes
           agreed_to_terms: data.acceptedTerms,
@@ -207,6 +210,7 @@ export const saveVendorRegistration = async (
             user_id: userId,
             shop_name: data.shopName,
             gcash_number: data.gcash,
+            gcash_name: data.gcashName,
             approval_status: "pending",
             agreed_to_terms: data.acceptedTerms,
             created_at: new Date().toISOString(),
@@ -349,6 +353,7 @@ export const saveRiderRegistration = async (
           vehicle_type: data.vehicleType,
           license_plate: data.plateNumber,
           gcash_number: data.gcashNumber,
+          gcash_name: data.gcashName,
           emergency_contact_name: data.emergencyContactName,
           emergency_contact_number: data.emergencyContactNumber,
           approval_status: "pending", // Reset to pending
@@ -416,6 +421,7 @@ export const saveRiderRegistration = async (
             vehicle_type: data.vehicleType,
             license_plate: data.plateNumber,
             gcash_number: data.gcashNumber,
+            gcash_name: data.gcashName,
             emergency_contact_name: data.emergencyContactName,
             emergency_contact_number: data.emergencyContactNumber,
             approval_status: "pending",

@@ -213,79 +213,80 @@ const CartScreen = () => {
     );
   };
 
-  // Update quantity in database
-  const updateQuantity = async (cartItemId: string, newQuantity: number) => {
-    try {
-      if (newQuantity < 0) return; // Prevent negative quantities
-      if (newQuantity === 0) {
-        await removeItem(cartItemId);
-      } else {
-        // Check stock availability
-        const item = cartItems.find((i) => i.cartItemId === cartItemId);
-        if (item && newQuantity > item.stock) {
-          Alert.alert(
-            "Insufficient Stock",
-            `Only ${item.stock} ${item.unit} available.`,
-          );
-          return;
-        }
+  // Bulk delete selected items
+  const handleBulkDelete = () => {
+    const selectedCount = selectedItems.length;
+    if (selectedCount === 0) return;
 
-        const { error } = await supabase
-          .from("cart_items")
-          .update({ quantity: newQuantity })
-          .eq("cart_item_id", cartItemId);
-        if (error) throw error;
-        setCartItems(
-          cartItems.map((item) =>
-            item.cartItemId === cartItemId
-              ? { ...item, quantity: newQuantity }
-              : item,
-          ),
-        );
-      }
-    } catch (error: any) {
-      Alert.alert("Error", `Failed to update quantity: ${error.message}`);
-    }
+    Alert.alert(
+      "Confirm Bulk Delete",
+      `Are you sure you want to remove ${selectedCount} item${selectedCount > 1 ? "s" : ""} from your cart?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => bulkRemoveItems(),
+        },
+      ],
+    );
   };
 
-  // Delete item from cart
-  const removeItem = async (cartItemId: string) => {
+  const bulkRemoveItems = async () => {
     try {
-      setDeleting(cartItemId);
+      const selectedCartIds = [
+        ...new Set(selectedItems.map((item) => item.cartId)),
+      ];
 
-      const item = cartItems.find((i) => i.cartItemId === cartItemId);
-      if (!item) return;
+      if (selectedCartIds.length === 0) return;
 
-      const cartId = item.cartId;
+      setDeleting("bulk");
 
       const { error } = await supabase
         .from("carts")
         .delete()
-        .eq("cart_id", cartId);
+        .in("cart_id", selectedCartIds);
 
       if (error) throw error;
 
-      setCartItems(cartItems.filter((item) => item.cartId !== cartId));
+      setCartItems(cartItems.filter((item) => !item.selected));
     } catch (error: any) {
-      Alert.alert("Error", `Failed to delete item: ${error.message}`);
+      Alert.alert("Error", `Failed to delete items: ${error.message}`);
     } finally {
       setDeleting(null);
     }
   };
 
-  const handleDelete = (cartItemId: string) => {
-    Alert.alert(
-      "Confirm Delete",
-      "Are you sure you want to remove this item from your cart?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => removeItem(cartItemId),
-        },
-      ],
-    );
+  // Update quantity in database
+  const updateQuantity = async (cartItemId: string, newQuantity: number) => {
+    try {
+      if (newQuantity < 0) return; // Prevent negative quantities
+
+      // Check stock availability
+      const item = cartItems.find((i) => i.cartItemId === cartItemId);
+      if (item && newQuantity > item.stock) {
+        Alert.alert(
+          "Insufficient Stock",
+          `Only ${item.stock} ${item.unit} available.`,
+        );
+        return;
+      }
+
+      const { error } = await supabase
+        .from("cart_items")
+        .update({ quantity: newQuantity })
+        .eq("cart_item_id", cartItemId);
+      if (error) throw error;
+      setCartItems(
+        cartItems.map((item) =>
+          item.cartItemId === cartItemId
+            ? { ...item, quantity: newQuantity }
+            : item,
+        ),
+      );
+    } catch (error: any) {
+      Alert.alert("Error", `Failed to update quantity: ${error.message}`);
+    }
   };
 
   const handleCheckoutPreview = () => {
@@ -346,86 +347,61 @@ const CartScreen = () => {
         return;
       }
 
-      // Group items by vendor
-      const itemsByVendor = getVendorGroups();
-
-      // Create orders for each vendor using a database function
-      const orderPromises = Object.entries(itemsByVendor).map(
-        async ([vendorUserId, items]) => {
-          // Generate order number
-          const orderNumber = `ORD-${Date.now()}`;
-          const orderSubtotal = items.reduce(
-            (sum, item) => sum + item.price * item.quantity,
-            0,
-          );
-
-          // Each vendor gets their own delivery fee
-          const vendorDeliveryFee = deliveryFeePerVendor;
-          const orderTotal = orderSubtotal + vendorDeliveryFee;
-
-          // Call database function to create order with proper stock updates
-          const { data: orderId, error: rpcError } = await supabase.rpc(
-            "place_cart_order",
-            {
-              p_order_number: orderNumber,
-              p_user_id: user?.id,
-              p_vendor_user_id: vendorUserId,
-              p_address_id: addressData.address_id,
-              p_payment_method: paymentMethod,
-              p_order_total: orderTotal,
-              p_delivery_fee: vendorDeliveryFee,
-              p_note: specialInstructions,
-              p_cart_item_ids: items.map((item) => item.cartItemId),
-            },
-          );
-
-          if (rpcError) {
-            if (rpcError.message.includes("Insufficient stock")) {
-              // Refresh cart items to get updated stock
-              await fetchCartItems();
-              throw new Error(
-                "Some items have insufficient stock. Please adjust your cart.",
-              );
-            }
-            throw rpcError;
-          }
-
-          return { orderNumber, vendorDeliveryFee, orderTotal };
-        },
-      );
-
-      const orderResults = await Promise.all(orderPromises);
-      const orderNumbers = orderResults.map((r) => r.orderNumber);
-
-      // Calculate total for success message
-      const totalDeliveryFee = orderResults.reduce(
-        (sum, result) => sum + result.vendorDeliveryFee,
-        0,
-      );
-      const finalTotal = subtotal + totalDeliveryFee;
-
-      // Refresh cart after successful order
-      await fetchCartItems();
-
-      // Delete the carts that were checked out
-      const cartIdsToDelete = [
-        ...new Set(selectedItems.map((item) => item.cartId)),
-      ];
-
-      if (cartIdsToDelete.length > 0) {
-        const { error: deleteCartsError } = await supabase
-          .from("carts")
-          .delete()
-          .in("cart_id", cartIdsToDelete);
-
-        if (deleteCartsError) {
-          console.error("Error deleting carts:", deleteCartsError);
-          // Don't throw - orders are already created successfully
-        }
-      }
-
-      // Show success message
+      // For COD - create orders immediately
       if (paymentMethod === "cod") {
+        // Group items by vendor
+        const itemsByVendor = getVendorGroups();
+
+        // Create orders for each vendor
+        const orderPromises = Object.entries(itemsByVendor).map(
+          async ([vendorUserId, items]) => {
+            const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+            const orderSubtotal = items.reduce(
+              (sum, item) => sum + item.price * item.quantity,
+              0,
+            );
+            const vendorDeliveryFee = deliveryFeePerVendor;
+            const orderTotal = orderSubtotal + vendorDeliveryFee;
+
+            const { data: orderId, error: rpcError } = await supabase.rpc(
+              "place_cart_order",
+              {
+                p_order_number: orderNumber,
+                p_user_id: user?.id,
+                p_vendor_user_id: vendorUserId,
+                p_address_id: addressData.address_id,
+                p_payment_method: "cod",
+                p_order_total: orderTotal,
+                p_delivery_fee: vendorDeliveryFee,
+                p_cart_item_ids: items.map((item) => item.cartItemId),
+                p_note: specialInstructions || null,
+                p_payment_proof_url: null,
+                p_gcash_reference: null,
+              },
+            );
+
+            if (rpcError) throw rpcError;
+            return { orderNumber, vendorDeliveryFee, orderTotal };
+          },
+        );
+
+        const orderResults = await Promise.all(orderPromises);
+        const orderNumbers = orderResults.map((r) => r.orderNumber);
+        const totalDeliveryFee = orderResults.reduce(
+          (sum, result) => sum + result.vendorDeliveryFee,
+          0,
+        );
+        const finalTotal = subtotal + totalDeliveryFee;
+
+        // Refresh cart and delete checked out items
+        await fetchCartItems();
+        const cartIdsToDelete = [
+          ...new Set(selectedItems.map((item) => item.cartId)),
+        ];
+        if (cartIdsToDelete.length > 0) {
+          await supabase.from("carts").delete().in("cart_id", cartIdsToDelete);
+        }
+
         Alert.alert(
           "Orders Placed Successfully!",
           `Your order${orderNumbers.length > 1 ? "s" : ""} (${orderNumbers.join(", ")}) ha${orderNumbers.length > 1 ? "ve" : "s"} been placed successfully. You'll pay ₱${finalTotal.toLocaleString()} upon delivery.`,
@@ -434,33 +410,64 @@ const CartScreen = () => {
               text: "Track Orders",
               onPress: () => router.push("/(tabs)/orders"),
             },
-            {
-              text: "Continue Shopping",
-              onPress: () => router.push("/"),
-            },
-          ],
-        );
-      } else {
-        Alert.alert(
-          "Proceed to Payment",
-          `Order${orderNumbers.length > 1 ? "s" : ""} created. Please proceed to GCash payment.`,
-          [
-            {
-              text: "Pay Now",
-              onPress: () => {
-                console.log("Redirect to GCash payment");
-              },
-            },
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
+            { text: "Continue Shopping", onPress: () => router.push("/") },
           ],
         );
       }
+      // For GCash - DON'T CREATE ORDERS, just prepare payment data
+      else {
+        // Group items by vendor and prepare payment data
+        const itemsByVendor = getVendorGroups();
+
+        // Get vendor GCash details for each vendor
+        const vendorPromises = Object.keys(itemsByVendor).map(
+          async (vendorUserId) => {
+            const { data: vendorData } = await supabase
+              .from("vendor_profiles")
+              .select("shop_name, gcash_number, gcash_name")
+              .eq("user_id", vendorUserId)
+              .single();
+
+            const items = itemsByVendor[vendorUserId];
+            const vendorSubtotal = items.reduce(
+              (sum, item) => sum + item.price * item.quantity,
+              0,
+            );
+
+            return {
+              vendorUserId,
+              shopName: vendorData?.shop_name || "Unknown Vendor",
+              gcashNumber: vendorData?.gcash_number,
+              gcashName: vendorData?.gcash_name,
+              subtotal: vendorSubtotal,
+              deliveryFee: deliveryFeePerVendor,
+              total: vendorSubtotal + deliveryFeePerVendor,
+              items: items.map((item) => ({
+                cartItemId: item.cartItemId,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                unit: item.unit,
+              })),
+            };
+          },
+        );
+
+        const vendorPayments = await Promise.all(vendorPromises);
+
+        // Navigate to multi-vendor payment screen WITHOUT creating orders
+        router.push({
+          pathname: "../buyer/payment-multiple",
+          params: {
+            orders: JSON.stringify(vendorPayments),
+            addressId: addressData.address_id,
+            specialInstructions: specialInstructions || "",
+          },
+        });
+      }
     } catch (error: any) {
       console.error("Checkout error:", error);
-      Alert.alert("Error", `Failed to place order: ${error.message}`);
+      Alert.alert("Error", `Failed to process checkout: ${error.message}`);
     }
   };
 
@@ -741,41 +748,89 @@ const CartScreen = () => {
           </Text>
         </View>
         <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
-          {/* Select All Button */}
-          <TouchableOpacity
+          {/* Select All and Bulk Delete Row */}
+          <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              paddingVertical: 8,
-              paddingHorizontal: 12,
+              justifyContent: "space-between",
               marginBottom: 12,
-              backgroundColor: "#f0f8ff",
-              borderRadius: 8,
             }}
-            onPress={selectAllItems}
           >
-            <MaterialCommunityIcons
-              name={
-                cartItems.every((item) => item.selected)
-                  ? "checkbox-marked"
-                  : "checkbox-blank-outline"
-              }
-              size={20}
-              color={COLORS.light.primary}
-            />
-            <Text
+            <TouchableOpacity
               style={{
-                marginLeft: 8,
-                fontSize: 14,
-                fontWeight: "600",
-                color: COLORS.light.primary,
+                flexDirection: "row",
+                alignItems: "center",
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: "#f0f8ff",
+                borderRadius: 8,
+                flex: 1,
               }}
+              onPress={selectAllItems}
             >
-              {cartItems.every((item) => item.selected)
-                ? "Deselect All"
-                : "Select All"}
-            </Text>
-          </TouchableOpacity>
+              <MaterialCommunityIcons
+                name={
+                  cartItems.every((item) => item.selected)
+                    ? "checkbox-marked"
+                    : "checkbox-blank-outline"
+                }
+                size={20}
+                color={COLORS.light.primary}
+              />
+              <Text
+                style={{
+                  marginLeft: 8,
+                  fontSize: 14,
+                  fontWeight: "600",
+                  color: COLORS.light.primary,
+                }}
+              >
+                {cartItems.every((item) => item.selected)
+                  ? "Deselect All"
+                  : "Select All"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Bulk Delete Button - Only shows when items are selected */}
+            {selectedItems.length > 0 && (
+              <TouchableOpacity
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 8,
+                  paddingHorizontal: 16,
+                  backgroundColor: "#fee",
+                  borderRadius: 8,
+                  marginLeft: 12,
+                }}
+                onPress={handleBulkDelete}
+                disabled={deleting === "bulk"}
+              >
+                {deleting === "bulk" ? (
+                  <ActivityIndicator size="small" color={COLORS.light.coral} />
+                ) : (
+                  <>
+                    <Feather
+                      name="trash-2"
+                      size={18}
+                      color={COLORS.light.coral}
+                    />
+                    <Text
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 14,
+                        fontWeight: "600",
+                        color: COLORS.light.coral,
+                      }}
+                    >
+                      Delete ({selectedItems.length})
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
 
           {/* Cart Items */}
           {cartItems.map((item) => (
@@ -784,8 +839,6 @@ const CartScreen = () => {
               item={item}
               onToggleSelect={toggleSelectItem}
               onUpdateQuantity={updateQuantity}
-              onDelete={() => handleDelete(item.cartItemId)}
-              deleting={deleting}
             />
           ))}
 
@@ -822,8 +875,7 @@ const CartScreen = () => {
                       marginBottom: 8,
                     }}
                   >
-                    ⚠️ You need to add a home delivery address to place an
-                    order.
+                    You need to add a home delivery address to place an order.
                   </Text>
                   <TouchableOpacity
                     onPress={navigateToProfileEdit}
@@ -929,11 +981,6 @@ const CartScreen = () => {
                 marginBottom: 8,
               }}
             >
-              <MaterialCommunityIcons
-                name="note-text-outline"
-                size={20}
-                color={COLORS.light.primary}
-              />
               <Text style={cartScreenStyles.sectionTitle}>
                 Special Instructions
               </Text>
@@ -1023,16 +1070,11 @@ const CartItemComponent = ({
   item,
   onToggleSelect,
   onUpdateQuantity,
-  onDelete,
-  deleting,
 }: {
   item: CartItem;
   onToggleSelect: (id: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
-  onDelete: () => void;
-  deleting: string | null;
 }) => {
-  const isDeleting = deleting === item.cartItemId;
   return (
     <View style={cartScreenStyles.cartCard}>
       {/* Checkbox */}
@@ -1075,28 +1117,20 @@ const CartItemComponent = ({
           ₱{item.price.toLocaleString()} per {item.unit}
         </Text>
       </View>
-      {/* Delete and Quantity */}
+      {/* Quantity Controls */}
       <View
         style={{
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <TouchableOpacity
-          onPress={onDelete}
-          disabled={isDeleting}
-          style={cartScreenStyles.trashBtn}
-          accessibilityLabel={`Remove ${item.name}`}
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color={COLORS.light.coral} />
-          ) : (
-            <Feather name="trash-2" size={18} color={COLORS.light.coral} />
-          )}
-        </TouchableOpacity>
         {/* Quantity Controls */}
         <View
-          style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginTop: 8,
+          }}
         >
           <TouchableOpacity
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}

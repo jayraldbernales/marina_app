@@ -37,6 +37,7 @@ const RiderRegistration = () => {
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactNumber, setEmergencyContactNumber] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
+  const [gcashName, setGcashName] = useState(""); // ADDED: GCash account name
   const [municipality, setMunicipality] = useState("");
 
   // Step 2: Vehicle Information
@@ -74,6 +75,7 @@ const RiderRegistration = () => {
     plateNumber: false,
     driversLicenseFront: false,
     selfieWithId: false,
+    // Note: gcashNumber and gcashName are optional, so no error state needed
   });
 
   // Vehicle Type Options
@@ -291,6 +293,7 @@ const RiderRegistration = () => {
         email,
         mobile,
         gcashNumber,
+        gcashName, // ADDED: GCash account name
         emergencyContactName,
         emergencyContactNumber,
         barangay: addressFields.barangay,
@@ -454,9 +457,19 @@ const RiderRegistration = () => {
               </Text>
             </View>
 
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>GCash Account Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g., Juan Dela Cruz"
+                value={gcashName}
+                onChangeText={setGcashName}
+              />
+            </View>
+
             {/* GCash Number - Optional for riders */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>GCash Number (Optional)</Text>
+              <Text style={styles.inputLabel}>GCash Number</Text>
               <TextInput
                 style={styles.input}
                 placeholder="09XX XXX XXXX"
@@ -465,9 +478,7 @@ const RiderRegistration = () => {
                 keyboardType="phone-pad"
                 maxLength={11}
               />
-              <Text style={styles.helperText}>
-                Optional: For receiving payments
-              </Text>
+              <Text style={styles.helperText}>For receiving payments</Text>
             </View>
 
             <View style={styles.inputGroup}>
@@ -692,8 +703,15 @@ const RiderRegistration = () => {
                 </View>
                 {gcashNumber && (
                   <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>GCash:</Text>
+                    <Text style={styles.summaryLabel}>GCash Number:</Text>
                     <Text style={styles.summaryValue}>{gcashNumber}</Text>
+                  </View>
+                )}
+                {/* ADDED: GCash Name in Summary */}
+                {gcashName && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>GCash Name:</Text>
+                    <Text style={styles.summaryValue}>{gcashName}</Text>
                   </View>
                 )}
                 <View style={styles.summaryRow}>

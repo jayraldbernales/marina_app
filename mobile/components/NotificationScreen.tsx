@@ -127,13 +127,13 @@ const NotificationScreen = () => {
 
   const handleNotificationPress = (id: number) => {
     setNotificationList((prev) =>
-      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif))
+      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)),
     );
   };
 
   const handleMarkAllRead = () => {
     setNotificationList((prev) =>
-      prev.map((notif) => ({ ...notif, read: true }))
+      prev.map((notif) => ({ ...notif, read: true })),
     );
   };
 
