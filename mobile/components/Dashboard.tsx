@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,115 +6,499 @@ import {
   TouchableOpacity,
   TextInput,
   SafeAreaView,
+  Image,
+  Alert,
+  RefreshControl,
+  Modal,
+  FlatList,
 } from "react-native";
-import {
-  Ionicons,
-  MaterialCommunityIcons,
-  Feather,
-  FontAwesome5,
-} from "@expo/vector-icons";
-import { useNavigation } from "expo-router";
+import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 import { COLORS } from "../constants";
 import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles";
+import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
+import { supabase } from "../lib/supabase";
+import { computeFreshness, FreshnessStatus } from "../utils/freshness";
 
-const categories: {
+// -------------------- TYPES --------------------
+
+interface Product {
+  id: string;
   name: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-}[] = [
-  { name: "Fish", icon: "fish" },
-  { name: "Shellfish", icon: "fish" },
-  { name: "Squid", icon: "jellyfish" },
-  { name: "Crab", icon: "fish" },
-  { name: "Shrimp", icon: "fish" },
-  { name: "Lobster", icon: "leaf" },
-];
+  price: number;
+  stock: number;
+  thumbnail?: string | null;
+  harvested_at: string;
+  unit: string;
+  vendor: {
+    id: string;
+    shop_name: string;
+    avatar_url?: string;
+  };
+  category?: string;
+  description?: string;
+  rating: number;
+}
 
-const featuredProducts = [
-  {
-    id: 1,
-    name: "Fresh Red Snapper",
-    price: 480,
-    unit: "kg",
-    vendor: "Maria's Catch",
-    rating: 4.8,
-    image: "🐟",
-    freshness: "Caught Today",
-    location: "2.3 km away",
-  },
-  {
-    id: 2,
-    name: "Tiger Prawns",
-    price: 650,
-    unit: "kg",
-    vendor: "Ocean Harvest",
-    rating: 4.9,
-    image: "🦐",
-    freshness: "Ultra Fresh",
-    location: "1.8 km away",
-  },
-  {
-    id: 3,
-    name: "Blue Marlin Steak",
-    price: 720,
-    unit: "kg",
-    vendor: "Deep Sea Catch",
-    rating: 4.7,
-    image: "🐟",
-    freshness: "Just Landed",
-    location: "3.1 km away",
-  },
-];
+// Freshness filter options
+type FreshnessFilter = "all" | FreshnessStatus;
 
-const promos = [
-  {
-    title: "Early Bird Special",
-    description: "20% off orders before 10 AM",
-    color: COLORS.light.coral,
-    textColor: "#fff",
-  },
-  {
-    title: "Free Delivery",
-    description: "On orders above ₱1,500",
-    color: COLORS.light.aquaBright,
-    textColor: COLORS.light.primary,
-  },
-];
+// -------------------- HELPERS --------------------
 
-// Types now reference defined constants
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-type RootStackParamList = {
-  ProductDetail: { product: (typeof featuredProducts)[0] };
+const getGreeting = (fullName?: string) => {
+  const hour = new Date().getHours();
+  let greeting = "";
+
+  if (hour >= 5 && hour < 12) {
+    greeting = "Good Morning";
+  } else if (hour >= 12 && hour < 17) {
+    greeting = "Good Afternoon";
+  } else if (hour >= 17 && hour < 22) {
+    greeting = "Good Evening";
+  } else {
+    greeting = "Good Night";
+  }
+
+  if (fullName && fullName.trim()) {
+    const firstName = fullName.trim().split(" ")[0];
+    return `${greeting}, ${firstName}!`;
+  }
+
+  return `${greeting}!`;
 };
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const formatPrice = (price: number) => {
+  return `₱${Number(price).toLocaleString()}`;
+};
+
+// Freshness filter labels
+const FRESHNESS_FILTERS: Array<{
+  label: string;
+  value: FreshnessFilter;
+  color: string;
+}> = [
+  { label: "All Products", value: "all", color: "#10b981" },
+  {
+    label: "Today's Catch",
+    value: FreshnessStatus.ULTRA_FRESH,
+    color: "#10b981",
+  },
+  { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
+  { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
+  { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+];
+
+// -------------------- COMPONENT --------------------
 
 const BuyerDashboard = () => {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const navigation = useNavigation<NavigationProp>();
+  const [fullName, setFullName] = useState("");
+  const [greeting, setGreeting] = useState("");
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [freshnessFilter, setFreshnessFilter] =
+    useState<FreshnessFilter>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+
+  // New state for unread messages count
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Fetch current user
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+      }
+    } catch (error) {
+      console.error("Error fetching current user:", error);
+    }
+  }, []);
+
+  // Fetch unread messages count
+  const fetchUnreadMessagesCount = useCallback(async () => {
+    if (!currentUserId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("buyer_unread_count")
+        .eq("buyer_id", currentUserId);
+
+      if (error) {
+        console.error("Error fetching unread count:", error);
+        return;
+      }
+
+      const totalUnread = (data || []).reduce(
+        (sum, conv) => sum + (conv.buyer_unread_count || 0),
+        0,
+      );
+      setUnreadMessagesCount(totalUnread);
+    } catch (error) {
+      console.error("Error in fetchUnreadMessagesCount:", error);
+    }
+  }, [currentUserId]);
+
+  // Set up real-time subscription for unread messages
+  const setupUnreadSubscription = useCallback(() => {
+    if (!currentUserId) return;
+
+    const subscription = supabase
+      .channel("unread-messages-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversations",
+          filter: `buyer_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          console.log("Conversation updated for unread count:", payload);
+          fetchUnreadMessagesCount();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+        },
+        async (payload) => {
+          // Check if this message belongs to a conversation where current user is the buyer
+          const { data } = await supabase
+            .from("conversations")
+            .select("buyer_id")
+            .eq("id", payload.new.conversation_id)
+            .single();
+
+          if (data && data.buyer_id === currentUserId) {
+            // Message is for the current user, refresh unread count
+            fetchUnreadMessagesCount();
+          }
+        },
+      )
+      .subscribe();
+
+    return subscription;
+  }, [currentUserId, fetchUnreadMessagesCount]);
+
+  // Fetch user profile
+  const fetchUserProfile = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setFullName("");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (error) {
+        console.error("Error fetching profile:", error);
+        setFullName("");
+      } else {
+        setFullName(data?.full_name || "");
+      }
+    } catch (error) {
+      console.error("Error in fetchUserProfile:", error);
+      setFullName("");
+    }
+  }, []);
+
+  // Fetch products
+  const fetchProducts = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("products")
+        .select(
+          `
+          product_id,
+          product_name,
+          price,
+          stock,
+          unit,
+          harvested_at,
+          images,
+          description,
+          vendor_user_id,
+          categories:category_id(category_name),
+          vendor_profiles!vendor_user_id(
+            user_id,
+            shop_name,
+            avatar_url
+          )
+        `,
+        )
+        .eq("is_active", true)
+        .gt("stock", 0)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (error) {
+        console.error("Error fetching products:", error);
+        Alert.alert("Error", "Failed to load products");
+        return [];
+      }
+
+      const mappedProducts: Product[] = (data || []).map((p: any) => {
+        let vendorData = p.vendor_profiles;
+        let shopName = "Seafood Vendor";
+        let avatarUrl = null;
+
+        if (vendorData) {
+          if (Array.isArray(vendorData) && vendorData.length > 0) {
+            shopName = vendorData[0]?.shop_name || "Seafood Vendor";
+            avatarUrl = vendorData[0]?.avatar_url;
+          } else if (typeof vendorData === "object" && vendorData.shop_name) {
+            shopName = vendorData.shop_name;
+            avatarUrl = vendorData.avatar_url;
+          }
+        }
+
+        return {
+          id: p.product_id,
+          name: p.product_name,
+          price: Number(p.price ?? 0),
+          stock: Number(p.stock ?? 0),
+          thumbnail: p.images?.[0] ?? null,
+          harvested_at: p.harvested_at,
+          unit: p.unit,
+          description: p.description,
+          vendor: {
+            id: p.vendor_user_id,
+            shop_name: shopName,
+            avatar_url: avatarUrl,
+          },
+          category: p.categories?.category_name || null,
+          rating: 4.5 + Math.random() * 0.5,
+        };
+      });
+
+      return mappedProducts;
+    } catch (error) {
+      console.error("Error in fetchProducts:", error);
+      return [];
+    }
+  }, []);
+
+  // Filter products based on freshness AND category
+  const filterProducts = useCallback(
+    (
+      products: Product[],
+      freshnessFilter: FreshnessFilter,
+      category: string | null,
+    ) => {
+      return products.filter((product) => {
+        const freshness = computeFreshness(product.harvested_at);
+
+        // Filter out NOT_FRESH
+        if (freshness.status === "not_fresh") {
+          return false;
+        }
+
+        // Filter by category if selected
+        if (category && product.category !== category) {
+          return false;
+        }
+
+        // Filter by freshness
+        if (freshnessFilter !== "all" && freshness.status !== freshnessFilter) {
+          return false;
+        }
+
+        return true;
+      });
+    },
+    [],
+  );
+
+  // Apply filters whenever allProducts, freshnessFilter, or selectedCategory changes
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      const filtered = filterProducts(
+        allProducts,
+        freshnessFilter,
+        selectedCategory,
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [allProducts, freshnessFilter, selectedCategory, filterProducts]);
+
+  // Fetch categories
+  const fetchCategories = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("category_name")
+        .order("category_name", { ascending: true });
+
+      if (error) {
+        console.error("Error fetching categories:", error);
+        return [];
+      }
+
+      const categoryNames = (data || []).map((cat: any) => cat.category_name);
+      return categoryNames;
+    } catch (error) {
+      console.error("Error in fetchCategories:", error);
+      return [];
+    }
+  }, []);
+
+  // Load all data
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      await Promise.all([
+        fetchCurrentUser(),
+        fetchUserProfile(),
+        fetchProducts().then((productsData) => {
+          setAllProducts(productsData);
+        }),
+        fetchCategories().then(setCategories),
+      ]);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      Alert.alert("Error", "Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [fetchCurrentUser, fetchUserProfile, fetchProducts, fetchCategories]);
+
+  // Load unread count after user ID is set
+  useEffect(() => {
+    if (currentUserId) {
+      fetchUnreadMessagesCount();
+    }
+  }, [currentUserId, fetchUnreadMessagesCount]);
+
+  // Set up real-time subscription
+  useEffect(() => {
+    if (currentUserId) {
+      const subscription = setupUnreadSubscription();
+      return () => {
+        if (subscription) {
+          subscription.unsubscribe();
+        }
+      };
+    }
+  }, [currentUserId, setupUnreadSubscription]);
+
+  // Refresh unread count when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (currentUserId) {
+        fetchUnreadMessagesCount();
+      }
+    }, [currentUserId, fetchUnreadMessagesCount]),
+  );
+
+  // Initial load
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Update greeting
+  useEffect(() => {
+    setGreeting(getGreeting(fullName));
+
+    const interval = setInterval(() => {
+      setGreeting(getGreeting(fullName));
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [fullName]);
+
+  // Pull to refresh
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    Promise.all([loadData(), fetchUnreadMessagesCount()]);
+  }, [loadData, fetchUnreadMessagesCount]);
 
   // Handlers
-  const handleProductPress = (product: (typeof featuredProducts)[0]) => {
-    navigation.navigate("ProductDetail", { product });
+  const handleProductPress = useCallback((product: Product) => {
+    router.push(`./buyer/product-details?product_id=${product.id}`);
+  }, []);
+
+  const handleCategoryPress = useCallback(
+    (category: string) => {
+      if (selectedCategory === category) {
+        setSelectedCategory(null);
+      } else {
+        setSelectedCategory(category);
+      }
+    },
+    [selectedCategory],
+  );
+
+  const handleSearchSubmit = useCallback(() => {
+    if (searchQuery.trim()) {
+      router.push(`./buyer/search?q=${encodeURIComponent(searchQuery)}`);
+    }
+  }, [searchQuery]);
+
+  const handleFilterPress = (filterValue: FreshnessFilter) => {
+    setFreshnessFilter(filterValue);
+    setShowFilterModal(false);
   };
 
   const handleChatPress = () => {
-    console.log("Open chat");
-    // TODO: Navigate to chat
+    router.push("/buyer/conversation");
   };
 
-  const handleSeeAllPress = () => {
-    console.log("View all products");
-    // TODO: Navigate to full list
+  // Clear all filters
+  const clearAllFilters = useCallback(() => {
+    setFreshnessFilter("all");
+    setSelectedCategory(null);
+  }, []);
+
+  // Get current filter label
+  const getCurrentFilterLabel = () => {
+    const filter = FRESHNESS_FILTERS.find((f) => f.value === freshnessFilter);
+    return filter ? filter.label : "All Products";
   };
 
-  const handleSearchSubmit = () => {
-    console.log("Search for:", searchQuery);
-    // TODO: Filter or navigate
-  };
+  // Promos
+  const promos = [
+    {
+      title: "Early Bird Special",
+      description: "20% off orders before 10 AM",
+      color: COLORS.light.coral,
+      textColor: "#fff",
+    },
+    {
+      title: "Free Delivery",
+      description: "On orders above ₱1,500",
+      color: COLORS.light.aquaBright,
+      textColor: COLORS.light.primary,
+    },
+  ];
 
-  const handleCategoryPress = (category: (typeof categories)[0]) => {
-    console.log(`Filter by ${category.name}`);
-    // TODO: Filter products or navigate
-  };
+  // Check if any filter is active
+  const isFilterActive = freshnessFilter !== "all" || selectedCategory !== null;
+
+  if (loading) {
+    return <BuyerDashboardSkeleton />;
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
@@ -123,27 +507,33 @@ const BuyerDashboard = () => {
         <View style={buyerDashboardStyles.header}>
           <View style={buyerDashboardStyles.headerTop}>
             <View>
-              <Text style={buyerDashboardStyles.headerTitle}>
-                Good Morning!
-              </Text>
+              <Text style={buyerDashboardStyles.headerTitle}>{greeting}</Text>
               <Text style={buyerDashboardStyles.headerSubtitle}>
                 What's fresh today?
               </Text>
             </View>
-            <View style={{ flexDirection: "row" }}>
-              <TouchableOpacity
-                style={buyerDashboardStyles.chatButton}
-                onPress={handleChatPress}
-                accessibilityLabel="Open chat"
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={25}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-            </View>
+
+            {/* Chat Button with Unread Badge */}
+            <TouchableOpacity
+              style={buyerDashboardStyles.chatButton}
+              onPress={handleChatPress}
+              accessibilityLabel="Open chat"
+            >
+              <Ionicons
+                name="chatbox-ellipses-outline"
+                size={25}
+                color="#fff"
+              />
+              {unreadMessagesCount > 0 && (
+                <View style={buyerDashboardStyles.unreadBadge}>
+                  <Text style={buyerDashboardStyles.unreadBadgeText}>
+                    {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
+
           {/* Search Bar */}
           <View style={buyerDashboardStyles.searchBarContainer}>
             <Feather
@@ -163,12 +553,20 @@ const BuyerDashboard = () => {
             />
           </View>
         </View>
+
         <ScrollView
           style={buyerDashboardStyles.scrollArea}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: 20 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         >
           {/* Promos */}
-          <Text style={buyerDashboardStyles.sectionTitle}>Today's Offers</Text>
+          <Text
+            style={[buyerDashboardStyles.sectionTitle, { marginBottom: 12 }]}
+          >
+            Today's Offers
+          </Text>
           <View style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}>
             {promos.map((promo, idx) => (
               <View
@@ -197,8 +595,13 @@ const BuyerDashboard = () => {
               </View>
             ))}
           </View>
+
           {/* Categories */}
-          <Text style={buyerDashboardStyles.sectionTitle}>Categories</Text>
+          <Text
+            style={[buyerDashboardStyles.sectionTitle, { marginBottom: 12 }]}
+          >
+            Categories
+          </Text>
 
           <ScrollView
             horizontal
@@ -206,28 +609,99 @@ const BuyerDashboard = () => {
             contentContainerStyle={{ paddingRight: 12 }}
             style={{ marginBottom: 12 }}
           >
-            {categories.map((cat, idx) => (
+            {categories.map((category, idx) => (
               <TouchableOpacity
                 key={idx}
-                style={buyerDashboardStyles.categoryCard}
-                onPress={() => handleCategoryPress(cat)} // Added stub handler
-                accessibilityLabel={`Browse ${cat.name}`}
+                style={[
+                  buyerDashboardStyles.categoryCard,
+                  selectedCategory === category && {
+                    backgroundColor: COLORS.light.primary,
+                  },
+                ]}
+                onPress={() => handleCategoryPress(category)}
+                accessibilityLabel={`Browse ${category}`}
               >
-                <View style={buyerDashboardStyles.categoryIconWrapper}>
-                  <MaterialCommunityIcons
-                    name={cat.icon}
-                    size={32}
-                    color="#005f73"
-                  />
-                </View>
-                <Text style={buyerDashboardStyles.categoryName}>
-                  {cat.name}
+                <Text
+                  style={[
+                    buyerDashboardStyles.categoryName,
+                    selectedCategory === category && {
+                      color: "#fff",
+                    },
+                  ]}
+                >
+                  {category}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          {/* Featured Products */}
+          {/* Active Filters */}
+          {isFilterActive && (
+            <View
+              style={{
+                marginBottom: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <Text style={{ color: "#666", fontSize: 12, marginRight: 8 }}>
+                Active filters:
+              </Text>
+              {selectedCategory && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: COLORS.light.seafoam,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 16,
+                    marginRight: 8,
+                    marginBottom: 4,
+                  }}
+                  onPress={() => setSelectedCategory(null)}
+                >
+                  <Text style={{ color: COLORS.light.primary, fontSize: 12 }}>
+                    {selectedCategory}
+                  </Text>
+                  <Ionicons
+                    name="close"
+                    size={14}
+                    color={COLORS.light.primary}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+              )}
+              {freshnessFilter !== "all" && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: COLORS.light.seafoam,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 16,
+                    marginRight: 8,
+                    marginBottom: 4,
+                  }}
+                  onPress={() => setFreshnessFilter("all")}
+                >
+                  <Text style={{ color: COLORS.light.primary, fontSize: 12 }}>
+                    {getCurrentFilterLabel()}
+                  </Text>
+                  <Ionicons
+                    name="close"
+                    size={14}
+                    color={COLORS.light.primary}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* Fresh Catch Header with Filter */}
           <View
             style={{
               flexDirection: "row",
@@ -236,76 +710,283 @@ const BuyerDashboard = () => {
               marginBottom: 8,
             }}
           >
-            <Text style={buyerDashboardStyles.sectionTitle}>
-              Featured Catch
-            </Text>
-            <TouchableOpacity onPress={handleSeeAllPress}>
-              <Text style={{ color: "#00b4d8", fontSize: 14 }}>See All</Text>
+            <Text style={buyerDashboardStyles.sectionTitle}>Fresh Catch</Text>
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: COLORS.light.seafoam,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+              }}
+              onPress={() => setShowFilterModal(true)}
+            >
+              <Feather name="filter" size={16} color={COLORS.light.primary} />
+              <Text
+                style={{
+                  color: COLORS.light.primary,
+                  fontSize: 14,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getCurrentFilterLabel()}
+              </Text>
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={COLORS.light.primary}
+                style={{ marginLeft: 2 }}
+              />
             </TouchableOpacity>
           </View>
-          {featuredProducts.map((product) => (
-            <TouchableOpacity
-              key={product.id}
-              style={buyerDashboardStyles.productCard}
-              onPress={() => handleProductPress(product)}
-              accessibilityLabel={`${product.name}, ${product.price} per ${product.unit}`}
-            >
-              <Text style={buyerDashboardStyles.productImage}>
-                {product.image}
+
+          {filteredProducts.length === 0 ? (
+            <View style={{ alignItems: "center", padding: 20 }}>
+              <Ionicons name="fish-outline" size={48} color="#ccc" />
+              <Text
+                style={{ color: "#666", marginTop: 10, textAlign: "center" }}
+              >
+                {allProducts.length === 0
+                  ? "No products available at the moment"
+                  : isFilterActive
+                    ? "No products match your filters"
+                    : "No fresh products available"}
               </Text>
-              <View style={{ flex: 1 }}>
-                <View
+              {allProducts.length > 0 && isFilterActive && (
+                <TouchableOpacity
                   style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    marginBottom: 2,
+                    marginTop: 10,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    backgroundColor: COLORS.light.primary,
+                    borderRadius: 20,
                   }}
+                  onPress={clearAllFilters}
                 >
-                  <Text style={buyerDashboardStyles.productName}>
-                    {product.name}
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Clear Filters
                   </Text>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={buyerDashboardStyles.productPrice}>
-                      ₱{product.price}
-                    </Text>
-                    <Text style={buyerDashboardStyles.productUnit}>
-                      per {product.unit}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={buyerDashboardStyles.productVendor}>
-                  {product.vendor}
-                </Text>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <FontAwesome5 name="star" size={14} color="#FFD700" />
-                    <Text style={buyerDashboardStyles.productRating}>
-                      {product.rating}
-                    </Text>
-                    <View style={buyerDashboardStyles.freshnessBadge}>
-                      <Text style={buyerDashboardStyles.freshnessText}>
-                        {product.freshness}
-                      </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+              }}
+            >
+              {filteredProducts.map((product) => {
+                const freshness = computeFreshness(product.harvested_at);
+
+                return (
+                  <TouchableOpacity
+                    key={product.id}
+                    style={[
+                      buyerDashboardStyles.productCard,
+                      {
+                        width: "49%",
+                        marginBottom: 12,
+                      },
+                    ]}
+                    onPress={() => handleProductPress(product)}
+                    accessibilityLabel={`${product.name}, ${product.price} per ${product.unit}`}
+                  >
+                    <View style={{ position: "relative" }}>
+                      {product.thumbnail ? (
+                        <Image
+                          source={{ uri: product.thumbnail }}
+                          style={buyerDashboardStyles.productImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            buyerDashboardStyles.productImage,
+                            {
+                              backgroundColor: "#f3f4f6",
+                              justifyContent: "center",
+                              alignItems: "center",
+                            },
+                          ]}
+                        >
+                          <Ionicons name="image" size={28} color="#9ca3af" />
+                        </View>
+                      )}
+                      <View
+                        style={[
+                          buyerDashboardStyles.freshnessOverlay,
+                          { backgroundColor: freshness.color },
+                        ]}
+                      >
+                        <Text style={buyerDashboardStyles.freshnessOverlayText}>
+                          {freshness.label}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Feather name="map-pin" size={12} color="#005f73" />
-                    <Text style={buyerDashboardStyles.productLocation}>
-                      {product.location}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+                    <View style={{ flex: 1 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: 2,
+                        }}
+                      >
+                        <Text
+                          style={buyerDashboardStyles.productName}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {product.name}
+                        </Text>
+
+                        <View
+                          style={{ flexDirection: "row", alignItems: "center" }}
+                        >
+                          <Text style={buyerDashboardStyles.productPrice}>
+                            {formatPrice(product.price)}
+                          </Text>
+                          <Text style={buyerDashboardStyles.productUnit}>
+                            /{product.unit}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          marginBottom: 2,
+                        }}
+                      >
+                        <Text
+                          style={buyerDashboardStyles.productVendor}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {product.vendor.shop_name}
+                        </Text>
+                        <View
+                          style={{ flexDirection: "row", alignItems: "center" }}
+                        >
+                          <MaterialCommunityIcons
+                            name="star"
+                            size={11}
+                            color="#FFD700"
+                          />
+                          <Text style={buyerDashboardStyles.productRating}>
+                            {product.rating.toFixed(1)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </ScrollView>
       </View>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#fff",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: "50%",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "bold",
+                  color: COLORS.light.primary,
+                }}
+              >
+                Filter by Freshness
+              </Text>
+              <TouchableOpacity onPress={() => setShowFilterModal(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={FRESHNESS_FILTERS}
+              keyExtractor={(item) => item.value}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#f0f0f0",
+                  }}
+                  onPress={() => handleFilterPress(item.value)}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 10,
+                      backgroundColor: item.color,
+                      marginRight: 12,
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color:
+                        freshnessFilter === item.value
+                          ? COLORS.light.primary
+                          : "#333",
+                      fontWeight:
+                        freshnessFilter === item.value ? "600" : "400",
+                    }}
+                  >
+                    {item.label}
+                  </Text>
+                  {freshnessFilter === item.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.light.primary}
+                      style={{ marginLeft: "auto" }}
+                    />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

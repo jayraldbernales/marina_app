@@ -2,196 +2,174 @@ import React from "react";
 import {
   View,
   Text,
-  ImageBackground,
   StyleSheet,
   TouchableOpacity,
+  Dimensions,
+  Image,
 } from "react-native";
-import { SvgXml } from "react-native-svg";
-
-// Simplified SVG icons as XML strings (escaped backticks)
-const WavesIcon = () => (
-  <SvgXml
-    xml={`<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="30" stroke="#00BFFF" stroke-width="4"/><path d="M10 40 Q 32 10 54 40" stroke="#00BFFF" stroke-width="4" fill="none"/></svg>`}
-    width={64}
-    height={64}
-  />
-);
-
-const FishIcon = () => (
-  <SvgXml
-    xml={`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><ellipse cx="16" cy="16" rx="14" ry="10" stroke="#F0E68C" stroke-width="3"/><circle cx="22" cy="16" r="3" fill="#F0E68C"/></svg>`}
-    width={32}
-    height={32}
-  />
-);
-
+import { LinearGradient } from "expo-linear-gradient";
+import { COLORS } from "../constants";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Add this import
 
-export const WelcomeScreen = () => {
+const { width, height } = Dimensions.get("window");
+
+export const WelcomeScreen = ({ onFinish }: { onFinish?: () => void }) => {
   const router = useRouter();
+
+  const handleGetStarted = async () => {
+    // Set the flag to mark welcome as seen
+    await AsyncStorage.setItem("hasSeenWelcome", "true");
+
+    if (onFinish) {
+      onFinish();
+    } else {
+      router.replace("/login");
+    }
+  };
+
   return (
-    <ImageBackground
-      source={require("../assets/img/ocean-hero.jpg")}
-      style={styles.background}
-      imageStyle={{ opacity: 0.2 }}
+    <LinearGradient
+      colors={[
+        COLORS.light.background,
+        COLORS.light.seafoam,
+        COLORS.light.background,
+      ]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
     >
-      <View style={styles.overlayTop} />
-      <View style={styles.overlayBottom} />
+      {/* Middle Section - Illustration */}
+      <View style={styles.illustrationSection}>
+        <Image
+          source={require("@/assets/img/market.png")}
+          style={styles.illustrationImage}
+          resizeMode="contain"
+        />
 
-      <View style={styles.container}>
-        <View style={styles.logoSection}>
-          <View style={styles.iconWrapper}>
-            <WavesIcon />
-            <View style={styles.fishIcon}>
-              <FishIcon />
-            </View>
-          </View>
-          <Text style={styles.title}>MARINA</Text>
-          <Text style={styles.subtitle}>Fresh Seafood Marketplace</Text>
-        </View>
-
-        <View style={styles.features}>
-          <View style={styles.card}>
-            {/* Replace with appropriate icon */}
-            <Text style={styles.featureIcon}>🛒</Text>
-            <Text style={styles.featureText}>Buy Fresh</Text>
-          </View>
-          <View style={styles.card}>
-            {/* Replace with appropriate icon */}
-            <Text style={styles.featureIcon}>🏪</Text>
-            <Text style={styles.featureText}>Sell Local</Text>
-          </View>
-        </View>
-
-        <View style={styles.buttons}>
-          <TouchableOpacity
-            style={styles.loginButton}
-            onPress={() => router.replace("/login")}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.loginButtonText}>Login</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Connecting coastal communities through fresh seafood
-          </Text>
+        {/* Decorative dots */}
+        <View style={styles.dotsContainer}>
+          <View style={[styles.dot, styles.dotActive]} />
+          <View style={styles.dot} />
+          <View style={styles.dot} />
         </View>
       </View>
-    </ImageBackground>
+
+      {/* Bottom Section - CTA */}
+      <View style={styles.bottomSection}>
+        <Text style={styles.welcomeTitle}>Welcome to MARINA!</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Connecting coastal communities with fresh seafood
+        </Text>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={handleGetStarted} // Updated to use the new handler
+          activeOpacity={0.85}
+        >
+          <Text style={styles.primaryButtonText}>Get Started</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.footerText}>
+          By continuing, you agree to our{"\n"}
+          <Text style={styles.linkText} onPress={() => router.push("/terms")}>
+            Terms of Service
+          </Text>{" "}
+          &{" "}
+          <Text style={styles.linkText} onPress={() => router.push("/privacy")}>
+            Privacy Policy
+          </Text>
+        </Text>
+      </View>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  background: {
-    flex: 1,
-    resizeMode: "cover",
-    justifyContent: "center",
-    backgroundColor: "#004E7C", // fallback color similar to ocean-deep
-  },
-  overlayTop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-    backgroundColor: "rgba(127, 255, 212, 0.1)", // aqua-soft/20
-  },
-  overlayBottom: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-    backgroundColor: "rgba(0, 78, 124, 0.5)", // ocean-deep/50
-  },
   container: {
     flex: 1,
-    paddingHorizontal: 24,
+    justifyContent: "center",
+  },
+  topSection: {
+    paddingTop: height * 0.1,
+    paddingBottom: 32,
+    alignItems: "center",
+  },
+  logoContainer: {
+    alignItems: "center",
+  },
+  illustrationSection: {
     justifyContent: "center",
     alignItems: "center",
   },
-  logoSection: {
-    alignItems: "center",
-    marginBottom: 48,
+  illustrationImage: {
+    width: width * 1.0,
+    height: width * 0.8,
   },
-  iconWrapper: {
-    position: "relative",
-    marginBottom: 16,
-  },
-  fishIcon: {
-    position: "absolute",
-    top: 8,
-    right: -8,
-  },
-  title: {
-    fontSize: 40,
-    fontWeight: "bold",
-    color: "#F0E68C", // pearl color
-    marginBottom: 8,
-    letterSpacing: 2,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: "rgba(127, 255, 212, 0.7)", // aqua-soft
-    fontWeight: "500",
-  },
-  features: {
+
+  dotsContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    width: "80%",
-    marginBottom: 48,
+    gap: 8,
+    marginTop: 5,
   },
-  card: {
-    flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 8,
-    alignItems: "center",
-    borderColor: "rgba(0, 191, 255, 0.3)", // aqua-bright/30
-    borderWidth: 1,
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "hsl(210, 100%, 90%)",
   },
-  featureIcon: {
-    fontSize: 32,
-    color: "#00BFFF", // aqua-bright
-    marginBottom: 8,
+  dotActive: {
+    backgroundColor: "hsl(210, 100%, 20%)",
+    width: 24,
   },
-  featureText: {
-    color: "#F0E68C", // pearl
-    fontWeight: "500",
-    fontSize: 14,
+  bottomSection: {
+    paddingHorizontal: 28,
+    marginTop: 28,
   },
-  buttons: {
-    width: "80%",
+  welcomeTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "hsl(210, 100%, 20%)",
+    textAlign: "center",
+    marginBottom: 10,
+    letterSpacing: 0.3,
   },
-  loginButton: {
-    backgroundColor: "#00BFFF", // aqua-bright
-    height: 48,
-    borderRadius: 24,
+  welcomeSubtitle: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 40,
+    lineHeight: 23,
+    paddingHorizontal: 8,
+  },
+  primaryButton: {
+    backgroundColor: "hsl(210, 100%, 20%)",
+    height: 58,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
-    shadowColor: "#00BFFF",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
+    marginBottom: 20,
+    shadowColor: "hsl(210, 100%, 20%)",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  loginButtonText: {
-    color: "#004E7C", // ocean-deep
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  footer: {
-    position: "absolute",
-    bottom: 32,
-    left: 0,
-    right: 0,
-    alignItems: "center",
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.8,
   },
   footerText: {
-    color: "rgba(127, 255, 212, 0.7)",
-    fontSize: 12,
+    fontSize: 11,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 17,
+  },
+  linkText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "hsl(210, 100%, 20%)",
+    textDecorationLine: "none",
   },
 });

@@ -1,111 +1,220 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 242 47% 58%;
-    --primary-foreground: 210 40% 98%;
-    --primary-glow: 249 78% 70%;
-
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    
-    --gradient-primary: linear-gradient(135deg, hsl(242 47% 58%), hsl(249 78% 70%));
-    --gradient-hero: linear-gradient(135deg, hsl(242 47% 58%) 0%, hsl(249 78% 70%) 50%, hsl(280 100% 80%) 100%);
-    --shadow-elegant: 0 20px 40px -10px hsl(242 47% 58% / 0.2);
-    --shadow-glow: 0 0 40px hsl(249 78% 70% / 0.3);
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
+@font-face {
+  font-family: "MarinaBody";
+  src: url("/src/assets/fonts/Lexend-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
+@font-face {
+  font-family: "MarinaHeading";
+  src: url("/src/assets/fonts/Montserrat-Black.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+}
 
-  body {
-    @apply bg-background text-foreground;
-  }
+:root {
+  /* Core */
+  --background: 195 47% 89%;
+  --foreground: 210 40% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 210 40% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 210 40% 12%;
+
+  /* Primary system */
+  --primary: 210 100% 20%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 180 100% 85%;
+  --secondary-foreground: 210 100% 20%;
+
+  --muted: 180 40% 95%;
+  --muted-foreground: 210 20% 50%;
+
+  --accent: 180 100% 70%;
+  --accent-foreground: 210 100% 20%;
+
+  --destructive: 14 85% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 180 20% 90%;
+  --input: 180 20% 90%;
+  --ring: 180 100% 70%;
+
+  --radius: 0.625rem;
+
+  /* Derived color variables (generated) */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  /* Core */
+
+  /* Ocean palette */
+  --ocean-deep: 210 100% 15%;
+  --ocean-primary: 210 100% 20%;
+  --ocean-medium: 210 80% 35%;
+  --ocean-light: 210 60% 85%;
+  --ocean: 195 81% 28%;
+  --aqua-bright: 180 100% 70%;
+  --aqua-soft: 180 100% 85%;
+  --seafoam: 180 40% 95%;
+  --coral: 14 85% 60%;
+  --pearl: 0 0% 98%;
+
+  /* Sidebar */
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+
+  /* Charts */
+  --chart-1: 210 100% 20%;
+  --chart-2: 180 100% 70%;
+  --chart-3: 14 85% 60%;
+  --chart-4: 210 80% 35%;
+  --chart-5: 180 100% 85%;
+
+  /* Status */
+  --success: 152 69% 31%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 100%;
+}
+
+.dark {
+  --background: 210 100% 10%;
+
+  /* Derived color variables (generated) */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --foreground: 195 47% 89%;
+
+  --card: 210 100% 15%;
+  --card-foreground: 195 47% 89%;
+
+  --popover: 210 100% 15%;
+  --popover-foreground: 195 47% 89%;
+
+  --primary: 180 100% 70%;
+  --primary-foreground: 210 100% 15%;
+
+  --secondary: 210 80% 25%;
+  --secondary-foreground: 195 47% 89%;
+
+  --muted: 210 80% 20%;
+  --muted-foreground: 210 20% 65%;
+
+  --accent: 180 100% 50%;
+  --accent-foreground: 210 100% 10%;
+
+  --destructive: 14 85% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 210 80% 25%;
+  --input: 210 80% 25%;
+  --ring: 180 100% 50%;
+
+  --sidebar-background: 210 100% 12%;
+  --sidebar-foreground: 195 47% 89%;
+  --sidebar-primary: 180 100% 70%;
+  --sidebar-primary-foreground: 210 100% 10%;
+  --sidebar-accent: 210 80% 20%;
+  --sidebar-accent-foreground: 195 47% 89%;
+  --sidebar-border: 210 80% 20%;
+  --sidebar-ring: 180 100% 50%;
+}
+
+@theme inline {
+  /* Core */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  /* System */
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  /* Inputs */
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Ocean palette */
+  --color-ocean-deep: hsl(var(--ocean-deep));
+  --color-ocean-primary: hsl(var(--ocean-primary));
+  --color-ocean-medium: hsl(var(--ocean-medium));
+  --color-ocean-light: hsl(var(--ocean-light));
+  --color-ocean: hsl(var(--ocean));
+  --color-aqua-bright: hsl(var(--aqua-bright));
+  --color-aqua-soft: hsl(var(--aqua-soft));
+  --color-seafoam: hsl(var(--seafoam));
+  --color-coral: hsl(var(--coral));
+  --color-pearl: hsl(var(--pearl));
+
+  /* Sidebar */
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  /* Charts */
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  /* Status */
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  /* Radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: "MarinaBody", system-ui, sans-serif;
+}
+.heading-font {
+  font-family: "MarinaHeading", system-ui, sans-serif;
 }

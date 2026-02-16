@@ -1,11 +1,13 @@
 import { StyleSheet } from "react-native";
 import { COLORS } from "../../constants";
+import { Dimensions } from "react-native";
 
 export const buyerDashboardStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.light.background },
   header: {
     backgroundColor: COLORS.light.primary,
-    paddingTop: 64,
+    paddingTop: 60,
+
     padding: 12,
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
@@ -36,16 +38,15 @@ export const buyerDashboardStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: COLORS.light.ocean,
-    marginBottom: 12,
   },
   promoCard: { flex: 1, borderRadius: 12, padding: 12, marginRight: 5 },
   promoTitle: { fontWeight: "bold", fontSize: 14 },
   promoDesc: { fontSize: 10, opacity: 0.9 },
   categoryCard: {
     width: 80,
-    height: 80,
+    height: 40,
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 12,
     marginRight: 12,
     justifyContent: "center",
     alignItems: "center",
@@ -65,32 +66,66 @@ export const buyerDashboardStyles = StyleSheet.create({
   },
   categoryName: {
     fontSize: 13,
+    color: COLORS.light.primary,
     fontWeight: "600",
   },
-  productCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    alignItems: "center",
-    elevation: 2,
-  },
-  productImage: { fontSize: 36, marginRight: 12 },
-  productName: { fontWeight: "bold", color: "#005f73", fontSize: 16 },
-  productPrice: { fontWeight: "bold", color: "#005f73", fontSize: 16 },
-  productUnit: { fontSize: 12, color: "#0077b6" },
-  productVendor: { fontSize: 13, color: "#0077b6", marginBottom: 2 },
-  productRating: { fontSize: 13, color: "#333", marginLeft: 4, marginRight: 8 },
-  freshnessBadge: {
-    backgroundColor: "#7fffd4",
+  productImage: {
+    width: "100%",
+    height: 150,
     borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
+    marginBottom: 8,
   },
-  freshnessText: { fontSize: 11, color: "#005f73" },
-  productLocation: { fontSize: 11, color: "#005f73", marginLeft: 2 },
+  freshnessOverlay: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    backgroundColor: COLORS.light.coral,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  freshnessOverlayText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  productCard: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 6,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    flexDirection: "column",
+  },
+  productName: {
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+    fontSize: 16,
+    flex: 1,
+    marginRight: 8,
+  },
+  productPrice: {
+    fontWeight: "bold",
+    color: COLORS.light.coral,
+    fontSize: 14,
+  },
+  productUnit: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    marginLeft: 2,
+  },
+  productVendor: {
+    fontSize: 11,
+    color: COLORS.light.oceanMedium,
+    marginBottom: 2,
+    flex: 1, // Add this to allow it to take available space
+    marginRight: 8, // Add some spacing between vendor name and rating
+  },
+
+  productRating: { fontSize: 11, color: "#333", marginLeft: 4, marginRight: 8 },
   bottomNav: {
     position: "absolute",
     left: 0,
@@ -108,9 +143,57 @@ export const buyerDashboardStyles = StyleSheet.create({
   navItem: { alignItems: "center", flex: 1 },
   navLabel: { fontSize: 11, color: "#005f73", marginTop: 2 },
   chatButton: {
-    paddingRight: 6,
+    paddingRight: 10,
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
+  },
+  // Add to buyerDashboardStyles
+  vendorCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  vendorAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginBottom: 8,
+  },
+  vendorName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  vendorProductCount: {
+    fontSize: 12,
+    color: "#666",
+  },
+  unreadBadge: {
+    position: "absolute" as "absolute",
+    top: -5,
+    right: -1,
+    backgroundColor: "#ff4444",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: "center" as "center",
+    alignItems: "center" as "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold" as "bold",
   },
 });
