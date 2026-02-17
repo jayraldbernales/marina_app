@@ -25,11 +25,12 @@ interface UIConversation {
   name: string;
   lastMessage: string;
   timestamp: string;
+  rawTime: string;
   unreadCount: number;
   avatar?: string | null;
   isOnline: boolean;
   otherPartyId: string;
-  otherPartyType: "buyer" | "rider"; // Vendors chat with buyers or riders
+  otherPartyType: "buyer" | "rider";
 }
 
 const VendorConversationsScreen = () => {
@@ -113,18 +114,15 @@ const VendorConversationsScreen = () => {
 
     try {
       setLoading(true);
+      // Use the optimized vendor-specific query
       const { data, error } =
-        await chatService.getUserConversations(currentUserId);
+        await chatService.getVendorConversations(currentUserId);
 
       if (error) {
         console.error("Error loading conversations:", error);
       } else {
-        // Filter to only show conversations where current user is the VENDOR
-        const vendorConversations = (data || []).filter(
-          (conv) => conv.vendor_id === currentUserId,
-        );
-
-        const uiConversations = await formatConversations(vendorConversations);
+        // Data is already filtered for vendor conversations and sorted by last_message_time
+        const uiConversations = formatConversations(data || []);
         setConversations(uiConversations);
       }
     } catch (error) {
@@ -140,147 +138,63 @@ const VendorConversationsScreen = () => {
     loadConversations();
   };
 
-  const formatConversations = async (
-    convos: Conversation[],
-  ): Promise<UIConversation[]> => {
-    const formattedConvos = await Promise.all(
-      convos.map(async (conv) => {
-        // Since we filtered for vendor conversations, current user is always the vendor
-        let otherPartyName = "";
-        let otherPartyId = "";
-        let otherPartyType: "buyer" | "rider" = "buyer";
-        let unreadCount = 0;
-        let avatar: string | null | undefined = undefined;
+  const formatConversations = (convos: Conversation[]): UIConversation[] => {
+    // No need for Promise.all or await since we're not fetching avatars separately
+    const formattedConvos = convos.map((conv) => {
+      // Since we're using getVendorConversations, current user is always the vendor
+      let otherPartyName = "";
+      let otherPartyId = "";
+      let otherPartyType: "buyer" | "rider" = "buyer";
+      let unreadCount = 0;
+      let avatar: string | null | undefined = undefined;
 
-        // Current user is vendor, show buyer or rider
-        if (conv.buyer_id) {
-          otherPartyName = conv.buyer?.full_name || "Buyer";
-          otherPartyId = conv.buyer_id;
-          otherPartyType = "buyer";
-          unreadCount = conv.vendor_unread_count || 0;
+      // Current user is vendor, show buyer or rider
+      if (conv.buyer_id) {
+        otherPartyName = conv.buyer?.full_name || "Buyer";
+        otherPartyId = conv.buyer_id;
+        otherPartyType = "buyer";
+        unreadCount = conv.vendor_unread_count || 0;
+        // Use avatar from joined data - NO EXTRA FETCH
+        avatar = conv.buyer?.avatar_url;
+      } else if (conv.rider_id) {
+        otherPartyName = conv.rider?.profiles?.full_name || "Rider";
+        otherPartyId = conv.rider_id;
+        otherPartyType = "rider";
+        unreadCount = conv.vendor_unread_count || 0;
+        // Use avatar from joined data - NO EXTRA FETCH
+        avatar = conv.rider?.profiles?.avatar_url;
+      }
 
-          // Fetch buyer avatar if not already included
-          if (conv.buyer?.avatar_url) {
-            avatar = conv.buyer.avatar_url;
-          } else {
-            avatar = await fetchBuyerAvatar(otherPartyId);
-          }
-        } else if (conv.rider_id) {
-          otherPartyName = conv.rider?.profiles?.full_name || "Rider";
-          otherPartyId = conv.rider_id;
-          otherPartyType = "rider";
-          unreadCount = conv.vendor_unread_count || 0;
+      const rawTime = conv.last_message_time || "";
+      const timestamp = formatTimestamp(rawTime);
 
-          // Fetch rider avatar if not already included
-          if (conv.rider?.profiles?.avatar_url) {
-            avatar = conv.rider.profiles.avatar_url;
-          } else {
-            avatar = await fetchRiderAvatar(otherPartyId);
-          }
-        }
+      // Check if last message was from me
+      const isLastMessageFromMe = conv.last_message_sender_id === currentUserId;
+      const lastMessageDisplay = isLastMessageFromMe
+        ? `You: ${conv.last_message || ""}`
+        : conv.last_message || "No messages yet";
 
-        // Format timestamp
-        const timestamp = formatTimestamp(conv.last_message_time);
-
-        // Check if last message was from me
-        const isLastMessageFromMe =
-          conv.last_message_sender_id === currentUserId;
-        const lastMessageDisplay = isLastMessageFromMe
-          ? `You: ${conv.last_message || ""}`
-          : conv.last_message || "No messages yet";
-
-        return {
-          id: conv.id,
-          name: otherPartyName,
-          lastMessage: lastMessageDisplay,
-          timestamp: timestamp,
-          unreadCount: unreadCount,
-          avatar: avatar,
-          isOnline: false,
-          otherPartyId: otherPartyId,
-          otherPartyType: otherPartyType,
-        };
-      }),
-    );
-
-    return formattedConvos.sort((a, b) => {
-      // Sort by timestamp (most recent first)
-      if (!a.timestamp) return 1;
-      if (!b.timestamp) return -1;
-      return b.timestamp.localeCompare(a.timestamp);
+      return {
+        id: conv.id,
+        name: otherPartyName,
+        lastMessage: lastMessageDisplay,
+        timestamp,
+        rawTime,
+        unreadCount,
+        avatar,
+        isOnline: false,
+        otherPartyId,
+        otherPartyType,
+      };
     });
+
+    // No need to sort - data already comes sorted from the database query
+    return formattedConvos;
   };
 
-  // Helper function to fetch buyer avatar
-  const fetchBuyerAvatar = async (buyerId: string): Promise<string | null> => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("avatar_url")
-        .eq("user_id", buyerId) // Changed from "id" to "user_id"
-        .single();
-
-      if (error) {
-        console.error("Error fetching buyer avatar:", error);
-        return null;
-      }
-
-      return data?.avatar_url || null;
-    } catch (error) {
-      console.error("Error in fetchBuyerAvatar:", error);
-      return null;
-    }
-  };
-
-  // Helper function to fetch rider avatar (updated with better error handling)
-  const fetchRiderAvatar = async (riderId: string): Promise<string | null> => {
-    try {
-      // Try to get from rider_profiles with join to profiles
-      const { data, error } = await supabase
-        .from("rider_profiles")
-        .select("user_id, profiles!inner(avatar_url)")
-        .eq("user_id", riderId)
-        .single();
-
-      if (error) {
-        console.error("Error fetching rider avatar:", error);
-
-        // Fallback: try direct profiles query
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("avatar_url")
-          .eq("user_id", riderId)
-          .single();
-
-        if (profileError) {
-          console.error("Error fetching rider profile avatar:", profileError);
-          return null;
-        }
-
-        return profileData?.avatar_url || null;
-      }
-
-      // Handle the nested data structure correctly
-      if (data && data.profiles) {
-        // Type assertion for the nested data
-        const profiles = data.profiles as
-          | { avatar_url?: string }
-          | { avatar_url?: string }[];
-
-        // Check if profiles is an array
-        if (Array.isArray(profiles)) {
-          return profiles[0]?.avatar_url || null;
-        } else {
-          return profiles?.avatar_url || null;
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error("Error in fetchRiderAvatar:", error);
-      return null;
-    }
-  };
+  // DELETE these functions entirely:
+  // - fetchBuyerAvatar()
+  // - fetchRiderAvatar()
 
   const formatTimestamp = (timestamp: string) => {
     if (!timestamp) return "";

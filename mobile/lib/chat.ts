@@ -121,8 +121,8 @@ export const chatService = {
     return { data: newConv, error: createError };
   },
 
-  // Get all conversations for a user (buyer, vendor, or rider)
-  async getUserConversations(userId: string) {
+  // Get all conversations for a vendor
+  async getVendorConversations(vendorId: string) {
     const { data, error } = await supabase
       .from("conversations")
       .select(
@@ -145,8 +145,68 @@ export const chatService = {
         )
       `,
       )
-      .or(`buyer_id.eq.${userId},vendor_id.eq.${userId},rider_id.eq.${userId}`)
-      .order("updated_at", { ascending: false });
+      .eq("vendor_id", vendorId) // Only fetch vendor conversations
+      .order("last_message_time", { ascending: false }); // Sort by last message time
+
+    return { data, error };
+  },
+
+  // Get all conversations for a buyer
+  async getBuyerConversations(buyerId: string) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select(
+        `
+        *,
+        buyer:profiles!buyer_id(
+          full_name,
+          avatar_url
+        ),
+        vendor:vendor_profiles!vendor_id(
+          shop_name,
+          avatar_url
+        ),
+        rider:rider_profiles!rider_id(
+          vehicle_type,
+          profiles!rider_profiles_user_id_fkey(
+            full_name,
+            avatar_url
+          )
+        )
+      `,
+      )
+      .eq("buyer_id", buyerId)
+      .order("last_message_time", { ascending: false });
+
+    return { data, error };
+  },
+
+  // Get all conversations for a rider
+  async getRiderConversations(riderId: string) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select(
+        `
+        *,
+        buyer:profiles!buyer_id(
+          full_name,
+          avatar_url
+        ),
+        vendor:vendor_profiles!vendor_id(
+          shop_name,
+          avatar_url
+        ),
+        rider:rider_profiles!rider_id(
+          vehicle_type,
+          profiles!rider_profiles_user_id_fkey(
+            full_name,
+            avatar_url
+          )
+        )
+      `,
+      )
+      .eq("rider_id", riderId)
+      .order("last_message_time", { ascending: false });
 
     return { data, error };
   },

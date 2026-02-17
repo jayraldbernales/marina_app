@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
+// app/buyer/dashboard.tsx - Updated type definitions
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -19,6 +20,7 @@ import { buyerDashboardStyles } from "../components/styles/buyerDashboardStyles"
 import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleton";
 import { supabase } from "../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../utils/freshness";
+import { RealtimeChannel } from "@supabase/supabase-js";
 
 // -------------------- TYPES --------------------
 
@@ -33,11 +35,41 @@ interface Product {
   vendor: {
     id: string;
     shop_name: string;
-    avatar_url?: string;
+    avatar_url?: string | null;
   };
-  category?: string;
-  description?: string;
-  rating: number;
+  category?: string | null;
+}
+
+interface RawProductRow {
+  product_id: string;
+  product_name: string;
+  price: number;
+  stock: number;
+  unit: string;
+  harvested_at: string;
+  images: string[] | null;
+  vendor_user_id: string;
+  categories: { category_name: string } | { category_name: string }[] | null; // Handle both array and single object
+  vendor_profiles:
+    | Array<{
+        user_id: string;
+        shop_name: string;
+        avatar_url: string | null;
+      }>
+    | {
+        user_id: string;
+        shop_name: string;
+        avatar_url: string | null;
+      }
+    | null;
+}
+
+interface RawCategoryRow {
+  category_name: string;
+}
+
+interface RawConversationRow {
+  id: string;
 }
 
 // Freshness filter options
@@ -104,33 +136,71 @@ const BuyerDashboard = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
-  // New state for unread messages count
+  // State for unread messages count
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Fetch current user
-  const fetchCurrentUser = useCallback(async () => {
+  // Store conversation IDs for subscription filtering
+  const [userConversationIds, setUserConversationIds] = useState<string[]>([]);
+
+  // Refs to manage subscriptions and prevent race conditions
+  const subscriptionsRef = useRef<RealtimeChannel[]>([]);
+  const isLoadingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup all subscriptions
+  const cleanupSubscriptions = useCallback(() => {
+    subscriptionsRef.current.forEach((sub) => {
+      if (sub) {
+        supabase.removeChannel(sub);
+      }
+    });
+    subscriptionsRef.current = [];
+  }, []);
+
+  // Fetch current user - returns ID instead of relying on state timing
+  const fetchCurrentUser = useCallback(async (): Promise<string | null> => {
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
-      }
+      return user?.id ?? null;
     } catch (error) {
       console.error("Error fetching current user:", error);
+      return null;
     }
   }, []);
 
-  // Fetch unread messages count
-  const fetchUnreadMessagesCount = useCallback(async () => {
-    if (!currentUserId) return;
+  // Fetch user's conversation IDs for subscription filtering
+  const fetchUserConversationIds = useCallback(
+    async (userId: string): Promise<string[]> => {
+      try {
+        const { data, error } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("buyer_id", userId);
 
+        if (error) {
+          console.error("Error fetching conversation IDs:", error);
+          return [];
+        }
+
+        return ((data as RawConversationRow[]) || []).map((conv) => conv.id);
+      } catch (error) {
+        console.error("Error in fetchUserConversationIds:", error);
+        return [];
+      }
+    },
+    [],
+  );
+
+  // Fetch unread messages count - now accepts userId parameter
+  const fetchUnreadMessagesCount = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from("conversations")
         .select("buyer_unread_count")
-        .eq("buyer_id", currentUserId);
+        .eq("buyer_id", userId);
 
       if (error) {
         console.error("Error fetching unread count:", error);
@@ -145,69 +215,94 @@ const BuyerDashboard = () => {
     } catch (error) {
       console.error("Error in fetchUnreadMessagesCount:", error);
     }
-  }, [currentUserId]);
+  }, []);
 
-  // Set up real-time subscription for unread messages
-  const setupUnreadSubscription = useCallback(() => {
-    if (!currentUserId) return;
+  // Set up real-time subscription for unread messages with proper filtering
+  const setupUnreadSubscription = useCallback(
+    (userId: string, conversationIds: string[]) => {
+      // Clean up existing subscriptions first
+      cleanupSubscriptions();
 
-    const subscription = supabase
-      .channel("unread-messages-channel")
-      .on(
+      // Unique channel name per user
+      const channel = supabase.channel(`unread-messages-${userId}`);
+
+      // Subscribe to conversation updates
+      channel.on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "conversations",
-          filter: `buyer_id=eq.${currentUserId}`,
+          filter: `buyer_id=eq.${userId}`,
         },
-        (payload) => {
-          console.log("Conversation updated for unread count:", payload);
-          fetchUnreadMessagesCount();
+        () => {
+          fetchUnreadMessagesCount(userId);
         },
-      )
-      .on(
+      );
+
+      // Subscribe to new messages in existing conversations
+      if (conversationIds.length > 0) {
+        channel.on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `conversation_id=in.(${conversationIds.join(",")})`,
+          },
+          () => {
+            fetchUnreadMessagesCount(userId);
+          },
+        );
+      }
+
+      // Subscribe to new conversations being created
+      channel.on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
-          table: "messages",
+          table: "conversations",
+          filter: `buyer_id=eq.${userId}`,
         },
         async (payload) => {
-          // Check if this message belongs to a conversation where current user is the buyer
-          const { data } = await supabase
-            .from("conversations")
-            .select("buyer_id")
-            .eq("id", payload.new.conversation_id)
-            .single();
+          // New conversation created, add its ID to the list
+          const newConvId = (payload.new as { id: string }).id;
+          setUserConversationIds((prev) => {
+            if (!prev.includes(newConvId)) {
+              const updatedIds = [...prev, newConvId];
 
-          if (data && data.buyer_id === currentUserId) {
-            // Message is for the current user, refresh unread count
-            fetchUnreadMessagesCount();
-          }
+              // Re-setup subscription with new IDs
+              setTimeout(() => {
+                cleanupSubscriptions();
+                const newSub = setupUnreadSubscription(userId, updatedIds);
+                if (newSub) {
+                  subscriptionsRef.current = [newSub];
+                }
+              }, 100);
+
+              return updatedIds;
+            }
+            return prev;
+          });
+
+          fetchUnreadMessagesCount(userId);
         },
-      )
-      .subscribe();
+      );
 
-    return subscription;
-  }, [currentUserId, fetchUnreadMessagesCount]);
+      channel.subscribe();
+      return channel;
+    },
+    [fetchUnreadMessagesCount, cleanupSubscriptions],
+  );
 
   // Fetch user profile
-  const fetchUserProfile = useCallback(async () => {
+  const fetchUserProfile = useCallback(async (userId: string) => {
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) {
-        setFullName("");
-        return;
-      }
-
       const { data, error } = await supabase
         .from("profiles")
         .select("full_name")
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .single();
 
       if (error) {
@@ -222,7 +317,7 @@ const BuyerDashboard = () => {
     }
   }, []);
 
-  // Fetch products
+  // Fetch products - optimized query with only needed fields
   const fetchProducts = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -236,7 +331,6 @@ const BuyerDashboard = () => {
           unit,
           harvested_at,
           images,
-          description,
           vendor_user_id,
           categories:category_id(category_name),
           vendor_profiles!vendor_user_id(
@@ -257,37 +351,50 @@ const BuyerDashboard = () => {
         return [];
       }
 
-      const mappedProducts: Product[] = (data || []).map((p: any) => {
-        let vendorData = p.vendor_profiles;
+      // Type-safe mapping with proper null checks
+      const mappedProducts: Product[] = (data || []).map((item: any) => {
+        // Handle categories (could be array or single object)
+        let categoryName: string | null = null;
+        if (item.categories) {
+          if (Array.isArray(item.categories) && item.categories.length > 0) {
+            categoryName = item.categories[0]?.category_name || null;
+          } else if (
+            !Array.isArray(item.categories) &&
+            item.categories.category_name
+          ) {
+            categoryName = item.categories.category_name;
+          }
+        }
+
+        // Handle vendor_profiles (could be array or single object)
+        let vendorData = item.vendor_profiles;
         let shopName = "Seafood Vendor";
-        let avatarUrl = null;
+        let avatarUrl: string | null = null;
 
         if (vendorData) {
           if (Array.isArray(vendorData) && vendorData.length > 0) {
             shopName = vendorData[0]?.shop_name || "Seafood Vendor";
-            avatarUrl = vendorData[0]?.avatar_url;
-          } else if (typeof vendorData === "object" && vendorData.shop_name) {
+            avatarUrl = vendorData[0]?.avatar_url || null;
+          } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
             shopName = vendorData.shop_name;
-            avatarUrl = vendorData.avatar_url;
+            avatarUrl = vendorData.avatar_url || null;
           }
         }
 
         return {
-          id: p.product_id,
-          name: p.product_name,
-          price: Number(p.price ?? 0),
-          stock: Number(p.stock ?? 0),
-          thumbnail: p.images?.[0] ?? null,
-          harvested_at: p.harvested_at,
-          unit: p.unit,
-          description: p.description,
+          id: item.product_id,
+          name: item.product_name,
+          price: Number(item.price ?? 0),
+          stock: Number(item.stock ?? 0),
+          thumbnail: item.images?.[0] ?? null,
+          harvested_at: item.harvested_at,
+          unit: item.unit,
           vendor: {
-            id: p.vendor_user_id,
+            id: item.vendor_user_id,
             shop_name: shopName,
-            avatar_url: avatarUrl,
+            avatar_url: avatarUrl, // Now allowing null
           },
-          category: p.categories?.category_name || null,
-          rating: 4.5 + Math.random() * 0.5,
+          category: categoryName,
         };
       });
 
@@ -298,7 +405,7 @@ const BuyerDashboard = () => {
     }
   }, []);
 
-  // Filter products based on freshness AND category
+  // Filter products based on freshness AND category (case-insensitive)
   const filterProducts = useCallback(
     (
       products: Product[],
@@ -313,8 +420,11 @@ const BuyerDashboard = () => {
           return false;
         }
 
-        // Filter by category if selected
-        if (category && product.category !== category) {
+        // Filter by category if selected (case-insensitive)
+        if (
+          category &&
+          product.category?.toLowerCase() !== category.toLowerCase()
+        ) {
           return false;
         }
 
@@ -354,7 +464,9 @@ const BuyerDashboard = () => {
         return [];
       }
 
-      const categoryNames = (data || []).map((cat: any) => cat.category_name);
+      const categoryNames = ((data as RawCategoryRow[]) || []).map(
+        (cat) => cat.category_name,
+      );
       return categoryNames;
     } catch (error) {
       console.error("Error in fetchCategories:", error);
@@ -362,52 +474,88 @@ const BuyerDashboard = () => {
     }
   }, []);
 
-  // Load all data
+  // Load all data with proper sequencing and race condition protection
   const loadData = useCallback(async () => {
+    // Prevent multiple simultaneous loads
+    if (isLoadingRef.current) return;
+
+    // Abort any ongoing operations
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    abortControllerRef.current = new AbortController();
+    isLoadingRef.current = true;
+
     try {
       setLoading(true);
 
-      await Promise.all([
-        fetchCurrentUser(),
-        fetchUserProfile(),
-        fetchProducts().then((productsData) => {
-          setAllProducts(productsData);
-        }),
-        fetchCategories().then(setCategories),
+      // Step 1: Get user ID first
+      const userId = await fetchCurrentUser();
+      setCurrentUserId(userId);
+
+      // Step 2: Fetch user profile (needs userId)
+      if (userId) {
+        await fetchUserProfile(userId);
+      }
+
+      // Step 3: Fetch products and categories (can run in parallel)
+      const [productsData, categoriesData] = await Promise.all([
+        fetchProducts(),
+        fetchCategories(),
       ]);
+
+      setAllProducts(productsData);
+      setCategories(categoriesData);
+
+      // Step 4: Fetch unread count and conversation IDs (needs userId)
+      if (userId) {
+        await fetchUnreadMessagesCount(userId);
+        const convIds = await fetchUserConversationIds(userId);
+        setUserConversationIds(convIds);
+      }
     } catch (error) {
       console.error("Error loading data:", error);
       Alert.alert("Error", "Failed to load dashboard data");
     } finally {
       setLoading(false);
       setRefreshing(false);
+      isLoadingRef.current = false;
     }
-  }, [fetchCurrentUser, fetchUserProfile, fetchProducts, fetchCategories]);
+  }, [
+    fetchCurrentUser,
+    fetchUserProfile,
+    fetchProducts,
+    fetchCategories,
+    fetchUnreadMessagesCount,
+    fetchUserConversationIds,
+  ]);
 
-  // Load unread count after user ID is set
+  // Set up real-time subscription after user ID and conversation IDs are loaded
   useEffect(() => {
-    if (currentUserId) {
-      fetchUnreadMessagesCount();
+    if (currentUserId && userConversationIds.length > 0) {
+      const subscription = setupUnreadSubscription(
+        currentUserId,
+        userConversationIds,
+      );
+      if (subscription) {
+        subscriptionsRef.current.push(subscription);
+      }
     }
-  }, [currentUserId, fetchUnreadMessagesCount]);
 
-  // Set up real-time subscription
-  useEffect(() => {
-    if (currentUserId) {
-      const subscription = setupUnreadSubscription();
-      return () => {
-        if (subscription) {
-          subscription.unsubscribe();
-        }
-      };
-    }
-  }, [currentUserId, setupUnreadSubscription]);
+    return cleanupSubscriptions;
+  }, [
+    currentUserId,
+    userConversationIds,
+    setupUnreadSubscription,
+    cleanupSubscriptions,
+  ]);
 
   // Refresh unread count when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (currentUserId) {
-        fetchUnreadMessagesCount();
+        fetchUnreadMessagesCount(currentUserId);
       }
     }, [currentUserId, fetchUnreadMessagesCount]),
   );
@@ -428,11 +576,11 @@ const BuyerDashboard = () => {
     return () => clearInterval(interval);
   }, [fullName]);
 
-  // Pull to refresh
+  // Pull to refresh - now just call loadData once
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    Promise.all([loadData(), fetchUnreadMessagesCount()]);
-  }, [loadData, fetchUnreadMessagesCount]);
+    loadData();
+  }, [loadData]);
 
   // Handlers
   const handleProductPress = useCallback((product: Product) => {
@@ -870,18 +1018,6 @@ const BuyerDashboard = () => {
                         >
                           {product.vendor.shop_name}
                         </Text>
-                        <View
-                          style={{ flexDirection: "row", alignItems: "center" }}
-                        >
-                          <MaterialCommunityIcons
-                            name="star"
-                            size={11}
-                            color="#FFD700"
-                          />
-                          <Text style={buyerDashboardStyles.productRating}>
-                            {product.rating.toFixed(1)}
-                          </Text>
-                        </View>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -939,7 +1075,7 @@ const BuyerDashboard = () => {
 
             <FlatList
               data={FRESHNESS_FILTERS}
-              keyExtractor={(item) => item.value}
+              keyExtractor={(item) => String(item.value)}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={{
