@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { COLORS } from "../../constants";
 // Import your existing AddressForm component
 import AddressForm from "../../components/registration/AddressForm";
 
+// Update the Address type to include coordinates
 type Address = {
   address_id: string;
   user_id: string;
@@ -30,6 +31,8 @@ type Address = {
   address_type: string;
   is_default: boolean;
   created_at: string;
+  latitude?: number | null; // NEW
+  longitude?: number | null; // NEW
 };
 
 // Real data for Mabini, Bohol
@@ -78,6 +81,10 @@ const AddressManagement = () => {
   const [barangay, setBarangay] = useState("");
   const [purok, setPurok] = useState("");
   const [address, setAddress] = useState("");
+
+  // NEW: Coordinate state
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
 
   // Barangay selector modal state
   const [barangayModalVisible, setBarangayModalVisible] = useState(false);
@@ -128,6 +135,8 @@ const AddressManagement = () => {
     setBarangay("");
     setPurok("");
     setAddress("");
+    setLatitude(null); // NEW
+    setLongitude(null); // NEW
     setFormErrors({ municipality: false, barangay: false, purok: false });
     setEditingAddress(null);
   };
@@ -166,7 +175,7 @@ const AddressManagement = () => {
         return;
       }
 
-      // Prepare address data
+      // Prepare address data with coordinates
       const addressData: any = {
         user_id: session.user.id,
         full_address: address,
@@ -175,6 +184,8 @@ const AddressManagement = () => {
         municipality,
         address_type: addressType,
         is_default: isDefault,
+        latitude: latitude, // NEW: Add coordinates
+        longitude: longitude, // NEW: Add coordinates
       };
 
       let result;
@@ -238,6 +249,8 @@ const AddressManagement = () => {
     setBarangay(addr.barangay);
     setPurok(addr.purok);
     setAddress(addr.full_address);
+    setLatitude(addr.latitude || null); // NEW
+    setLongitude(addr.longitude || null); // NEW
     setShowAddForm(true);
   };
 
@@ -447,6 +460,21 @@ const AddressManagement = () => {
                   </View>
                 </View>
                 <Text style={styles.addressText}>{formatAddress(addr)}</Text>
+
+                {/* NEW: Show coordinates badge if available */}
+                {addr.latitude && addr.longitude && (
+                  <View style={styles.coordinatesBadge}>
+                    <Ionicons
+                      name="locate"
+                      size={12}
+                      color={COLORS.light.primary}
+                    />
+                    <Text style={styles.coordinatesBadgeText}>
+                      Coordinates saved
+                    </Text>
+                  </View>
+                )}
+
                 {!addr.is_default && (
                   <TouchableOpacity
                     onPress={() => handleSetDefault(addr.address_id)}
@@ -557,6 +585,13 @@ const AddressManagement = () => {
                     setPurok(newPurok);
                   }}
                   onMunicipalityChange={setMunicipality}
+                  // NEW: Add coordinate props
+                  onCoordinatesChange={(lat, lng) => {
+                    setLatitude(lat);
+                    setLongitude(lng);
+                  }}
+                  initialLatitude={editingAddress?.latitude}
+                  initialLongitude={editingAddress?.longitude}
                 />
               </View>
 
@@ -1043,5 +1078,16 @@ const styles = StyleSheet.create({
     color: "#ef4444",
     textAlign: "center",
     fontWeight: "600",
+  },
+  coordinatesBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 4,
+  },
+  coordinatesBadgeText: {
+    fontSize: 10,
+    color: COLORS.light.primary,
+    fontStyle: "italic",
   },
 });

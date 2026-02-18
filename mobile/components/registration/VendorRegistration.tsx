@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  Linking,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -22,6 +24,7 @@ import {
   saveVendorRegistration,
   VendorRegistrationData,
 } from "../../lib/registrationService";
+import * as Location from "expo-location"; // ADDED
 
 const VendorRegistration = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -42,8 +45,16 @@ const VendorRegistration = () => {
   const [address, setAddress] = useState("");
   const [mobile, setMobile] = useState("");
   const [gcash, setGcash] = useState("");
-  const [gcashName, setGcashName] = useState(""); // ADDED: GCash account name
+  const [gcashName, setGcashName] = useState("");
   const [municipality, setMunicipality] = useState("");
+
+  // NEW: Coordinate state
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(
+    null,
+  );
 
   // Add separate state for address fields to track them individually
   const [addressFields, setAddressFields] = useState({
@@ -59,12 +70,80 @@ const VendorRegistration = () => {
     purok: false,
     mobile: false,
     gcash: false,
-    gcashName: false, // ADDED
+    gcashName: false,
     idType: false,
     validIdFront: false,
     validIdBack: false,
     selfie: false,
   });
+
+  // NEW: Request location permission on mount
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  // NEW: Function to request location permission
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === "granted");
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location Permission",
+          "We need location permission to convert your business address to coordinates for accurate rider matching. You can enable it in settings.",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                } else {
+                  Linking.openSettings();
+                }
+              },
+            },
+          ],
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting location permission:", error);
+      setLocationPermission(false);
+    }
+  };
+
+  // NEW: Geocode address to get coordinates
+  const geocodeAddress = useCallback(
+    async (fullAddr: string) => {
+      if (!fullAddr) return;
+
+      // Check if we have permission
+      if (!locationPermission) {
+        console.log("No location permission, skipping geocoding");
+        return;
+      }
+
+      try {
+        setIsGeocoding(true);
+        const results = await Location.geocodeAsync(fullAddr);
+
+        if (results && results.length > 0) {
+          const { latitude, longitude } = results[0];
+          setLatitude(latitude);
+          setLongitude(longitude);
+        }
+      } catch (error: any) {
+        console.error("Geocoding error:", error);
+        if (error.message?.includes("Not authorized")) {
+          setLocationPermission(false);
+        }
+      } finally {
+        setIsGeocoding(false);
+      }
+    },
+    [locationPermission],
+  );
 
   const ID_OPTIONS = [
     { label: "-- Select ID Type--", value: "" },
@@ -106,9 +185,6 @@ const VendorRegistration = () => {
     return requiresBack.includes(type);
   };
 
-  // Add this to your imports
-
-  // Add this useEffect
   useEffect(() => {
     const fetchUserEmail = async () => {
       const {
@@ -120,8 +196,6 @@ const VendorRegistration = () => {
     };
     fetchUserEmail();
   }, []);
-
-  // In your email field:
 
   const validateStep1 = () => {
     const isBarangayEmpty = !addressFields.barangay.trim();
@@ -135,7 +209,7 @@ const VendorRegistration = () => {
       purok: isPurokEmpty,
       mobile: !mobile.trim(),
       gcash: !gcash.trim(),
-      gcashName: !gcashName.trim(), // ADDED
+      gcashName: !gcashName.trim(),
     };
 
     setErrors(newErrors);
@@ -147,7 +221,7 @@ const VendorRegistration = () => {
       newErrors.purok ||
       newErrors.mobile ||
       newErrors.gcash ||
-      newErrors.gcashName; // ADDED
+      newErrors.gcashName;
 
     return !hasErrors;
   };
@@ -221,13 +295,13 @@ const VendorRegistration = () => {
 
       const userId = session.user.id;
 
-      // Prepare registration data
+      // Prepare registration data with coordinates
       const registrationData: VendorRegistrationData = {
         shopName,
         email,
         mobile,
         gcash,
-        gcashName, // ADDED
+        gcashName,
         barangay: addressFields.barangay,
         purok: addressFields.purok,
         municipality,
@@ -238,6 +312,8 @@ const VendorRegistration = () => {
         idType,
         acceptedTerms,
         acceptedConsent,
+        latitude, // NEW: Add coordinates
+        longitude, // NEW: Add coordinates
       };
 
       // Save to database
@@ -280,24 +356,36 @@ const VendorRegistration = () => {
   };
 
   // Handle address change from AddressForm
-  const handleAddressChange = useCallback((newAddress: string) => {
-    setAddress(newAddress);
-  }, []);
+  const handleAddressChange = useCallback(
+    (newAddress: string) => {
+      setAddress(newAddress);
+      // NEW: Trigger geocoding when address changes
+      if (newAddress) {
+        geocodeAddress(newAddress);
+      }
+    },
+    [geocodeAddress],
+  );
 
   // Handle errors AND field values from AddressForm
   const handleAddressErrorsChange = useCallback((addressErrors: any) => {
     setErrors((prev) => ({ ...prev, ...addressErrors }));
   }, []);
 
-  // NEW FUNCTION: Update address fields when AddressForm changes
+  // Update address fields when AddressForm changes
   const handleAddressFieldsUpdate = useCallback(
     (barangayValue: string, purokValue: string) => {
       setAddressFields({
         barangay: barangayValue,
         purok: purokValue,
       });
+      // NEW: Generate full address for geocoding
+      if (barangayValue && purokValue) {
+        const fullAddr = `${purokValue}, ${barangayValue}, Mabini, Bohol`;
+        geocodeAddress(fullAddr);
+      }
     },
-    [],
+    [geocodeAddress],
   );
 
   return (
@@ -397,6 +485,7 @@ const VendorRegistration = () => {
                 </Text>
               )}
             </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>GCash Number *</Text>
               <TextInput
@@ -429,7 +518,38 @@ const VendorRegistration = () => {
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
               onMunicipalityChange={setMunicipality}
+              // NEW: Add coordinate props
+              onCoordinatesChange={(lat, lng) => {
+                setLatitude(lat);
+                setLongitude(lng);
+              }}
+              initialLatitude={latitude}
+              initialLongitude={longitude}
             />
+
+            {/* NEW: Permission warning */}
+            {locationPermission === false && (
+              <View style={styles.permissionWarning}>
+                <Ionicons name="warning" size={16} color="#f59e0b" />
+                <Text style={styles.permissionWarningText}>
+                  Enable location permission for accurate rider matching
+                </Text>
+                <TouchableOpacity
+                  onPress={requestLocationPermission}
+                  style={styles.permissionButton}
+                >
+                  <Text style={styles.permissionButtonText}>Enable</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* NEW: Geocoding status */}
+            {isGeocoding && (
+              <View style={styles.geocodingContainer}>
+                <ActivityIndicator size="small" color={COLORS.light.primary} />
+                <Text style={styles.geocodingText}>Getting coordinates...</Text>
+              </View>
+            )}
           </>
         )}
 
@@ -701,7 +821,6 @@ const VendorRegistration = () => {
                 <Text style={styles.summaryLabel}>GCash Number:</Text>
                 <Text style={styles.summaryValue}>{gcash}</Text>
               </View>
-              {/* ADDED: GCash Name in Summary */}
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>GCash Name:</Text>
                 <Text style={styles.summaryValue}>{gcashName}</Text>
@@ -712,6 +831,7 @@ const VendorRegistration = () => {
                   {address || "Not specified"}
                 </Text>
               </View>
+
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>ID Type:</Text>
                 <Text style={styles.summaryValue}>
@@ -1114,5 +1234,61 @@ const styles = StyleSheet.create({
     color: COLORS.common.white,
     fontWeight: "600",
     fontSize: 15,
+  },
+  // NEW: Permission warning styles
+  permissionWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  permissionWarningText: {
+    fontSize: 12,
+    color: "#D97706",
+    flex: 1,
+  },
+  permissionButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  permissionButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  // NEW: Geocoding styles
+  geocodingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  geocodingText: {
+    fontSize: 12,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  coordinatesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+    backgroundColor: "#f0f9ff",
+    padding: 8,
+    borderRadius: 6,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: COLORS.light.primary,
+    fontFamily: "monospace",
   },
 });

@@ -1,6 +1,5 @@
 import { StyleSheet } from "react-native";
 import { COLORS } from "../../constants";
-import { Dimensions } from "react-native";
 
 export const buyerDashboardStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.light.background },
@@ -11,6 +10,11 @@ export const buyerDashboardStyles = StyleSheet.create({
     padding: 12,
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
+  },
+  headerSearch: {
+    backgroundColor: COLORS.light.primary,
+    paddingTop: 60,
+    padding: 12,
   },
   headerTop: {
     flexDirection: "row",
@@ -32,7 +36,7 @@ export const buyerDashboardStyles = StyleSheet.create({
     height: 44,
   },
   searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 16, color: "#005f73" },
+  searchInput: { flex: 1, fontSize: 16, color: COLORS.light.primary },
   scrollArea: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 20 },
   sectionTitle: {
     fontSize: 18,

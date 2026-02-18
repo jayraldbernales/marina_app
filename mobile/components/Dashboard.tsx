@@ -1,4 +1,4 @@
-// app/buyer/dashboard.tsx - Updated type definitions
+// app/buyer/dashboard.tsx - Fixed rating and JSX syntax
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
@@ -38,6 +38,7 @@ interface Product {
     avatar_url?: string | null;
   };
   category?: string | null;
+  rating: number; // Added rating field (frontend only)
 }
 
 interface RawProductRow {
@@ -49,7 +50,7 @@ interface RawProductRow {
   harvested_at: string;
   images: string[] | null;
   vendor_user_id: string;
-  categories: { category_name: string } | { category_name: string }[] | null; // Handle both array and single object
+  categories: { category_name: string } | { category_name: string }[] | null;
   vendor_profiles:
     | Array<{
         user_id: string;
@@ -101,6 +102,17 @@ const getGreeting = (fullName?: string) => {
 
 const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
+};
+
+// Generate random rating for frontend (no database column needed)
+const generateRandomRating = (productId: string) => {
+  const hash = productId.split("").reduce((acc, char) => {
+    return acc + char.charCodeAt(0);
+  }, 0);
+
+  // Generate rating between 4.0 and 5.0
+  const baseRating = 4.0 + (hash % 10) / 10;
+  return Math.round(baseRating * 10) / 10;
 };
 
 // Freshness filter labels
@@ -392,9 +404,10 @@ const BuyerDashboard = () => {
           vendor: {
             id: item.vendor_user_id,
             shop_name: shopName,
-            avatar_url: avatarUrl, // Now allowing null
+            avatar_url: avatarUrl,
           },
           category: categoryName,
+          rating: generateRandomRating(item.product_id), // Add random rating (frontend only)
         };
       });
 
@@ -696,7 +709,7 @@ const BuyerDashboard = () => {
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={handleSearchSubmit}
-              placeholderTextColor="#005f73"
+              placeholderTextColor={COLORS.light.mutedForeground}
               accessibilityLabel="Search bar"
             />
           </View>
@@ -804,7 +817,7 @@ const BuyerDashboard = () => {
                     backgroundColor: COLORS.light.seafoam,
                     paddingHorizontal: 10,
                     paddingVertical: 4,
-                    borderRadius: 16,
+                    borderRadius: 12,
                     marginRight: 8,
                     marginBottom: 4,
                   }}
@@ -829,7 +842,7 @@ const BuyerDashboard = () => {
                     backgroundColor: COLORS.light.seafoam,
                     paddingHorizontal: 10,
                     paddingVertical: 4,
-                    borderRadius: 16,
+                    borderRadius: 12,
                     marginRight: 8,
                     marginBottom: 4,
                   }}
@@ -866,7 +879,7 @@ const BuyerDashboard = () => {
                 backgroundColor: COLORS.light.seafoam,
                 paddingHorizontal: 12,
                 paddingVertical: 6,
-                borderRadius: 20,
+                borderRadius: 12,
               }}
               onPress={() => setShowFilterModal(true)}
             >
@@ -975,7 +988,9 @@ const BuyerDashboard = () => {
                         </Text>
                       </View>
                     </View>
+
                     <View style={{ flex: 1 }}>
+                      {/* First row: Product name and price */}
                       <View
                         style={{
                           flexDirection: "row",
@@ -1004,11 +1019,12 @@ const BuyerDashboard = () => {
                         </View>
                       </View>
 
+                      {/* Second row: Vendor name on left, rating on right */}
                       <View
                         style={{
                           flexDirection: "row",
                           justifyContent: "space-between",
-                          marginBottom: 2,
+                          alignItems: "center",
                         }}
                       >
                         <Text
@@ -1018,6 +1034,20 @@ const BuyerDashboard = () => {
                         >
                           {product.vendor.shop_name}
                         </Text>
+
+                        {/* Rating section - exactly like your old dashboard */}
+                        <View
+                          style={{ flexDirection: "row", alignItems: "center" }}
+                        >
+                          <MaterialCommunityIcons
+                            name="star"
+                            size={11}
+                            color="#FFD700"
+                          />
+                          <Text style={buyerDashboardStyles.productRating}>
+                            {product.rating.toFixed(1)}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   </TouchableOpacity>

@@ -65,7 +65,7 @@ const BuyerDashboardSkeleton = () => {
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={handleSearchSubmit}
-              placeholderTextColor="#005f73"
+              placeholderTextColor={COLORS.light.mutedForeground}
               accessibilityLabel="Search bar"
             />
           </View>

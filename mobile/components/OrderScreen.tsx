@@ -12,6 +12,7 @@ import {
   Linking,
   Alert,
   Modal,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
@@ -21,8 +22,8 @@ import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { chatService } from "@/lib/chat";
+import RatingModal from "../components/Buyer/RatingModal";
 
-// UPDATED: Added 'rejected' to OrderStatus type
 type OrderStatus =
   | "pending"
   | "preparing"
@@ -61,9 +62,9 @@ interface DisplayOrder {
   orderDate: string;
   paymentMethod: string;
   paymentStatus: PaymentStatus;
-  paymentProofUrl?: string; // ADD THIS
-  gcashReference?: string; // ADD THIS
-  note?: string; // ADD THIS (for special instructions)
+  paymentProofUrl?: string;
+  gcashReference?: string;
+  note?: string;
   deliveryAddress: string;
   vendorShopName?: string;
   vendorId?: string;
@@ -218,7 +219,7 @@ const OrderDetailsModal = ({
               </Text>
             </View>
 
-            {/* Special Instructions - ADD THIS SECTION */}
+            {/* Special Instructions */}
             {order.note && (
               <View style={orderStyles.modalSection}>
                 <Text style={orderStyles.modalSectionTitle}>
@@ -232,7 +233,7 @@ const OrderDetailsModal = ({
               </View>
             )}
 
-            {/* Payment Info - UPDATED with GCash proof */}
+            {/* Payment Info */}
             <View style={orderStyles.modalSection}>
               <Text style={orderStyles.modalSectionTitle}>
                 Payment Information
@@ -259,7 +260,7 @@ const OrderDetailsModal = ({
                 </Text>
               </View>
 
-              {/* GCash Payment Proof - ADD THIS SECTION */}
+              {/* GCash Payment Proof */}
               {order.paymentMethod === "gcash" && order.paymentProofUrl && (
                 <View style={orderStyles.gcashProofSection}>
                   <Text style={orderStyles.proofLabel}>Payment Proof:</Text>
@@ -380,6 +381,12 @@ const OrdersScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+
+  // NEW: Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+
   const navigation = useNavigation();
   const user = useUserStore((state) => state.user);
 
@@ -550,7 +557,6 @@ const OrdersScreen = () => {
           harvested_at: item.products.harvested_at,
         }));
 
-        // In fetchOrders, when creating displayOrder:
         const displayOrder: DisplayOrder = {
           id: order.order_id,
           orderNumber: order.order_number,
@@ -566,9 +572,9 @@ const OrdersScreen = () => {
           }),
           paymentMethod: order.payment_method,
           paymentStatus: order.payment_status,
-          paymentProofUrl: order.payment_proof_url, // ADD THIS
-          gcashReference: order.gcash_reference, // ADD THIS
-          note: order.note, // ADD THIS (special instructions)
+          paymentProofUrl: order.payment_proof_url,
+          gcashReference: order.gcash_reference,
+          note: order.note,
           deliveryAddress:
             order.addresses?.full_address || "Address not specified",
           vendorShopName: displayItems[0]?.vendor,
@@ -595,13 +601,78 @@ const OrdersScreen = () => {
     setRefreshing(true);
     await fetchOrders();
   };
+  const handleRateOrder = (order: DisplayOrder) => {
+    setSelectedOrder(order);
+    setRatingModalVisible(true);
+  };
 
+  const handleRatingSubmitted = () => {
+    fetchOrders(); // Refresh orders to update any UI
+  };
+
+  // NEW: Toggle search visibility
+  const toggleSearch = () => {
+    setIsSearchVisible(!isSearchVisible);
+    if (isSearchVisible) {
+      setSearchQuery(""); // Clear search when closing
+    }
+  };
+
+  // UPDATED: Filter orders by tab AND search query
   const filteredOrders = orders.filter((order) => {
+    // First filter by tab
     const uiTab = getUITabFromDBStatus(order.status);
     if (activeTab === "cancelled") {
-      return order.status === "cancelled" || order.status === "rejected";
+      if (order.status !== "cancelled" && order.status !== "rejected") {
+        return false;
+      }
+    } else if (uiTab !== activeTab) {
+      return false;
     }
-    return uiTab === activeTab;
+
+    // Then filter by search query if it exists
+    if (searchQuery.trim() === "") {
+      return true;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+
+    // Search in order number
+    if (order.orderNumber.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    // Search in item names
+    if (order.items.some((item) => item.name.toLowerCase().includes(query))) {
+      return true;
+    }
+
+    // Search in vendor names
+    if (order.items.some((item) => item.vendor.toLowerCase().includes(query))) {
+      return true;
+    }
+
+    // Search in order date
+    if (order.orderDate.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    // Search in payment method
+    if (order.paymentMethod.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    // Search in delivery address
+    if (order.deliveryAddress.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    // Search in note
+    if (order.note && order.note.toLowerCase().includes(query)) {
+      return true;
+    }
+
+    return false;
   });
 
   const getStatusColor = (status: OrderStatus) => {
@@ -885,7 +956,7 @@ const OrdersScreen = () => {
             </View>
           </View>
 
-          {/* Action Buttons based on status - UPDATED with conditional Pay Now */}
+          {/* Action Buttons based on status */}
           <View style={orderStyles.actionButtons}>
             {order.status === "pending" && (
               <>
@@ -975,7 +1046,10 @@ const OrdersScreen = () => {
                 >
                   <Text style={orderStyles.secondaryButtonText}>Buy Again</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={orderStyles.primaryButton}>
+                <TouchableOpacity
+                  style={orderStyles.primaryButton}
+                  onPress={() => handleRateOrder(order)}
+                >
                   <Text style={orderStyles.primaryButtonText}>
                     Rate & Review
                   </Text>
@@ -1017,7 +1091,7 @@ const OrdersScreen = () => {
 
   return (
     <SafeAreaView style={orderStyles.container}>
-      {/* Header */}
+      {/* Header - UPDATED with search icon */}
       <View style={orderStyles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1026,8 +1100,45 @@ const OrdersScreen = () => {
           <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
         <Text style={orderStyles.headerTitle}>My Orders</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={toggleSearch} style={{ padding: 8 }}>
+          <Ionicons
+            name={isSearchVisible ? "close" : "search"}
+            size={24}
+            color={COLORS.light.primary}
+          />
+        </TouchableOpacity>
       </View>
+
+      {/* NEW: Search Bar */}
+      {isSearchVisible && (
+        <View style={{ backgroundColor: "#FFFFFF" }}>
+          <View style={orderStyles.searchContainer}>
+            <Ionicons
+              name="search"
+              size={20}
+              color="#666"
+              style={orderStyles.searchIcon}
+            />
+            <TextInput
+              style={orderStyles.searchInput}
+              placeholder="Search by order #, product, vendor..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={true}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                style={orderStyles.clearButton}
+              >
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Tabs */}
       <ScrollView
@@ -1068,21 +1179,55 @@ const OrdersScreen = () => {
           />
         }
       >
+        {/* NEW: Search result count */}
+        {searchQuery.length > 0 && (
+          <View style={orderStyles.searchResultInfo}>
+            <Text style={orderStyles.searchResultText}>
+              Found {filteredOrders.length} order
+              {filteredOrders.length !== 1 ? "s" : ""} for "{searchQuery}"
+            </Text>
+          </View>
+        )}
+
         {filteredOrders.length > 0 ? (
           filteredOrders.map(renderOrderCard)
         ) : (
           <View style={orderStyles.emptyState}>
-            <Text style={orderStyles.emptyIcon}>📦</Text>
-            <Text style={orderStyles.emptyTitle}>No orders found</Text>
-            <Text style={orderStyles.emptyDescription}>
-              You don't have any orders in this category yet
+            <Text style={orderStyles.emptyIcon}>
+              {searchQuery.length > 0 ? "🔍" : "📦"}
             </Text>
-            <TouchableOpacity
-              style={orderStyles.primaryButton}
-              onPress={() => router.back()}
-            >
-              <Text style={orderStyles.primaryButtonText}>Start Shopping</Text>
-            </TouchableOpacity>
+            <Text style={orderStyles.emptyTitle}>
+              {searchQuery.length > 0
+                ? "No matching orders"
+                : "No orders found"}
+            </Text>
+            <Text style={orderStyles.emptyDescription}>
+              {searchQuery.length > 0
+                ? `No orders match "${searchQuery}" in this category`
+                : "You don't have any orders in this category yet"}
+            </Text>
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity
+                style={orderStyles.secondaryButton}
+                onPress={() => {
+                  setSearchQuery("");
+                  setIsSearchVisible(false);
+                }}
+              >
+                <Text style={orderStyles.secondaryButtonText}>
+                  Clear Search
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={orderStyles.primaryButton}
+                onPress={() => router.back()}
+              >
+                <Text style={orderStyles.primaryButtonText}>
+                  Start Shopping
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -1095,6 +1240,16 @@ const OrdersScreen = () => {
           setSelectedOrder(null);
         }}
         order={selectedOrder}
+      />
+
+      <RatingModal
+        visible={ratingModalVisible}
+        onClose={() => {
+          setRatingModalVisible(false);
+          setSelectedOrder(null);
+        }}
+        order={selectedOrder}
+        onRatingSubmitted={handleRatingSubmitted}
       />
     </SafeAreaView>
   );

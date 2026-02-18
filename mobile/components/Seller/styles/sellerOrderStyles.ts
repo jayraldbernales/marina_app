@@ -614,4 +614,26 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  // Add to sellerOrderStyles.ts
+  riderDistance: {
+    fontSize: 11,
+    color: "#10b981",
+    marginTop: 2,
+  },
+
+  assignRiderButton: {
+    backgroundColor: COLORS.light.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    gap: 4,
+  },
+
+  assignRiderButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "500",
+  },
 });

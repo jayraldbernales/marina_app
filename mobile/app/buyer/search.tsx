@@ -1,5 +1,5 @@
 // app/buyer/search.tsx - Search results screen for buyers
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   Alert,
   RefreshControl,
   Modal,
-  SectionList,
+  ScrollView,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -38,6 +38,7 @@ interface Product {
     avatar_url?: string | null;
   };
   category?: string | null;
+  type: "product";
 }
 
 interface Vendor {
@@ -48,37 +49,64 @@ interface Vendor {
   location?: string | null;
   product_count?: number;
   rating?: number;
-}
-
-// Union type for section items
-type SectionItem = Product | Vendor;
-
-// Section type with discriminated union
-interface ProductSection {
-  type: "product";
-  title: string;
-  data: Product[];
-}
-
-interface VendorSection {
   type: "vendor";
-  title: string;
-  data: Vendor[];
 }
 
-type SearchSection = ProductSection | VendorSection;
+type SearchResult = Product | Vendor;
 
-// For useLocalSearchParams, we need to extend Record<string, string | string[]>
+// Filter types
+type FreshnessFilter = "all" | FreshnessStatus;
+type PriceRangeFilter =
+  | "all"
+  | "under_200"
+  | "200_to_500"
+  | "500_to_1000"
+  | "over_1000";
+
+interface PriceRange {
+  label: string;
+  value: PriceRangeFilter;
+  min?: number;
+  max?: number;
+}
+
+// For useLocalSearchParams
 type SearchParams = Record<string, string | string[]> & {
   q?: string;
 };
 
-// Freshness result type from your utility
+// Freshness result type
 interface FreshnessResult {
   status: FreshnessStatus;
   label: string;
   color: string;
 }
+
+// -------------------- CONSTANTS --------------------
+
+const FRESHNESS_FILTERS: Array<{
+  label: string;
+  value: FreshnessFilter;
+  color: string;
+}> = [
+  { label: "All Freshness", value: "all", color: "#10b981" },
+  {
+    label: "Today's Catch",
+    value: FreshnessStatus.ULTRA_FRESH,
+    color: "#10b981",
+  },
+  { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
+  { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
+  { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+];
+
+const PRICE_RANGES: PriceRange[] = [
+  { label: "All Prices", value: "all" },
+  { label: "Under ₱200", value: "under_200", max: 200 },
+  { label: "₱200 - ₱500", value: "200_to_500", min: 200, max: 500 },
+  { label: "₱500 - ₱1000", value: "500_to_1000", min: 500, max: 1000 },
+  { label: "Over ₱1000", value: "over_1000", min: 1000 },
+];
 
 // -------------------- HELPER FUNCTIONS --------------------
 
@@ -86,10 +114,8 @@ const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
 };
 
-// Function to get freshness score for sorting
 const getFreshnessScore = (harvestedAt: string): number => {
   const freshness = computeFreshness(harvestedAt);
-  // Map status to numeric score for sorting
   switch (freshness.status) {
     case FreshnessStatus.ULTRA_FRESH:
       return 4;
@@ -105,15 +131,12 @@ const getFreshnessScore = (harvestedAt: string): number => {
 };
 
 // Type guards
-const isProduct = (item: SectionItem): item is Product => {
-  return (item as Product).price !== undefined;
+const isProduct = (item: SearchResult): item is Product => {
+  return item.type === "product";
 };
 
-const isVendor = (item: SectionItem): item is Vendor => {
-  return (
-    (item as Vendor).shop_name !== undefined &&
-    (item as Product).price === undefined
-  );
+const isVendor = (item: SearchResult): item is Vendor => {
+  return item.type === "vendor";
 };
 
 // -------------------- COMPONENT --------------------
@@ -124,38 +147,64 @@ const BuyerSearch = () => {
 
   // State
   const [searchQuery, setSearchQuery] = useState(initialQuery || "");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [filteredVendors, setFilteredVendors] = useState<Vendor[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [filteredResults, setFilteredResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortBy, setSortBy] = useState<
-    "relevance" | "price_asc" | "price_desc" | "freshness" | "vendor_rating"
-  >("relevance");
+  const [categories, setCategories] = useState<string[]>([]);
+
+  // Filter states
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [freshnessFilter, setFreshnessFilter] =
+    useState<FreshnessFilter>("all");
+  const [priceRangeFilter, setPriceRangeFilter] =
+    useState<PriceRangeFilter>("all");
+
+  // Modal states
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showFreshnessModal, setShowFreshnessModal] = useState(false);
+  const [showPriceModal, setShowPriceModal] = useState(false);
   const [showSortModal, setShowSortModal] = useState(false);
-  const [hasMoreProducts, setHasMoreProducts] = useState(true);
-  const [hasMoreVendors, setHasMoreVendors] = useState(true);
-  const [productPage, setProductPage] = useState(1);
-  const [vendorPage, setVendorPage] = useState(1);
-  const [totalProductCount, setTotalProductCount] = useState(0);
-  const [totalVendorCount, setTotalVendorCount] = useState(0);
-  const [activeTab, setActiveTab] = useState<"all" | "products" | "vendors">(
-    "all",
-  );
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Sort state
+  const [sortBy, setSortBy] = useState<
+    "relevance" | "price_asc" | "price_desc" | "freshness"
+  >("relevance");
 
   const debouncedSearch = useDebounce(searchQuery, 500);
   const ITEMS_PER_PAGE = 20;
 
+  // Fetch categories
+  const fetchCategories = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("category_name")
+        .order("category_name", { ascending: true });
+
+      if (error) {
+        console.error("Error fetching categories:", error);
+        return;
+      }
+
+      setCategories((data || []).map((cat) => cat.category_name));
+    } catch (error) {
+      console.error("Error in fetchCategories:", error);
+    }
+  }, []);
+
   // Search products
-  const searchProducts = useCallback(
-    async (query: string, pageNum: number, reset: boolean = false) => {
-      try {
-        // Build the search query
-        let dbQuery = supabase
-          .from("products")
-          .select(
-            `
+  const searchProducts = useCallback(async (query: string) => {
+    try {
+      let dbQuery = supabase
+        .from("products")
+        .select(
+          `
             product_id,
             product_name,
             price,
@@ -171,306 +220,281 @@ const BuyerSearch = () => {
               avatar_url
             )
           `,
-            { count: "exact" },
-          )
-          .eq("is_active", true)
-          .gt("stock", 0);
+        )
+        .eq("is_active", true)
+        .gt("stock", 0);
 
-        // Add search condition if query exists
-        if (query.trim()) {
-          dbQuery = dbQuery.ilike("product_name", `%${query}%`);
+      if (query.trim()) {
+        dbQuery = dbQuery.ilike("product_name", `%${query}%`);
+      }
+
+      const { data, error } = await dbQuery.order("created_at", {
+        ascending: false,
+      });
+
+      if (error) {
+        console.error("Error searching products:", error);
+        return [];
+      }
+
+      return (data || []).map((item: any) => {
+        let categoryName: string | null = null;
+        if (item.categories) {
+          if (Array.isArray(item.categories) && item.categories.length > 0) {
+            categoryName = item.categories[0]?.category_name || null;
+          } else if (
+            !Array.isArray(item.categories) &&
+            item.categories?.category_name
+          ) {
+            categoryName = item.categories.category_name;
+          }
         }
 
-        // Add pagination
-        const from = (pageNum - 1) * ITEMS_PER_PAGE;
-        const to = from + ITEMS_PER_PAGE - 1;
+        let vendorData = item.vendor_profiles;
+        let shopName = "Seafood Vendor";
+        let avatarUrl: string | null = null;
 
-        const { data, error, count } = await dbQuery
-          .order("created_at", { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          console.error("Error searching products:", error);
-          return;
+        if (vendorData) {
+          if (Array.isArray(vendorData) && vendorData.length > 0) {
+            shopName = vendorData[0]?.shop_name || "Seafood Vendor";
+            avatarUrl = vendorData[0]?.avatar_url || null;
+          } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
+            shopName = vendorData.shop_name;
+            avatarUrl = vendorData.avatar_url || null;
+          }
         }
 
-        // Map products with proper type handling
-        const mappedProducts: Product[] = (data || []).map((item: any) => {
-          // Handle categories
-          let categoryName: string | null = null;
-          if (item.categories) {
-            if (Array.isArray(item.categories) && item.categories.length > 0) {
-              categoryName = item.categories[0]?.category_name || null;
-            } else if (
-              !Array.isArray(item.categories) &&
-              item.categories?.category_name
-            ) {
-              categoryName = item.categories.category_name;
-            }
-          }
+        return {
+          id: item.product_id,
+          name: item.product_name,
+          price: Number(item.price ?? 0),
+          stock: Number(item.stock ?? 0),
+          thumbnail: item.images?.[0] ?? null,
+          harvested_at: item.harvested_at,
+          unit: item.unit,
+          vendor: {
+            id: item.vendor_user_id,
+            shop_name: shopName,
+            avatar_url: avatarUrl,
+          },
+          category: categoryName,
+          type: "product" as const,
+        };
+      });
+    } catch (error) {
+      console.error("Error in searchProducts:", error);
+      return [];
+    }
+  }, []);
 
-          // Handle vendor_profiles
-          let vendorData = item.vendor_profiles;
-          let shopName = "Seafood Vendor";
-          let avatarUrl: string | null = null;
+  // Search vendors
+  const searchVendors = useCallback(async (query: string) => {
+    try {
+      let dbQuery = supabase
+        .from("vendor_profiles")
+        .select(
+          `
+            user_id,
+            shop_name,
+            avatar_url,
+            gcash_name,
+            approval_status
+          `,
+        )
+        .eq("approval_status", "approved");
 
-          if (vendorData) {
-            if (Array.isArray(vendorData) && vendorData.length > 0) {
-              shopName = vendorData[0]?.shop_name || "Seafood Vendor";
-              avatarUrl = vendorData[0]?.avatar_url || null;
-            } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
-              shopName = vendorData.shop_name;
-              avatarUrl = vendorData.avatar_url || null;
-            }
-          }
+      if (query.trim()) {
+        dbQuery = dbQuery.ilike("shop_name", `%${query}%`);
+      }
+
+      const { data, error } = await dbQuery.order("shop_name", {
+        ascending: true,
+      });
+
+      if (error) {
+        console.error("Error searching vendors:", error);
+        return [];
+      }
+
+      const vendorsWithDetails = await Promise.all(
+        (data || []).map(async (vendor: any) => {
+          const { count: productCount } = await supabase
+            .from("products")
+            .select("*", { count: "exact", head: true })
+            .eq("vendor_user_id", vendor.user_id)
+            .eq("is_active", true)
+            .gt("stock", 0);
 
           return {
-            id: item.product_id,
-            name: item.product_name,
-            price: Number(item.price ?? 0),
-            stock: Number(item.stock ?? 0),
-            thumbnail: item.images?.[0] ?? null,
-            harvested_at: item.harvested_at,
-            unit: item.unit,
-            vendor: {
-              id: item.vendor_user_id,
-              shop_name: shopName,
-              avatar_url: avatarUrl,
-            },
-            category: categoryName,
+            id: vendor.user_id,
+            shop_name: vendor.shop_name || "Unnamed Shop",
+            avatar_url: vendor.avatar_url,
+            description: null,
+            location: null,
+            product_count: productCount || 0,
+            rating: 4.5,
+            type: "vendor" as const,
           };
-        });
+        }),
+      );
 
-        setTotalProductCount(count || 0);
+      return vendorsWithDetails;
+    } catch (error) {
+      console.error("Error in searchVendors:", error);
+      return [];
+    }
+  }, []);
 
-        if (reset) {
-          setProducts(mappedProducts);
-          setHasMoreProducts(mappedProducts.length === ITEMS_PER_PAGE);
-        } else {
-          setProducts((prev) => [...prev, ...mappedProducts]);
-          setHasMoreProducts(mappedProducts.length === ITEMS_PER_PAGE);
-        }
-      } catch (error) {
-        console.error("Error in searchProducts:", error);
-      }
-    },
-    [],
-  );
-
-  // Search vendors - FIXED to use vendor_profiles table
-  const searchVendors = useCallback(
-    async (query: string, pageNum: number, reset: boolean = false) => {
-      try {
-        // Build the vendor search query - using vendor_profiles table
-        let dbQuery = supabase
-          .from("vendor_profiles")
-          .select(
-            `
-          user_id,
-          shop_name,
-          avatar_url,
-          gcash_name,
-          approval_status
-        `,
-            { count: "exact" },
-          )
-          .eq("approval_status", "approved"); // Only show approved vendors
-
-        // Add search condition if query exists
-        if (query.trim()) {
-          dbQuery = dbQuery.ilike("shop_name", `%${query}%`);
+  // Apply all filters
+  const applyFilters = useCallback(
+    (items: SearchResult[]) => {
+      return items.filter((item) => {
+        // For vendors, only show if they match the search query (no other filters apply)
+        if (isVendor(item)) {
+          return true;
         }
 
-        // Add pagination
-        const from = (pageNum - 1) * ITEMS_PER_PAGE;
-        const to = from + ITEMS_PER_PAGE - 1;
+        // For products, apply all filters
+        if (isProduct(item)) {
+          // Category filter
+          if (
+            selectedCategory &&
+            item.category?.toLowerCase() !== selectedCategory.toLowerCase()
+          ) {
+            return false;
+          }
 
-        const { data, error, count } = await dbQuery
-          .order("shop_name", { ascending: true })
-          .range(from, to);
-
-        if (error) {
-          console.error("Error searching vendors:", error);
-          return;
-        }
-
-        // Get additional profile info and product counts for each vendor
-        const vendorsWithDetails: Vendor[] = await Promise.all(
-          (data || []).map(async (vendor: any) => {
-            // Get profile info for location and description (if available)
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("full_name, email")
-              .eq("user_id", vendor.user_id)
-              .single();
-
-            // Count active products for this vendor
-            const { count: productCount, error: countError } = await supabase
-              .from("products")
-              .select("*", { count: "exact", head: true })
-              .eq("vendor_user_id", vendor.user_id)
-              .eq("is_active", true)
-              .gt("stock", 0);
-
-            if (countError) {
-              console.error("Error counting vendor products:", countError);
+          // Price filter
+          if (priceRangeFilter !== "all") {
+            const range = PRICE_RANGES.find(
+              (r) => r.value === priceRangeFilter,
+            );
+            if (range) {
+              if (range.min !== undefined && item.price < range.min)
+                return false;
+              if (range.max !== undefined && item.price > range.max)
+                return false;
             }
+          }
 
-            return {
-              id: vendor.user_id,
-              shop_name: vendor.shop_name || "Unnamed Shop",
-              avatar_url: vendor.avatar_url,
-              description: profileData?.full_name || null, // Using full_name as description fallback
-              location: null, // You might want to add location to vendor_profiles or get from addresses
-              product_count: productCount || 0,
-              rating: 4.5, // You can implement actual rating logic later
-            };
-          }),
-        );
+          // Freshness filter
+          if (freshnessFilter !== "all") {
+            const freshness = computeFreshness(item.harvested_at);
+            if (freshness.status !== freshnessFilter) return false;
+          }
 
-        setTotalVendorCount(count || 0);
-
-        if (reset) {
-          setVendors(vendorsWithDetails);
-          setHasMoreVendors(vendorsWithDetails.length === ITEMS_PER_PAGE);
-        } else {
-          setVendors((prev) => [...prev, ...vendorsWithDetails]);
-          setHasMoreVendors(vendorsWithDetails.length === ITEMS_PER_PAGE);
+          return true;
         }
-      } catch (error) {
-        console.error("Error in searchVendors:", error);
-      }
-    },
-    [],
-  );
-  // Apply sorting to products
-  const sortProducts = useCallback(
-    (productsToSort: Product[], sortType: typeof sortBy) => {
-      const sorted = [...productsToSort];
 
-      switch (sortType) {
+        return true;
+      });
+    },
+    [selectedCategory, priceRangeFilter, freshnessFilter],
+  );
+
+  // Apply sorting
+  const applySorting = useCallback(
+    (items: SearchResult[]) => {
+      const sorted = [...items];
+
+      // Separate products and vendors
+      const products = sorted.filter(isProduct);
+      const vendors = sorted.filter(isVendor);
+
+      // Sort products
+      const sortedProducts = [...products] as Product[];
+      switch (sortBy) {
         case "price_asc":
-          return sorted.sort((a, b) => a.price - b.price);
+          sortedProducts.sort((a, b) => a.price - b.price);
+          break;
         case "price_desc":
-          return sorted.sort((a, b) => b.price - a.price);
+          sortedProducts.sort((a, b) => b.price - a.price);
+          break;
         case "freshness":
-          return sorted.sort((a, b) => {
+          sortedProducts.sort((a, b) => {
             const scoreA = getFreshnessScore(a.harvested_at);
             const scoreB = getFreshnessScore(b.harvested_at);
             return scoreB - scoreA;
           });
+          break;
         case "relevance":
         default:
-          // Keep original order (by creation date)
-          return sorted;
+          // Keep original order
+          break;
       }
+
+      // Sort vendors alphabetically
+      const sortedVendors = [...vendors] as Vendor[];
+      sortedVendors.sort((a, b) => a.shop_name.localeCompare(b.shop_name));
+
+      // Return vendors first, then products
+      return [...sortedVendors, ...sortedProducts];
     },
-    [],
+    [sortBy],
   );
 
-  // Apply sorting to vendors
-  const sortVendors = useCallback(
-    (vendorsToSort: Vendor[], sortType: typeof sortBy) => {
-      const sorted = [...vendorsToSort];
+  // Handle search
+  const performSearch = useCallback(async () => {
+    if (debouncedSearch === undefined) return;
 
-      switch (sortType) {
-        case "vendor_rating":
-          return sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-        case "relevance":
-        default:
-          // Keep alphabetical order
-          return sorted.sort((a, b) => a.shop_name.localeCompare(b.shop_name));
-      }
-    },
-    [],
-  );
+    setLoading(true);
+    setPage(1);
 
-  // Update filtered products and vendors when data or sort changes
-  useEffect(() => {
-    if (products.length > 0) {
-      const sorted = sortProducts(products, sortBy);
-      setFilteredProducts(sorted);
-    } else {
-      setFilteredProducts([]);
-    }
+    try {
+      // Search both products and vendors in parallel
+      const [productResults, vendorResults] = await Promise.all([
+        searchProducts(debouncedSearch),
+        searchVendors(debouncedSearch),
+      ]);
 
-    if (vendors.length > 0) {
-      const sorted = sortVendors(vendors, sortBy);
-      setFilteredVendors(sorted);
-    } else {
-      setFilteredVendors([]);
-    }
-  }, [products, vendors, sortBy, sortProducts, sortVendors]);
-
-  // Handle search input changes
-  useEffect(() => {
-    setProductPage(1);
-    setVendorPage(1);
-    setProducts([]);
-    setVendors([]);
-
-    if (debouncedSearch !== undefined) {
-      // Only show loading on initial search
-      if (productPage === 1 && vendorPage === 1) {
-        setLoading(true);
-      }
-
-      // Search both products and vendors
-      Promise.all([
-        searchProducts(debouncedSearch, 1, true),
-        searchVendors(debouncedSearch, 1, true),
-      ]).finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
+      // Combine results
+      const combined = [...vendorResults, ...productResults] as SearchResult[];
+      setResults(combined);
+      setTotalCount(combined.length);
+      setHasMore(false); // Since we're not paginating for now
+    } catch (error) {
+      console.error("Error performing search:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [debouncedSearch, searchProducts, searchVendors]);
 
-  // Handle load more products
-  const handleLoadMoreProducts = useCallback(() => {
-    if (!loading && hasMoreProducts && activeTab !== "vendors") {
-      const nextPage = productPage + 1;
-      setProductPage(nextPage);
-      searchProducts(debouncedSearch, nextPage, false);
+  // Update filtered results when filters or sort change
+  useEffect(() => {
+    if (results.length > 0) {
+      const filtered = applyFilters(results);
+      const sorted = applySorting(filtered);
+      setFilteredResults(sorted);
+    } else {
+      setFilteredResults([]);
     }
   }, [
-    loading,
-    hasMoreProducts,
-    productPage,
-    debouncedSearch,
-    searchProducts,
-    activeTab,
+    results,
+    selectedCategory,
+    priceRangeFilter,
+    freshnessFilter,
+    sortBy,
+    applyFilters,
+    applySorting,
   ]);
 
-  // Handle load more vendors
-  const handleLoadMoreVendors = useCallback(() => {
-    if (!loading && hasMoreVendors && activeTab !== "products") {
-      const nextPage = vendorPage + 1;
-      setVendorPage(nextPage);
-      searchVendors(debouncedSearch, nextPage, false);
-    }
-  }, [
-    loading,
-    hasMoreVendors,
-    vendorPage,
-    debouncedSearch,
-    searchVendors,
-    activeTab,
-  ]);
+  // Initial load
+  useEffect(() => {
+    fetchCategories();
+    performSearch();
+  }, []);
+
+  // Handle search input changes
+  useEffect(() => {
+    performSearch();
+  }, [debouncedSearch]);
 
   // Pull to refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setProductPage(1);
-    setVendorPage(1);
-
-    Promise.all([
-      searchProducts(debouncedSearch, 1, true),
-      searchVendors(debouncedSearch, 1, true),
-    ]).finally(() => {
-      setRefreshing(false);
-    });
-  }, [debouncedSearch, searchProducts, searchVendors]);
+    performSearch();
+  }, [performSearch]);
 
   // Handlers
   const handleProductPress = useCallback((product: Product) => {
@@ -485,16 +509,35 @@ const BuyerSearch = () => {
     router.back();
   }, []);
 
-  const handleSortPress = (sortType: typeof sortBy) => {
-    setSortBy(sortType);
-    setShowSortModal(false);
-  };
-
   const handleClearSearch = useCallback(() => {
     setSearchQuery("");
   }, []);
 
-  // Get sort label
+  const handleClearFilters = useCallback(() => {
+    setSelectedCategory(null);
+    setFreshnessFilter("all");
+    setPriceRangeFilter("all");
+  }, []);
+
+  // Get active filter count
+  const getActiveFilterCount = useCallback(() => {
+    let count = 0;
+    if (selectedCategory) count++;
+    if (freshnessFilter !== "all") count++;
+    if (priceRangeFilter !== "all") count++;
+    return count;
+  }, [selectedCategory, freshnessFilter, priceRangeFilter]);
+
+  // Get filter labels
+  const getCategoryLabel = () => selectedCategory || "Category";
+  const getFreshnessLabel = () => {
+    const filter = FRESHNESS_FILTERS.find((f) => f.value === freshnessFilter);
+    return filter ? filter.label : "Freshness";
+  };
+  const getPriceLabel = () => {
+    const range = PRICE_RANGES.find((r) => r.value === priceRangeFilter);
+    return range ? range.label : "Price";
+  };
   const getSortLabel = () => {
     switch (sortBy) {
       case "price_asc":
@@ -503,8 +546,6 @@ const BuyerSearch = () => {
         return "Price: High to Low";
       case "freshness":
         return "Freshness";
-      case "vendor_rating":
-        return "Top Rated Vendors";
       default:
         return "Relevance";
     }
@@ -527,7 +568,6 @@ const BuyerSearch = () => {
         }}
         onPress={() => handleProductPress(item)}
       >
-        {/* Product Image */}
         <View
           style={{
             width: 80,
@@ -558,7 +598,6 @@ const BuyerSearch = () => {
           )}
         </View>
 
-        {/* Product Details */}
         <View style={{ flex: 1 }}>
           <View
             style={{
@@ -657,7 +696,6 @@ const BuyerSearch = () => {
         }}
         onPress={() => handleVendorPress(item)}
       >
-        {/* Vendor Avatar */}
         <View
           style={{
             width: 60,
@@ -681,7 +719,6 @@ const BuyerSearch = () => {
           )}
         </View>
 
-        {/* Vendor Details */}
         <View style={{ flex: 1 }}>
           <Text
             style={{
@@ -695,24 +732,6 @@ const BuyerSearch = () => {
             {item.shop_name}
           </Text>
 
-          {item.location && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 4,
-              }}
-            >
-              <Ionicons name="location-outline" size={12} color="#999" />
-              <Text
-                style={{ fontSize: 11, color: "#999", marginLeft: 2 }}
-                numberOfLines={1}
-              >
-                {item.location}
-              </Text>
-            </View>
-          )}
-
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <View
               style={{
@@ -721,11 +740,6 @@ const BuyerSearch = () => {
                 marginRight: 12,
               }}
             >
-              <Ionicons
-                name="fish-outline"
-                size={12}
-                color={COLORS.light.primary}
-              />
               <Text style={{ fontSize: 11, color: "#666", marginLeft: 2 }}>
                 {item.product_count || 0} products
               </Text>
@@ -740,15 +754,6 @@ const BuyerSearch = () => {
               </View>
             )}
           </View>
-
-          {item.description && (
-            <Text
-              style={{ fontSize: 11, color: "#999", marginTop: 4 }}
-              numberOfLines={1}
-            >
-              {item.description}
-            </Text>
-          )}
         </View>
 
         <Ionicons
@@ -761,30 +766,18 @@ const BuyerSearch = () => {
     );
   };
 
-  // Render section item with type guard
-  const renderSectionItem = ({
-    item,
-    section,
-  }: {
-    item: SectionItem;
-    section: SearchSection;
-  }) => {
-    if (section.type === "product" && isProduct(item)) {
+  // Render search result item
+  const renderItem = ({ item }: { item: SearchResult }) => {
+    if (isProduct(item)) {
       return renderProductItem({ item });
-    } else if (section.type === "vendor" && isVendor(item)) {
+    } else {
       return renderVendorItem({ item });
     }
-    return null;
   };
 
   // Render empty state
   const renderEmptyState = () => {
-    if (loading && productPage === 1 && vendorPage === 1) return null;
-
-    const hasProducts = filteredProducts.length > 0;
-    const hasVendors = filteredVendors.length > 0;
-
-    if (hasProducts || hasVendors) return null;
+    if (loading) return null;
 
     return (
       <View style={{ alignItems: "center", padding: 40 }}>
@@ -814,40 +807,31 @@ const BuyerSearch = () => {
             ? `We couldn't find any matches for "${searchQuery}"`
             : "Try searching for fresh seafood, shop names, or categories"}
         </Text>
+        {getActiveFilterCount() > 0 && (
+          <TouchableOpacity
+            style={{
+              marginTop: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              backgroundColor: COLORS.light.primary,
+              borderRadius: 20,
+            }}
+            onPress={handleClearFilters}
+          >
+            <Text style={{ color: "#fff", fontSize: 14 }}>
+              Clear All Filters
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
-  };
-
-  // Render footer (loading indicator for pagination)
-  const renderFooter = () => {
-    if (!loading || (productPage === 1 && vendorPage === 1)) return null;
-
-    return (
-      <View style={{ paddingVertical: 20, alignItems: "center" }}>
-        <ActivityIndicator size="small" color={COLORS.light.primary} />
-      </View>
-    );
-  };
-
-  // Get total results count
-  const getTotalResults = () => {
-    if (activeTab === "products") return filteredProducts.length;
-    if (activeTab === "vendors") return filteredVendors.length;
-    return filteredProducts.length + filteredVendors.length;
-  };
-
-  // Get total count for display
-  const getTotalCount = () => {
-    if (activeTab === "products") return totalProductCount;
-    if (activeTab === "vendors") return totalVendorCount;
-    return totalProductCount + totalVendorCount;
   };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={buyerDashboardStyles.container}>
         {/* Header */}
-        <View style={buyerDashboardStyles.header}>
+        <View style={buyerDashboardStyles.headerSearch}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <TouchableOpacity
               onPress={handleBack}
@@ -857,14 +841,13 @@ const BuyerSearch = () => {
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
 
-            {/* Search Bar */}
             <View
               style={[buyerDashboardStyles.searchBarContainer, { flex: 1 }]}
             >
               <Feather
                 name="search"
                 size={20}
-                color="#005f73"
+                color={COLORS.light.primary}
                 style={buyerDashboardStyles.searchIcon}
               />
               <TextInput
@@ -872,7 +855,7 @@ const BuyerSearch = () => {
                 placeholder="Search products or vendors..."
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholderTextColor="#005f73"
+                placeholderTextColor={COLORS.light.mutedForeground}
                 autoFocus={true}
                 returnKeyType="search"
               />
@@ -881,354 +864,592 @@ const BuyerSearch = () => {
                   onPress={handleClearSearch}
                   style={{ padding: 8 }}
                 >
-                  <Ionicons name="close-circle" size={18} color="#005f73" />
+                  <Ionicons
+                    name="close-circle"
+                    size={18}
+                    color={COLORS.light.primary}
+                  />
                 </TouchableOpacity>
               )}
             </View>
           </View>
         </View>
 
-        {/* Results Info and Sort */}
-        {!loading &&
-          (filteredProducts.length > 0 || filteredVendors.length > 0) && (
-            <>
-              {/* Tabs */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  backgroundColor: "#fff",
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  borderBottomWidth: 1,
-                  borderBottomColor: "#f0f0f0",
-                }}
-              >
-                <TouchableOpacity
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 16,
-                    marginRight: 8,
-                    borderRadius: 20,
-                    backgroundColor:
-                      activeTab === "all" ? COLORS.light.primary : "#f0f0f0",
-                  }}
-                  onPress={() => setActiveTab("all")}
-                >
-                  <Text
-                    style={{
-                      color: activeTab === "all" ? "#fff" : "#666",
-                      fontWeight: activeTab === "all" ? "600" : "400",
-                    }}
-                  >
-                    All ({totalProductCount + totalVendorCount})
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 16,
-                    marginRight: 8,
-                    borderRadius: 20,
-                    backgroundColor:
-                      activeTab === "products"
-                        ? COLORS.light.primary
-                        : "#f0f0f0",
-                  }}
-                  onPress={() => setActiveTab("products")}
-                >
-                  <Text
-                    style={{
-                      color: activeTab === "products" ? "#fff" : "#666",
-                      fontWeight: activeTab === "products" ? "600" : "400",
-                    }}
-                  >
-                    Products ({totalProductCount})
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 16,
-                    borderRadius: 20,
-                    backgroundColor:
-                      activeTab === "vendors"
-                        ? COLORS.light.primary
-                        : "#f0f0f0",
-                  }}
-                  onPress={() => setActiveTab("vendors")}
-                >
-                  <Text
-                    style={{
-                      color: activeTab === "vendors" ? "#fff" : "#666",
-                      fontWeight: activeTab === "vendors" ? "600" : "400",
-                    }}
-                  >
-                    Vendors ({totalVendorCount})
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Sort Bar */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  backgroundColor: "#f8f9fa",
-                }}
-              >
-                <Text style={{ fontSize: 13, color: "#666" }}>
-                  {getTotalResults()}{" "}
-                  {getTotalResults() === 1 ? "result" : "results"} shown
-                </Text>
-
-                <TouchableOpacity
-                  style={{ flexDirection: "row", alignItems: "center" }}
-                  onPress={() => setShowSortModal(true)}
-                >
-                  <Feather
-                    name="sliders"
-                    size={16}
-                    color={COLORS.light.primary}
-                  />
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: COLORS.light.primary,
-                      marginLeft: 4,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Sort: {getSortLabel()}
-                  </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={14}
-                    color={COLORS.light.primary}
-                    style={{ marginLeft: 2 }}
-                  />
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-
-        {/* Results List */}
-        {activeTab === "products" ? (
-          <FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => `product-${item.id}`}
-            renderItem={renderProductItem}
-            contentContainerStyle={{
-              padding: 16,
-              flexGrow: 1,
-            }}
-            ListEmptyComponent={renderEmptyState}
-            ListFooterComponent={renderFooter}
-            onEndReached={handleLoadMoreProducts}
-            onEndReachedThreshold={0.5}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[COLORS.light.primary]}
-              />
-            }
-          />
-        ) : activeTab === "vendors" ? (
-          <FlatList
-            data={filteredVendors}
-            keyExtractor={(item) => `vendor-${item.id}`}
-            renderItem={renderVendorItem}
-            contentContainerStyle={{
-              padding: 16,
-              flexGrow: 1,
-            }}
-            ListEmptyComponent={renderEmptyState}
-            ListFooterComponent={renderFooter}
-            onEndReached={handleLoadMoreVendors}
-            onEndReachedThreshold={0.5}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[COLORS.light.primary]}
-              />
-            }
-          />
-        ) : (
-          // All results - show sections
-          // Replace the SectionList section in your return statement with this:
-
-          <SectionList
-            sections={[
-              {
-                type: "product" as const,
-                title: `Products (${filteredProducts.length})`,
-                data: filteredProducts.slice(0, 5) as (Product | Vendor)[], // Cast to union type
-              },
-              {
-                type: "vendor" as const,
-                title: `Vendors (${filteredVendors.length})`,
-                data: filteredVendors.slice(0, 5) as (Product | Vendor)[], // Cast to union type
-              },
-            ].filter((section) => section.data.length > 0)}
-            keyExtractor={(item, index) => {
-              if (isProduct(item)) {
-                return `product-${item.id}-${index}`;
-              }
-              return `vendor-${(item as Vendor).id}-${index}`;
-            }}
-            renderItem={({ item, section }) => {
-              if (section.type === "product" && isProduct(item)) {
-                return renderProductItem({ item });
-              } else if (section.type === "vendor" && isVendor(item)) {
-                return renderVendorItem({ item });
-              }
-              return null;
-            }}
-            renderSectionHeader={({ section }) => (
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  backgroundColor: "#fff",
-                }}
-              >
-                <Text
-                  style={{ fontSize: 14, fontWeight: "600", color: "#333" }}
-                >
-                  {section.title}
-                </Text>
-                {section.data.length === 5 && (
-                  <TouchableOpacity
-                    onPress={() =>
-                      setActiveTab(
-                        section.type === "product" ? "products" : "vendors",
-                      )
-                    }
-                  >
-                    <Text style={{ fontSize: 12, color: COLORS.light.primary }}>
-                      View all{" "}
-                      {section.type === "product"
-                        ? totalProductCount
-                        : totalVendorCount}{" "}
-                      →
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-            contentContainerStyle={{
-              padding: 16,
-              flexGrow: 1,
-            }}
-            ListEmptyComponent={renderEmptyState}
-            ListFooterComponent={renderFooter}
-            onEndReached={handleLoadMoreProducts}
-            onEndReachedThreshold={0.5}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={[COLORS.light.primary]}
-              />
-            }
-          />
-        )}
-      </View>
-
-      {/* Sort Modal */}
-      <Modal
-        visible={showSortModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowSortModal(false)}
-      >
+        {/* Filter Tabs */}
         <View
           style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.5)",
-            justifyContent: "flex-end",
+            backgroundColor: "#fff",
+            paddingVertical: 8,
+            borderBottomWidth: 1,
+            borderBottomColor: "#f0f0f0",
           }}
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16 }}
+          >
+            {/* Category Filter */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: selectedCategory
+                  ? COLORS.light.primary
+                  : "#f0f0f0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                marginRight: 8,
+              }}
+              onPress={() => setShowCategoryModal(true)}
+            >
+              <Ionicons
+                name="grid-outline"
+                size={14}
+                color={selectedCategory ? "#fff" : "#666"}
+              />
+              <Text
+                style={{
+                  color: selectedCategory ? "#fff" : "#666",
+                  fontSize: 13,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getCategoryLabel()}
+              </Text>
+              {selectedCategory && (
+                <TouchableOpacity
+                  onPress={() => setSelectedCategory(null)}
+                  style={{ marginLeft: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={14} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+
+            {/* Price Range Filter */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor:
+                  priceRangeFilter !== "all" ? COLORS.light.primary : "#f0f0f0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                marginRight: 8,
+              }}
+              onPress={() => setShowPriceModal(true)}
+            >
+              <Ionicons
+                name="pricetag-outline"
+                size={14}
+                color={priceRangeFilter !== "all" ? "#fff" : "#666"}
+              />
+              <Text
+                style={{
+                  color: priceRangeFilter !== "all" ? "#fff" : "#666",
+                  fontSize: 13,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getPriceLabel()}
+              </Text>
+              {priceRangeFilter !== "all" && (
+                <TouchableOpacity
+                  onPress={() => setPriceRangeFilter("all")}
+                  style={{ marginLeft: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={14} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+
+            {/* Freshness Filter */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor:
+                  freshnessFilter !== "all" ? COLORS.light.primary : "#f0f0f0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                marginRight: 8,
+              }}
+              onPress={() => setShowFreshnessModal(true)}
+            >
+              <Ionicons
+                name="water-outline"
+                size={14}
+                color={freshnessFilter !== "all" ? "#fff" : "#666"}
+              />
+              <Text
+                style={{
+                  color: freshnessFilter !== "all" ? "#fff" : "#666",
+                  fontSize: 13,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getFreshnessLabel()}
+              </Text>
+              {freshnessFilter !== "all" && (
+                <TouchableOpacity
+                  onPress={() => setFreshnessFilter("all")}
+                  style={{ marginLeft: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={14} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+
+            {/* Sort Button */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "#f0f0f0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+              }}
+              onPress={() => setShowSortModal(true)}
+            >
+              <Feather name="sliders" size={14} color="#666" />
+              <Text
+                style={{
+                  color: "#666",
+                  fontSize: 13,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                Sort: {getSortLabel()}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Active Filters Summary */}
+          {getActiveFilterCount() > 0 && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 16,
+                paddingTop: 8,
+              }}
+            >
+              <Text style={{ fontSize: 11, color: "#666", marginRight: 8 }}>
+                {getActiveFilterCount()} active{" "}
+                {getActiveFilterCount() === 1 ? "filter" : "filters"}
+              </Text>
+              <TouchableOpacity onPress={handleClearFilters}>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: COLORS.light.primary,
+                    fontWeight: "500",
+                  }}
+                >
+                  Clear all
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Results Count */}
+        {!loading && filteredResults.length > 0 && (
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              backgroundColor: "#f8f9fa",
+            }}
+          >
+            <Text style={{ fontSize: 13, color: "#666" }}>
+              Found {filteredResults.length}{" "}
+              {filteredResults.length === 1 ? "result" : "results"}
+              {searchQuery.trim() ? ` for "${searchQuery}"` : ""}
+            </Text>
+          </View>
+        )}
+
+        {/* Results List */}
+        <FlatList
+          data={filteredResults}
+          keyExtractor={(item) => `${item.type}-${item.id}`}
+          renderItem={renderItem}
+          contentContainerStyle={{ padding: 16, flexGrow: 1 }}
+          ListEmptyComponent={renderEmptyState}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[COLORS.light.primary]}
+            />
+          }
+        />
+
+        {/* Category Filter Modal */}
+        <Modal
+          visible={showCategoryModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowCategoryModal(false)}
         >
           <View
             style={{
-              backgroundColor: "#fff",
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              padding: 20,
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
             }}
           >
             <View
               style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 20,
+                backgroundColor: "#fff",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+                maxHeight: "70%",
               }}
             >
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: "bold",
-                  color: COLORS.light.primary,
-                }}
-              >
-                Sort By
-              </Text>
-              <TouchableOpacity onPress={() => setShowSortModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            {[
-              { value: "relevance", label: "Relevance" },
-              { value: "price_asc", label: "Price: Low to High" },
-              { value: "price_desc", label: "Price: High to Low" },
-              { value: "freshness", label: "Freshness" },
-              { value: "vendor_rating", label: "Top Rated Vendors" },
-            ].map((option) => (
-              <TouchableOpacity
-                key={option.value}
+              <View
                 style={{
                   flexDirection: "row",
+                  justifyContent: "space-between",
                   alignItems: "center",
-                  paddingVertical: 12,
-                  borderBottomWidth: 1,
-                  borderBottomColor: "#f0f0f0",
+                  marginBottom: 20,
                 }}
-                onPress={() => handleSortPress(option.value as typeof sortBy)}
               >
                 <Text
                   style={{
-                    fontSize: 16,
-                    color:
-                      sortBy === option.value ? COLORS.light.primary : "#333",
-                    fontWeight: sortBy === option.value ? "600" : "400",
-                    flex: 1,
+                    fontSize: 18,
+                    fontWeight: "bold",
+                    color: COLORS.light.primary,
                   }}
                 >
-                  {option.label}
+                  Filter by Category
                 </Text>
-                {sortBy === option.value && (
-                  <Ionicons
-                    name="checkmark"
-                    size={20}
-                    color={COLORS.light.primary}
-                  />
+                <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <FlatList
+                data={categories}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 12,
+                      borderBottomWidth: 1,
+                      borderBottomColor: "#f0f0f0",
+                    }}
+                    onPress={() => {
+                      setSelectedCategory(item);
+                      setShowCategoryModal(false);
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        color:
+                          selectedCategory === item
+                            ? COLORS.light.primary
+                            : "#333",
+                        flex: 1,
+                      }}
+                    >
+                      {item}
+                    </Text>
+                    {selectedCategory === item && (
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={COLORS.light.primary}
+                      />
+                    )}
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
-            ))}
+              />
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+
+        {/* Price Range Filter Modal */}
+        <Modal
+          visible={showPriceModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPriceModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "bold",
+                    color: COLORS.light.primary,
+                  }}
+                >
+                  Filter by Price
+                </Text>
+                <TouchableOpacity onPress={() => setShowPriceModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              {PRICE_RANGES.map((range) => (
+                <TouchableOpacity
+                  key={range.value}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#f0f0f0",
+                  }}
+                  onPress={() => {
+                    setPriceRangeFilter(range.value);
+                    setShowPriceModal(false);
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color:
+                        priceRangeFilter === range.value
+                          ? COLORS.light.primary
+                          : "#333",
+                      flex: 1,
+                    }}
+                  >
+                    {range.label}
+                  </Text>
+                  {priceRangeFilter === range.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.light.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Freshness Filter Modal */}
+        <Modal
+          visible={showFreshnessModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowFreshnessModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "bold",
+                    color: COLORS.light.primary,
+                  }}
+                >
+                  Filter by Freshness
+                </Text>
+                <TouchableOpacity onPress={() => setShowFreshnessModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              {FRESHNESS_FILTERS.map((filter) => (
+                <TouchableOpacity
+                  key={filter.value}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#f0f0f0",
+                  }}
+                  onPress={() => {
+                    setFreshnessFilter(filter.value);
+                    setShowFreshnessModal(false);
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 10,
+                      backgroundColor: filter.color,
+                      marginRight: 12,
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color:
+                        freshnessFilter === filter.value
+                          ? COLORS.light.primary
+                          : "#333",
+                      flex: 1,
+                    }}
+                  >
+                    {filter.label}
+                  </Text>
+                  {freshnessFilter === filter.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.light.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Sort Modal */}
+        <Modal
+          visible={showSortModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowSortModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "bold",
+                    color: COLORS.light.primary,
+                  }}
+                >
+                  Sort By
+                </Text>
+                <TouchableOpacity onPress={() => setShowSortModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              {[
+                { value: "relevance", label: "Relevance" },
+                { value: "price_asc", label: "Price: Low to High" },
+                { value: "price_desc", label: "Price: High to Low" },
+                { value: "freshness", label: "Freshness" },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#f0f0f0",
+                  }}
+                  onPress={() => {
+                    setSortBy(option.value as typeof sortBy);
+                    setShowSortModal(false);
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color:
+                        sortBy === option.value ? COLORS.light.primary : "#333",
+                      flex: 1,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                  {sortBy === option.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={COLORS.light.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 };

@@ -391,13 +391,7 @@ const RiderConversationsScreen = () => {
             />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Messages</Text>
-          <TouchableOpacity style={styles.headerButton} activeOpacity={0.7}>
-            <Ionicons
-              name="create-outline"
-              size={24}
-              color={COLORS.light.primary}
-            />
-          </TouchableOpacity>
+          <View style={{ width: 32 }} />
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.light.primary} />
@@ -418,13 +412,7 @@ const RiderConversationsScreen = () => {
           <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity style={styles.headerButton} activeOpacity={0.7}>
-          <Ionicons
-            name="create-outline"
-            size={24}
-            color={COLORS.light.primary}
-          />
-        </TouchableOpacity>
+        <View style={{ width: 32 }} />
       </View>
 
       {/* Search Bar */}
