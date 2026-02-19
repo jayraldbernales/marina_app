@@ -10,7 +10,6 @@ export const RiderDeliveryStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.common.white,
-    paddingTop: 48,
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#cce3de",

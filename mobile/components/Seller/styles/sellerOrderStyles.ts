@@ -636,4 +636,39 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
+  // Add these to your sellerOrderStyles object
+
+  // Dispatch Status Styles
+  dispatchStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f9ff",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+  },
+  dispatchStatusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#0369a1",
+    fontWeight: "500",
+    flex: 1,
+  },
+
+  // Rider Vehicle Style (add to existing riderInfo or as separate)
+  riderVehicle: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 2,
+  },
+
+  // For the modal/order details
+  dispatchStatus: {
+    fontSize: 13,
+    color: "#f97316",
+    marginTop: 4,
+    fontWeight: "500",
+  },
 });

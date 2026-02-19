@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,12 +14,13 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { useNavigation, router, useFocusEffect } from "expo-router";
 import { COLORS } from "@/constants";
 import { sellerOrderStyles } from "./styles/sellerOrderStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
+import { dispatchService } from "@/services/dispatchService";
 
 type OrderStatus =
   | "pending"
@@ -28,7 +29,9 @@ type OrderStatus =
   | "shipped"
   | "delivered"
   | "cancelled"
-  | "rejected";
+  | "rejected"
+  | "no_riders_available"
+  | "dispatch_failed";
 
 type PaymentStatus =
   | "pending"
@@ -47,6 +50,14 @@ type OrderItem = {
   harvested_at?: string;
 };
 
+type RiderAssignment = {
+  id: string;
+  name: string;
+  avatar: ImageSourcePropType | null;
+  status: string;
+  vehicle?: string | null;
+};
+
 type DisplayOrder = {
   id: string;
   orderNumber: string;
@@ -61,7 +72,8 @@ type DisplayOrder = {
   deliveryAddress?: string;
   customerName?: string;
   specialInstructions?: string;
-  riderAssignment?: any | null;
+  riderAssignment?: RiderAssignment | null;
+  dispatchStatus?: string;
 };
 
 // Order Details Modal Component
@@ -102,6 +114,10 @@ const OrderDetailsModal = ({
         return "#6b7280";
       case "rejected":
         return "#ef4444";
+      case "no_riders_available":
+        return "#f97316";
+      case "dispatch_failed":
+        return "#ef4444";
       default:
         return COLORS.light.primary;
     }
@@ -123,6 +139,10 @@ const OrderDetailsModal = ({
         return "Cancelled";
       case "rejected":
         return "Rejected";
+      case "no_riders_available":
+        return "No Riders Available";
+      case "dispatch_failed":
+        return "Dispatch Failed";
       default:
         return status;
     }
@@ -211,6 +231,11 @@ const OrderDetailsModal = ({
               <Text style={sellerOrderStyles.modalOrderDate}>
                 {order.orderDate}
               </Text>
+              {order.dispatchStatus && (
+                <Text style={sellerOrderStyles.dispatchStatus}>
+                  Dispatch: {order.dispatchStatus}
+                </Text>
+              )}
             </View>
 
             {/* Customer Info */}
@@ -370,6 +395,11 @@ const OrderDetailsModal = ({
                         numberOfLines={1}
                       >
                         {order.riderAssignment.status}
+                      </Text>
+                    )}
+                    {order.riderAssignment.vehicle && (
+                      <Text style={sellerOrderStyles.riderVehicle}>
+                        {order.riderAssignment.vehicle}
                       </Text>
                     )}
                   </View>
@@ -612,6 +642,70 @@ const SellerOrders = () => {
     );
   };
 
+  // Fetch rider assignment for an order
+  const fetchRiderAssignment = async (orderId: string) => {
+    try {
+      const assignment = await dispatchService.getRiderAssignment(orderId);
+
+      if (assignment) {
+        setOrders((prevOrders) =>
+          prevOrders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  riderAssignment: {
+                    id: assignment.id,
+                    name: assignment.name,
+                    avatar: assignment.avatar
+                      ? { uri: assignment.avatar }
+                      : null,
+                    status:
+                      assignment.status === "assigned"
+                        ? "Assigned"
+                        : assignment.status === "picked_up"
+                          ? "Picked up"
+                          : assignment.status === "ready_to_pickup"
+                            ? "Ready to Pickup"
+                            : assignment.status,
+                    vehicle: assignment.vehicle,
+                  },
+                }
+              : order,
+          ),
+        );
+
+        // Update selected order if modal is open
+        if (selectedOrder?.id === orderId) {
+          setSelectedOrder((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  riderAssignment: {
+                    id: assignment.id,
+                    name: assignment.name,
+                    avatar: assignment.avatar
+                      ? { uri: assignment.avatar }
+                      : null,
+                    status:
+                      assignment.status === "assigned"
+                        ? "Assigned"
+                        : assignment.status === "picked_up"
+                          ? "Picked up"
+                          : assignment.status === "ready_to_pickup"
+                            ? "Ready to Pickup"
+                            : assignment.status,
+                    vehicle: assignment.vehicle,
+                  },
+                }
+              : null,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching rider assignment:", error);
+    }
+  };
+
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case "pending":
@@ -627,6 +721,10 @@ const SellerOrders = () => {
       case "cancelled":
         return "#6b7280";
       case "rejected":
+        return "#ef4444";
+      case "no_riders_available":
+        return "#f97316";
+      case "dispatch_failed":
         return "#ef4444";
       default:
         return COLORS.light.primary;
@@ -707,10 +805,26 @@ const SellerOrders = () => {
           customerName: order.profiles?.full_name,
           specialInstructions: order.note,
           riderAssignment: null,
+          dispatchStatus:
+            order.order_status === "preparing"
+              ? "Looking for rider..."
+              : undefined,
         });
       }
 
       setOrders(displayOrders);
+
+      // Fetch rider assignments for ALL orders that might have riders (not just ready-to-ship and beyond)
+      for (const order of displayOrders) {
+        if (
+          order.status === "preparing" ||
+          order.status === "ready-to-ship" ||
+          order.status === "shipped" ||
+          order.status === "delivered"
+        ) {
+          await fetchRiderAssignment(order.id);
+        }
+      }
     } catch (error) {
       console.error("Unexpected error fetching vendor orders:", error);
       Alert.alert("Error", "An unexpected error occurred");
@@ -720,6 +834,46 @@ const SellerOrders = () => {
     }
   };
 
+  // Real-time subscription for delivery updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const subscription = supabase
+      .channel("vendor-deliveries")
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: "public",
+          table: "deliveries",
+        },
+        async (payload) => {
+          // Safely get the delivery_id from new or old
+          const deliveryId =
+            (payload.new as any)?.delivery_id ||
+            (payload.old as any)?.delivery_id;
+
+          if (!deliveryId) return;
+
+          // Find which order this delivery belongs to
+          const { data: order } = await supabase
+            .from("orders")
+            .select("order_id, vendor_user_id")
+            .eq("delivery_id", deliveryId)
+            .single();
+
+          // Only update if it's this vendor's order
+          if (order?.vendor_user_id === user.id) {
+            await fetchRiderAssignment(order.order_id);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [user?.id]);
   useEffect(() => {
     fetchOrders();
   }, [user?.id]);
@@ -858,6 +1012,43 @@ const SellerOrders = () => {
         ),
       );
 
+      // If moving to preparing, start dispatch
+      if (newStatus === "preparing") {
+        Alert.alert(
+          "Finding Rider",
+          "Looking for available riders nearby. You can close this screen - we'll notify you when a rider accepts.",
+          [{ text: "OK" }],
+        );
+
+        dispatchService
+          .handleOrderAcceptance(orderId, user?.id!)
+          .then((result) => {
+            if (result.success) {
+              console.log(
+                `✅ Dispatch started: ${result.riderCount} riders found`,
+              );
+              // Refresh orders to show updated status
+              fetchOrders();
+            } else if (result.reason === "no_riders") {
+              Alert.alert(
+                "No Riders Available",
+                "No riders are currently available in your area. The order will remain in 'preparing' status until a rider becomes available.",
+                [{ text: "OK" }],
+              );
+              fetchOrders(); // Refresh to show "no_riders_available" status
+            }
+          })
+          .catch((error) => {
+            console.error("Dispatch error:", error);
+            Alert.alert(
+              "Dispatch Error",
+              "There was an error finding a rider. Please try again or contact support.",
+              [{ text: "OK" }],
+            );
+            fetchOrders(); // Refresh to show error status
+          });
+      }
+
       Alert.alert("Success", `Order updated to ${newStatus} successfully`);
     } catch (error) {
       console.error("Unexpected error updating order:", error);
@@ -872,13 +1063,17 @@ const SellerOrders = () => {
     const hasStock = await checkStockAvailability(orderId);
     if (!hasStock) return;
 
-    Alert.alert("Accept Order", "Are you sure you want to accept this order?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Accept",
-        onPress: () => updateOrderStatus(orderId, "preparing"),
-      },
-    ]);
+    Alert.alert(
+      "Accept Order",
+      "Accept this order? This will start looking for available riders.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Accept",
+          onPress: () => updateOrderStatus(orderId, "preparing"),
+        },
+      ],
+    );
   };
 
   // Handle Reject Order
@@ -906,7 +1101,39 @@ const SellerOrders = () => {
         { text: "Cancel", style: "cancel" },
         {
           text: "Yes, Ready",
-          onPress: () => updateOrderStatus(orderId, "ready-to-ship"),
+          onPress: async () => {
+            try {
+              // First update order status
+              await updateOrderStatus(orderId, "ready-to-ship");
+
+              // Then update delivery status to notify rider
+              const { data: delivery } = await supabase
+                .from("deliveries")
+                .select("delivery_id")
+                .eq("order_id", orderId)
+                .single();
+
+              if (delivery) {
+                const { error } = await supabase
+                  .from("deliveries")
+                  .update({
+                    status: "ready_to_pickup",
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("delivery_id", delivery.delivery_id);
+
+                if (error) {
+                  console.error("Error updating delivery status:", error);
+                } else {
+                  console.log(
+                    `✅ Delivery ${delivery.delivery_id} marked as ready_to_pickup`,
+                  );
+                }
+              }
+            } catch (error) {
+              console.error("Error in mark ready to ship:", error);
+            }
+          },
         },
       ],
     );
@@ -963,15 +1190,45 @@ const SellerOrders = () => {
                 ? "Rejected"
                 : order.status === "cancelled"
                   ? "Cancelled"
-                  : tabs.find((t) => t.key === order.status)?.label ||
-                    order.status}
+                  : order.status === "no_riders_available"
+                    ? "No Riders"
+                    : order.status === "dispatch_failed"
+                      ? "Dispatch Failed"
+                      : tabs.find((t) => t.key === order.status)?.label ||
+                        order.status}
             </Text>
           </View>
         </View>
 
-        {/* Payment Status Indicator for GCash */}
+        {/* Dispatch Status Indicator - Show when preparing and no rider yet */}
+        {order.status === "preparing" && !order.riderAssignment && (
+          <View style={sellerOrderStyles.dispatchStatusRow}>
+            <ActivityIndicator size="small" color={COLORS.light.primary} />
+            <Text style={sellerOrderStyles.dispatchStatusText}>
+              Looking for available riders...
+            </Text>
+          </View>
+        )}
 
-        {order.riderAssignment ? (
+        {/* Dispatch Status Indicator - Show when preparing and rider assigned but not accepted yet */}
+        {order.status === "preparing" &&
+          order.riderAssignment &&
+          order.riderAssignment.status === "pending" && (
+            <View style={sellerOrderStyles.dispatchStatusRow}>
+              <ActivityIndicator size="small" color="#f59e0b" />
+              <Text
+                style={[
+                  sellerOrderStyles.dispatchStatusText,
+                  { color: "#f59e0b" },
+                ]}
+              >
+                Waiting for rider to accept...
+              </Text>
+            </View>
+          )}
+
+        {/* Rider Info - Show when rider is assigned and has accepted */}
+        {order.riderAssignment && order.riderAssignment.status !== "pending" ? (
           <View style={sellerOrderStyles.riderRow}>
             {order.riderAssignment.avatar ? (
               <Image
@@ -994,6 +1251,11 @@ const SellerOrders = () => {
                   {order.riderAssignment.status}
                 </Text>
               )}
+              {order.riderAssignment.vehicle && (
+                <Text style={sellerOrderStyles.riderVehicle} numberOfLines={1}>
+                  {order.riderAssignment.vehicle}
+                </Text>
+              )}
             </View>
             <TouchableOpacity
               style={sellerOrderStyles.riderAction}
@@ -1005,11 +1267,14 @@ const SellerOrders = () => {
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={sellerOrderStyles.unassignedRow}>
-            <Text style={sellerOrderStyles.unassignedText}>
-              No rider assigned
-            </Text>
-          </View>
+          order.status !== "preparing" &&
+          order.status !== "pending" && (
+            <View style={sellerOrderStyles.unassignedRow}>
+              <Text style={sellerOrderStyles.unassignedText}>
+                No rider assigned
+              </Text>
+            </View>
+          )
         )}
 
         {/* Order Items */}

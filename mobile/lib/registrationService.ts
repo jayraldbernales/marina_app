@@ -462,7 +462,7 @@ export const saveRiderRegistration = async (
           barangay: data.barangay,
           municipality: data.municipality,
           address_type: "residential",
-          is_default: true,
+          is_default: false,
           // NEW: Add coordinates
           latitude: data.latitude,
           longitude: data.longitude,
