@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,224 +6,279 @@ import {
   Image,
   TouchableOpacity,
   SafeAreaView,
-  ImageSourcePropType,
+  Alert,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router } from "expo-router";
+import { useNavigation, router, useFocusEffect } from "expo-router";
 import { COLORS } from "@/constants";
 import { RiderDeliveryStyles } from "./styles/riderDeliveryStyles";
+import { supabase } from "@/lib/supabase";
+import {
+  deliveryService,
+  Delivery,
+  DatabaseDeliveryStatus,
+  UITabStatus,
+} from "@/services/deliveryService";
+import { locationService } from "@/services/locationService";
 
-type DeliveryStatus =
-  | "to-pickup"
-  | "in-transit"
-  | "delivered"
-  | "failed"
-  | "canceled";
-
-type DeliveryItem = {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  vendor: string;
-  image: ImageSourcePropType;
+// Map database status to UI tabs
+const statusToTab = (status: DatabaseDeliveryStatus): UITabStatus => {
+  const map: Record<DatabaseDeliveryStatus, UITabStatus> = {
+    assigned: "to-pickup",
+    ready_to_pickup: "to-pickup",
+    picked_up: "in-transit",
+    delivered: "delivered",
+    failed: "failed",
+    cancelled: "canceled",
+    rejected: "canceled",
+    pending: "to-pickup", // fallback
+  };
+  return map[status] || "to-pickup";
 };
 
-type Delivery = {
-  id: string;
-  items: DeliveryItem[];
-  status: DeliveryStatus;
-  totalAmount: number;
-  scheduledDate: string;
-  deliveryAddress: string;
-  vendorAddress: string;
+// Map UI tabs to database statuses (for filtering)
+const tabToStatuses: Record<UITabStatus, DatabaseDeliveryStatus[]> = {
+  "to-pickup": ["assigned", "pending", "ready_to_pickup"],
+  "in-transit": ["picked_up"],
+  delivered: ["delivered"],
+  failed: ["failed"],
+  canceled: ["cancelled", "rejected"],
 };
-
-// Mock data
-const mockDeliveries: Delivery[] = [
-  {
-    id: "DEL-001",
-    items: [
-      {
-        id: "1",
-        name: "Mayamaya",
-        price: 480,
-        quantity: 2,
-        vendor: "Maria's Catch",
-        image: require("@/assets/img/mayamaya.jpg"),
-      },
-    ],
-    status: "to-pickup",
-    totalAmount: 1010,
-    scheduledDate: "2024-01-20",
-    deliveryAddress: "123 Seaside Avenue, Coastal City",
-    vendorAddress: "Maria's Catch, 100 Seafood St, Coastal City",
-  },
-  {
-    id: "DEL-002",
-    items: [
-      {
-        id: "2",
-        name: "Crab",
-        price: 650,
-        quantity: 1,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "failed",
-    totalAmount: 700,
-    scheduledDate: "2024-01-19",
-    deliveryAddress: "456 Marine Drive, Beach Town",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-  {
-    id: "DEL-003",
-    items: [
-      {
-        id: "3",
-        name: "Mayamaya",
-        price: 480,
-        quantity: 1,
-        vendor: "Maria's Catch",
-        image: require("@/assets/img/mayamaya.jpg"),
-      },
-    ],
-    status: "to-pickup",
-    totalAmount: 530,
-    scheduledDate: "2024-01-18",
-    deliveryAddress: "789 Ocean Boulevard, Port City",
-    vendorAddress: "Maria's Catch, 100 Seafood St, Coastal City",
-  },
-  {
-    id: "DEL-004",
-    items: [
-      {
-        id: "4",
-        name: "Crab",
-        price: 650,
-        quantity: 2,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "to-pickup",
-    totalAmount: 1350,
-    scheduledDate: "2024-01-15",
-    deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-  {
-    id: "DEL-005",
-    items: [
-      {
-        id: "5",
-        name: "Crab",
-        price: 650,
-        quantity: 2,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "in-transit",
-    totalAmount: 1350,
-    scheduledDate: "2024-01-15",
-    deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-  {
-    id: "DEL-006",
-    items: [
-      {
-        id: "6",
-        name: "Crab",
-        price: 650,
-        quantity: 2,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "to-pickup",
-    totalAmount: 1350,
-    scheduledDate: "2024-01-15",
-    deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-  {
-    id: "DEL-007",
-    items: [
-      {
-        id: "7",
-        name: "Crab",
-        price: 650,
-        quantity: 2,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "delivered",
-    totalAmount: 1350,
-    scheduledDate: "2024-01-15",
-    deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-  {
-    id: "DEL-008",
-    items: [
-      {
-        id: "8",
-        name: "Crab",
-        price: 650,
-        quantity: 2,
-        vendor: "Ocean Harvest",
-        image: require("@/assets/img/crab.jpg"),
-      },
-    ],
-    status: "canceled",
-    totalAmount: 1350,
-    scheduledDate: "2024-01-15",
-    deliveryAddress: "321 Harbor Street, Fisherman's Wharf",
-    vendorAddress: "Ocean Harvest, 200 Marine Ave, Beach Town",
-  },
-];
 
 const RiderDelivery = () => {
-  const [activeTab, setActiveTab] = useState<DeliveryStatus>("to-pickup");
+  const [activeTab, setActiveTab] = useState<UITabStatus>("to-pickup");
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [filteredDeliveries, setFilteredDeliveries] = useState<Delivery[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [riderId, setRiderId] = useState<string | null>(null);
+  const [isTracking, setIsTracking] = useState(false);
+
   const navigation = useNavigation();
-  const tabs: { key: DeliveryStatus; label: string }[] = [
+
+  const tabs: { key: UITabStatus; label: string }[] = [
     { key: "to-pickup", label: "To Pickup" },
     { key: "in-transit", label: "In Transit" },
     { key: "delivered", label: "Delivered" },
     { key: "failed", label: "Failed" },
     { key: "canceled", label: "Canceled" },
   ];
-  const filteredDeliveries = mockDeliveries.filter(
-    (delivery) => delivery.status === activeTab
+
+  // Get current rider ID
+  useEffect(() => {
+    const getCurrentRider = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setRiderId(user.id);
+      }
+    };
+    getCurrentRider();
+  }, []);
+
+  // Start/stop location tracking based on app state
+  useEffect(() => {
+    if (!riderId) return;
+
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        if (nextAppState === "active") {
+          locationService
+            .startTracking(riderId)
+            .then(() => {
+              setIsTracking(true);
+            })
+            .catch(console.error);
+        } else if (nextAppState === "background") {
+          locationService.stopTracking();
+          setIsTracking(false);
+        }
+      },
+    );
+
+    locationService
+      .startTracking(riderId)
+      .then(() => {
+        setIsTracking(true);
+      })
+      .catch(console.error);
+
+    return () => {
+      subscription.remove();
+      locationService.stopTracking();
+    };
+  }, [riderId]);
+
+  // Load deliveries when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (riderId) {
+        loadDeliveries();
+      }
+    }, [riderId]),
   );
-  const getStatusColor = (status: DeliveryStatus) => {
+
+  // Filter deliveries when tab changes or deliveries update
+  useEffect(() => {
+    const statuses = tabToStatuses[activeTab] || [];
+    const filtered = deliveries.filter((d) => statuses.includes(d.status));
+    setFilteredDeliveries(filtered);
+  }, [activeTab, deliveries]);
+
+  const loadDeliveries = async () => {
+    if (!riderId) return;
+
+    setLoading(true);
+    try {
+      const data = await deliveryService.getRiderDeliveries(riderId);
+      setDeliveries(data);
+    } catch (error) {
+      console.error("Error loading deliveries:", error);
+      Alert.alert("Error", "Failed to load deliveries");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle accepting a delivery offer
+  const handleAcceptDelivery = async (deliveryId: string) => {
+    if (!riderId) return;
+
+    try {
+      const result = await deliveryService.respondToOffer(
+        deliveryId,
+        riderId,
+        true,
+      );
+      Alert.alert("Success", "You have accepted this delivery!");
+      loadDeliveries();
+    } catch (error: any) {
+      console.error("Error accepting delivery:", error);
+      Alert.alert("Error", error.message || "Failed to accept delivery");
+    }
+  };
+
+  // Handle rejecting a delivery
+  const handleRejectDelivery = async (deliveryId: string) => {
+    if (!riderId) return;
+
+    Alert.alert(
+      "Reject Delivery",
+      "Are you sure you want to reject this delivery?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reject",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deliveryService.respondToOffer(deliveryId, riderId, false);
+              Alert.alert("Success", "Delivery rejected");
+              loadDeliveries();
+            } catch (error) {
+              console.error("Error rejecting delivery:", error);
+              Alert.alert("Error", "Failed to reject delivery");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Handle pickup (after seller marks as ready)
+  const handlePickup = async (deliveryId: string) => {
+    try {
+      await deliveryService.updateDeliveryStatus(deliveryId, "picked_up");
+
+      // Also update order status to "shipped"
+      const { data: delivery } = await supabase
+        .from("deliveries")
+        .select("order_id")
+        .eq("delivery_id", deliveryId)
+        .single();
+
+      if (delivery) {
+        await supabase
+          .from("orders")
+          .update({ order_status: "shipped" })
+          .eq("order_id", delivery.order_id);
+      }
+
+      Alert.alert("Success", "Marked as picked up");
+      loadDeliveries();
+    } catch (error) {
+      console.error("Error updating delivery:", error);
+      Alert.alert("Error", "Failed to update delivery");
+    }
+  };
+
+  // Handle delivery complete
+  const handleDelivered = async (deliveryId: string) => {
+    Alert.alert("Confirm Delivery", "Mark this delivery as completed?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Confirm",
+        onPress: async () => {
+          try {
+            await deliveryService.updateDeliveryStatus(deliveryId, "delivered");
+            Alert.alert("Success", "Delivery completed!");
+            loadDeliveries();
+          } catch (error) {
+            console.error("Error updating delivery:", error);
+            Alert.alert("Error", "Failed to update delivery");
+          }
+        },
+      },
+    ]);
+  };
+
+  const getStatusColor = (status: DatabaseDeliveryStatus) => {
     switch (status) {
-      case "to-pickup":
+      case "assigned":
+      case "pending":
+      case "ready_to_pickup":
         return "#f59e0b";
-      case "in-transit":
+      case "picked_up":
         return "#3b82f6";
       case "delivered":
         return "#10b981";
       case "failed":
         return "#ef4444";
-      case "canceled":
+      case "cancelled":
+      case "rejected":
         return "#6b7280";
       default:
         return COLORS.light.primary;
     }
   };
+
+  const getStatusLabel = (status: DatabaseDeliveryStatus): string => {
+    const map: Record<DatabaseDeliveryStatus, string> = {
+      assigned: "To Pickup",
+      ready_to_pickup: "Ready to Pickup",
+      pending: "To Pickup",
+      picked_up: "In Transit",
+      delivered: "Delivered",
+      failed: "Failed",
+      cancelled: "Canceled",
+      rejected: "Canceled",
+    };
+    return map[status] || status;
+  };
+
   const renderDeliveryCard = (delivery: Delivery) => (
     <View key={delivery.id} style={RiderDeliveryStyles.orderCard}>
       {/* Delivery Header */}
       <View style={RiderDeliveryStyles.orderHeader}>
         <View>
-          <Text style={RiderDeliveryStyles.orderId}>{delivery.id}</Text>
+          <Text style={RiderDeliveryStyles.orderId}>
+            {delivery.order_number}
+          </Text>
           <Text style={RiderDeliveryStyles.orderDate}>
-            {delivery.scheduledDate}
+            {delivery.scheduled_date}
           </Text>
         </View>
         <View
@@ -233,10 +288,11 @@ const RiderDelivery = () => {
           ]}
         >
           <Text style={RiderDeliveryStyles.statusText}>
-            {tabs.find((t) => t.key === delivery.status)?.label}
+            {getStatusLabel(delivery.status)}
           </Text>
         </View>
       </View>
+
       {/* Delivery Items */}
       {delivery.items.map((item) => (
         <View key={item.id} style={RiderDeliveryStyles.itemRow}>
@@ -250,52 +306,134 @@ const RiderDelivery = () => {
           </View>
         </View>
       ))}
+
       {/* Delivery Footer */}
       <View style={RiderDeliveryStyles.orderFooter}>
         <View style={RiderDeliveryStyles.addressContainer}>
           <Text style={RiderDeliveryStyles.addressText}>
-            Pickup from: {delivery.vendorAddress}
+            Pickup from: {delivery.vendor_address}
           </Text>
           <Text style={RiderDeliveryStyles.addressText}>
-            Deliver to: {delivery.deliveryAddress}
+            Deliver to: {delivery.delivery_address}
           </Text>
         </View>
+
         <View style={RiderDeliveryStyles.totalRow}>
           <Text style={RiderDeliveryStyles.totalLabel}>Total Amount:</Text>
           <Text style={RiderDeliveryStyles.totalAmount}>
-            ₱{delivery.totalAmount.toLocaleString()}
+            ₱{delivery.total_amount.toLocaleString()}
           </Text>
         </View>
+
         {/* Action Buttons based on status */}
         <View style={RiderDeliveryStyles.actionButtons}>
-          {delivery.status === "to-pickup" && (
+          {/* STAGE 1: New offer - Rider can accept or reject */}
+          {delivery.status === "pending" && (
             <>
-              <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.secondaryButton}
+                onPress={() => handleRejectDelivery(delivery.id)}
+              >
                 <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                  Contact Vendor
+                  Reject
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={RiderDeliveryStyles.primaryButton}>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.primaryButton}
+                onPress={() => handleAcceptDelivery(delivery.id)}
+              >
+                <Text style={RiderDeliveryStyles.primaryButtonText}>
+                  Accept Delivery
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* STAGE 2: Accepted but waiting for seller to prepare */}
+          {delivery.status === "assigned" && (
+            <>
+              <TouchableOpacity
+                style={[RiderDeliveryStyles.secondaryButton]}
+                onPress={() => handleRejectDelivery(delivery.id)}
+              >
+                <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                  Cancel Delivery
+                </Text>
+              </TouchableOpacity>
+              <View
+                style={{
+                  padding: 12,
+                  backgroundColor: "#f0f9ff",
+                  borderRadius: 8,
+                  marginBottom: 12,
+                  width: "100%",
+                  alignItems: "center",
+                }}
+              >
+                <Ionicons name="time-outline" size={24} color="#0369a1" />
+                <Text
+                  style={{
+                    color: "#0369a1",
+                    textAlign: "center",
+                    marginTop: 4,
+                  }}
+                >
+                  Waiting for seller to prepare your order
+                </Text>
+                <Text style={{ color: "#0284c7", fontSize: 12, marginTop: 4 }}>
+                  You'll be notified when ready for pickup
+                </Text>
+              </View>
+            </>
+          )}
+
+          {/* STAGE 3: Seller marked as ready - Rider can pickup */}
+          {delivery.status === "ready_to_pickup" && (
+            <>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.secondaryButton}
+                onPress={() => handleRejectDelivery(delivery.id)}
+              >
+                <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                  Reject
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.primaryButton}
+                onPress={() => handlePickup(delivery.id)}
+              >
                 <Text style={RiderDeliveryStyles.primaryButtonText}>
                   Pickup Now
                 </Text>
               </TouchableOpacity>
             </>
           )}
-          {delivery.status === "in-transit" && (
+
+          {/* STAGE 4: Picked up - En route to customer */}
+          {delivery.status === "picked_up" && (
             <>
-              <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.secondaryButton}
+                onPress={() => {
+                  Alert.alert("Contact", "Call customer?");
+                }}
+              >
                 <Text style={RiderDeliveryStyles.secondaryButtonText}>
                   Contact Customer
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={RiderDeliveryStyles.primaryButton}>
+              <TouchableOpacity
+                style={RiderDeliveryStyles.primaryButton}
+                onPress={() => handleDelivered(delivery.id)}
+              >
                 <Text style={RiderDeliveryStyles.primaryButtonText}>
                   Mark Delivered
                 </Text>
               </TouchableOpacity>
             </>
           )}
+
+          {/* STAGE 5: Delivered - Show receipt option */}
           {delivery.status === "delivered" && (
             <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
               <Text style={RiderDeliveryStyles.secondaryButtonText}>
@@ -303,6 +441,8 @@ const RiderDelivery = () => {
               </Text>
             </TouchableOpacity>
           )}
+
+          {/* Failed deliveries */}
           {delivery.status === "failed" && (
             <TouchableOpacity style={RiderDeliveryStyles.primaryButton}>
               <Text style={RiderDeliveryStyles.primaryButtonText}>
@@ -310,7 +450,10 @@ const RiderDelivery = () => {
               </Text>
             </TouchableOpacity>
           )}
-          {delivery.status === "canceled" && (
+
+          {/* Cancelled/Rejected deliveries */}
+          {(delivery.status === "cancelled" ||
+            delivery.status === "rejected") && (
             <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
               <Text style={RiderDeliveryStyles.secondaryButtonText}>
                 View Details
@@ -321,8 +464,43 @@ const RiderDelivery = () => {
       </View>
     </View>
   );
+
+  // Show tracking status indicator
+  const renderTrackingIndicator = () => (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        backgroundColor: isTracking ? "#e8f5e9" : "#ffebee",
+      }}
+    >
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: isTracking ? "#4caf50" : "#f44336",
+          marginRight: 8,
+        }}
+      />
+      <Text
+        style={{
+          fontSize: 12,
+          color: isTracking ? "#2e7d32" : "#c62828",
+        }}
+      >
+        {isTracking ? "Location tracking active" : "Location tracking off"}
+      </Text>
+    </View>
+  );
+
   return (
     <SafeAreaView style={RiderDeliveryStyles.container}>
+      {/* Tracking Status Indicator */}
+      {renderTrackingIndicator()}
+
       {/* Header */}
       <View style={RiderDeliveryStyles.header}>
         <TouchableOpacity
@@ -332,8 +510,11 @@ const RiderDelivery = () => {
           <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
         <Text style={RiderDeliveryStyles.headerTitle}>My Deliveries</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={loadDeliveries}>
+          <Ionicons name="refresh" size={24} color={COLORS.light.primary} />
+        </TouchableOpacity>
       </View>
+
       {/* Tabs */}
       <ScrollView
         horizontal
@@ -361,9 +542,14 @@ const RiderDelivery = () => {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
       {/* Deliveries List */}
       <ScrollView style={RiderDeliveryStyles.ordersContainer}>
-        {filteredDeliveries.length > 0 ? (
+        {loading ? (
+          <View style={RiderDeliveryStyles.emptyState}>
+            <Text>Loading deliveries...</Text>
+          </View>
+        ) : filteredDeliveries.length > 0 ? (
           filteredDeliveries.map(renderDeliveryCard)
         ) : (
           <View style={RiderDeliveryStyles.emptyState}>
@@ -380,4 +566,5 @@ const RiderDelivery = () => {
     </SafeAreaView>
   );
 };
+
 export default RiderDelivery;

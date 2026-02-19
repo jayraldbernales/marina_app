@@ -471,4 +471,390 @@ export const orderStyles = StyleSheet.create({
     color: COLORS.light.primary,
     flex: 1,
   },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    marginHorizontal: 16,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+
+  searchIcon: {
+    marginRight: 8,
+  },
+
+  searchInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 16,
+    color: "#333",
+  },
+
+  clearButton: {
+    padding: 4,
+  },
+
+  searchResultInfo: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+
+  searchResultText: {
+    fontSize: 14,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  // Add these to your existing orderStyles object
+
+  // Rating Modal Content (if not already present)
+  ratingModalContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: "90%",
+    width: "100%",
+  },
+
+  // Order Info Section
+  ratingOrderInfo: {
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+
+  ratingOrderNumber: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 4,
+  },
+
+  ratingOrderDate: {
+    fontSize: 14,
+    color: "#666",
+  },
+
+  // Products Summary
+  productsSummary: {
+    backgroundColor: "#F8F9FA",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+
+  productsSummaryTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+
+  productItem: {
+    fontSize: 13,
+    color: "#4B5563",
+    marginBottom: 4,
+    paddingLeft: 8,
+  },
+
+  // Rating Section
+  ratingSection: {
+    marginBottom: 16,
+  },
+
+  ratingHeader: {
+    marginBottom: 8,
+  },
+
+  ratingLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 2,
+  },
+
+  ratingDescription: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 8,
+  },
+
+  starsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginVertical: 8,
+  },
+
+  ratingHint: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    fontWeight: "500",
+    marginTop: 4,
+  },
+
+  // Divider
+  ratingDivider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginVertical: 16,
+  },
+
+  // Comment Section
+  ratingCommentContainer: {
+    marginBottom: 24,
+  },
+
+  ratingCommentInput: {
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: "#333",
+    minHeight: 100,
+    textAlignVertical: "top",
+    marginTop: 8,
+  },
+
+  // Action Buttons
+  ratingActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+
+  ratingDeleteButton: {
+    backgroundColor: "#FEE2E2",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 8,
+    alignItems: "center",
+  },
+
+  ratingDeleteButtonText: {
+    color: "#DC2626",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  ratingSubmitButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 8,
+    alignItems: "center",
+  },
+
+  ratingSubmitButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  ratingNote: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  disabledButton: {
+    opacity: 0.5,
+  },
+
+  // Review Status Styles (for OrderDetailsModal)
+  reviewStatusContainer: {
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+  },
+
+  reviewStatusText: {
+    fontSize: 14,
+    color: "#4B5563",
+    marginTop: 8,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+
+  updateReviewButton: {
+    backgroundColor: "#E5E7EB",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+  },
+
+  updateReviewButtonText: {
+    color: "#4B5563",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+
+  rateOrderButton: {
+    backgroundColor: COLORS.light.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+
+  rateOrderButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  // Add these new styles to your existing orderStyles
+
+  // Product Items with Images
+  productsContainer: {
+    marginBottom: 16,
+  },
+
+  productsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 12,
+  },
+
+  productItemCard: {
+    flexDirection: "row",
+    backgroundColor: "#F8F9FA",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+
+  productImageContainer: {
+    marginRight: 12,
+  },
+
+  productImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+
+  productImagePlaceholder: {
+    backgroundColor: "#E5E7EB",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  productInfo: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
+  productName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    marginBottom: 4,
+  },
+
+  productMetaRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  productQuantity: {
+    fontSize: 13,
+    color: "#666",
+  },
+
+  productPrice: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+  },
+
+  productVendor: {
+    fontSize: 12,
+    color: "#999",
+  },
+
+  // Product Rating Section (Large Stars)
+  productRatingSection: {
+    alignItems: "center",
+  },
+
+  productRatingLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 12,
+    alignSelf: "flex-start",
+  },
+
+  productStarsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+
+  productRatingHint: {
+    fontSize: 14,
+    color: "#666",
+    fontWeight: "500",
+  },
+
+  // Inline Rating Section (Small Stars)
+  serviceRatingsContainer: {
+    marginBottom: 16,
+  },
+
+  serviceRatingsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 12,
+  },
+
+  inlineRatingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+
+  inlineRatingLabel: {
+    fontSize: 15,
+    color: "#4B5563",
+    flex: 1,
+  },
+
+  inlineStarsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  inlineStar: {
+    marginHorizontal: 2,
+  },
+
+  // Comment Section
+  commentLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
 });

@@ -21,6 +21,9 @@ export interface VendorRegistrationData {
   idType: string;
   acceptedTerms: boolean;
   acceptedConsent: boolean;
+  // NEW: Add coordinates
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface RiderRegistrationData {
@@ -41,6 +44,9 @@ export interface RiderRegistrationData {
   motorcycleRegistrationImage: string | null;
   acceptedTerms: boolean;
   acceptedConsent: boolean;
+  // NEW: Add coordinates
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 /* ================================
@@ -154,7 +160,7 @@ export const saveVendorRegistration = async (
 
       if (vendorUpdateError) throw vendorUpdateError;
 
-      // Update or insert address
+      // Update or insert address with coordinates
       const { data: existingAddress } = await supabase
         .from("addresses")
         .select("user_id")
@@ -170,6 +176,9 @@ export const saveVendorRegistration = async (
             purok: data.purok,
             barangay: data.barangay,
             municipality: data.municipality,
+            // NEW: Add coordinates
+            latitude: data.latitude,
+            longitude: data.longitude,
           })
           .eq("user_id", userId)
           .eq("address_type", "business");
@@ -187,6 +196,9 @@ export const saveVendorRegistration = async (
               municipality: data.municipality,
               address_type: "business",
               is_default: false,
+              // NEW: Add coordinates
+              latitude: data.latitude,
+              longitude: data.longitude,
               created_at: new Date().toISOString(),
             },
           ]);
@@ -228,6 +240,9 @@ export const saveVendorRegistration = async (
           municipality: data.municipality,
           address_type: "business",
           is_default: false,
+          // NEW: Add coordinates
+          latitude: data.latitude,
+          longitude: data.longitude,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -364,7 +379,7 @@ export const saveRiderRegistration = async (
 
       if (riderUpdateError) throw riderUpdateError;
 
-      // Update or insert address
+      // Update or insert address with coordinates
       const { data: existingAddress } = await supabase
         .from("addresses")
         .select("user_id")
@@ -380,6 +395,9 @@ export const saveRiderRegistration = async (
             purok: data.purok,
             barangay: data.barangay,
             municipality: data.municipality,
+            // NEW: Add coordinates
+            latitude: data.latitude,
+            longitude: data.longitude,
           })
           .eq("user_id", userId)
           .eq("address_type", "residential");
@@ -397,6 +415,9 @@ export const saveRiderRegistration = async (
               municipality: data.municipality,
               address_type: "residential",
               is_default: false,
+              // NEW: Add coordinates
+              latitude: data.latitude,
+              longitude: data.longitude,
               created_at: new Date().toISOString(),
             },
           ]);
@@ -441,7 +462,10 @@ export const saveRiderRegistration = async (
           barangay: data.barangay,
           municipality: data.municipality,
           address_type: "residential",
-          is_default: true,
+          is_default: false,
+          // NEW: Add coordinates
+          latitude: data.latitude,
+          longitude: data.longitude,
           created_at: new Date().toISOString(),
         },
       ]);

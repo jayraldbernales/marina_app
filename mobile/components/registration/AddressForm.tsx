@@ -6,13 +6,19 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
   Modal,
   FlatList,
   TextInput,
+  Alert,
+  Linking,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { COLORS } from "../../constants";
 import { Ionicons } from "@expo/vector-icons";
+
+// Add these imports for geocoding
+import * as Location from "expo-location";
 
 // Real data for Mabini, Bohol
 const MUNICIPALITIES = [{ value: "Mabini, Bohol", label: "Mabini, Bohol" }];
@@ -49,8 +55,6 @@ type AddressErrors = {
   purok?: boolean;
 };
 
-// ... (imports remain the same)
-
 type AddressFormProps = {
   address: string;
   onChange: (address: string) => void;
@@ -58,8 +62,13 @@ type AddressFormProps = {
   onErrorsChange?: (errors: AddressErrors) => void;
   onFieldsChange?: (barangay: string, purok: string) => void;
   onMunicipalityChange?: (municipality: string) => void;
-  // REMOVE: initialBarangay?: string;
-  // REMOVE: initialPurok?: string;
+  // NEW: Add coordinate props
+  onCoordinatesChange?: (
+    latitude: number | null,
+    longitude: number | null,
+  ) => void;
+  initialLatitude?: number | null;
+  initialLongitude?: number | null;
 };
 
 const AddressForm: React.FC<AddressFormProps> = ({
@@ -69,17 +78,102 @@ const AddressForm: React.FC<AddressFormProps> = ({
   onErrorsChange,
   onFieldsChange,
   onMunicipalityChange,
-  // REMOVE: initialBarangay = "",
-  // REMOVE: initialPurok = "",
+  // NEW: Coordinate props
+  onCoordinatesChange,
+  initialLatitude = null,
+  initialLongitude = null,
 }) => {
-  // Initialize state with defaults (no longer from props)
+  // Initialize state with defaults
   const [municipality, setMunicipality] = useState("Mabini, Bohol");
   const [barangay, setBarangay] = useState("");
   const [purok, setPurok] = useState("");
 
+  // NEW: Coordinate state
+  const [latitude, setLatitude] = useState<number | null>(initialLatitude);
+  const [longitude, setLongitude] = useState<number | null>(initialLongitude);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+
+  // NEW: Permission state
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(
+    null,
+  );
+
   // State for barangay selector modal
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // NEW: Request permission on component mount
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  // NEW: Function to request location permission
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === "granted");
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location Permission",
+          "We need location permission to convert your address to coordinates for accurate rider matching. You can enable it in settings.",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                } else {
+                  Linking.openSettings();
+                }
+              },
+            },
+          ],
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting location permission:", error);
+      setLocationPermission(false);
+    }
+  };
+
+  // NEW: Check permission before geocoding
+  const geocodeAddress = useCallback(
+    async (fullAddr: string) => {
+      if (!fullAddr) return;
+
+      // Check if we have permission
+      if (!locationPermission) {
+        console.log("No location permission, skipping geocoding");
+        return;
+      }
+
+      try {
+        setIsGeocoding(true);
+        const results = await Location.geocodeAsync(fullAddr);
+
+        if (results && results.length > 0) {
+          const { latitude, longitude } = results[0];
+          setLatitude(latitude);
+          setLongitude(longitude);
+
+          if (onCoordinatesChange) {
+            onCoordinatesChange(latitude, longitude);
+          }
+        }
+      } catch (error: any) {
+        console.error("Geocoding error:", error);
+        // If error is due to permissions, update state
+        if (error.message?.includes("Not authorized")) {
+          setLocationPermission(false);
+        }
+      } finally {
+        setIsGeocoding(false);
+      }
+    },
+    [onCoordinatesChange, locationPermission],
+  );
 
   // Get municipality label
   const getMunicipalityLabel = useCallback((value: string) => {
@@ -109,8 +203,10 @@ const AddressForm: React.FC<AddressFormProps> = ({
   useEffect(() => {
     if (fullAddress && fullAddress !== address) {
       onChange(fullAddress);
+      // NEW: Geocode the address when it changes
+      geocodeAddress(fullAddress);
     }
-  }, [fullAddress, address, onChange]);
+  }, [fullAddress, address, onChange, geocodeAddress]);
 
   // Update fields separately
   useEffect(() => {
@@ -328,6 +424,30 @@ const AddressForm: React.FC<AddressFormProps> = ({
           <View style={styles.previewContainer}>
             <Text style={styles.previewLabel}>Your address will be:</Text>
             <Text style={styles.previewAddress}>{fullAddress}</Text>
+
+            {/* NEW: Show permission warning if not granted */}
+            {locationPermission === false && (
+              <View style={styles.permissionWarning}>
+                <Ionicons name="warning" size={16} color="#f59e0b" />
+                <Text style={styles.permissionWarningText}>
+                  Enable location permission for accurate rider matching
+                </Text>
+                <TouchableOpacity
+                  onPress={requestLocationPermission}
+                  style={styles.permissionButton}
+                >
+                  <Text style={styles.permissionButtonText}>Enable</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* NEW: Show geocoding status */}
+            {isGeocoding && (
+              <View style={styles.geocodingContainer}>
+                <ActivityIndicator size="small" color={COLORS.light.primary} />
+                <Text style={styles.geocodingText}>Getting coordinates...</Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -540,6 +660,58 @@ const styles = StyleSheet.create({
     color: "#ef4444",
     textAlign: "center",
     fontWeight: "600",
+  },
+  geocodingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    gap: 8,
+  },
+  geocodingText: {
+    fontSize: 12,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  coordinatesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    gap: 8,
+    backgroundColor: "#f0f9ff",
+    padding: 8,
+    borderRadius: 6,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: COLORS.light.primary,
+    fontFamily: "monospace",
+  },
+  // NEW: Permission warning styles
+  permissionWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  permissionWarningText: {
+    fontSize: 12,
+    color: "#D97706",
+    flex: 1,
+  },
+  permissionButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  permissionButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "500",
   },
 });
 

@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  Platform,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -23,6 +25,7 @@ import {
   saveRiderRegistration,
   RiderRegistrationData,
 } from "../../lib/registrationService";
+import * as Location from "expo-location";
 
 const RiderRegistration = () => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -37,8 +40,16 @@ const RiderRegistration = () => {
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactNumber, setEmergencyContactNumber] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
-  const [gcashName, setGcashName] = useState(""); // ADDED: GCash account name
+  const [gcashName, setGcashName] = useState("");
   const [municipality, setMunicipality] = useState("");
+
+  // NEW: Coordinate state
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(
+    null,
+  );
 
   // Step 2: Vehicle Information
   const [vehicleType, setVehicleType] = useState("");
@@ -75,7 +86,6 @@ const RiderRegistration = () => {
     plateNumber: false,
     driversLicenseFront: false,
     selfieWithId: false,
-    // Note: gcashNumber and gcashName are optional, so no error state needed
   });
 
   // Vehicle Type Options
@@ -93,6 +103,73 @@ const RiderRegistration = () => {
     TRICYCLE: "Tricycle",
   };
 
+  // NEW: Request location permission on mount
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  // NEW: Function to request location permission
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === "granted");
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location Permission",
+          "We need location permission to convert your address to coordinates for accurate rider matching. You can enable it in settings.",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                } else {
+                  Linking.openSettings();
+                }
+              },
+            },
+          ],
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting location permission:", error);
+      setLocationPermission(false);
+    }
+  };
+
+  // NEW: Geocode address to get coordinates
+  const geocodeAddress = useCallback(
+    async (fullAddr: string) => {
+      if (!fullAddr) return;
+
+      if (!locationPermission) {
+        console.log("No location permission, skipping geocoding");
+        return;
+      }
+
+      try {
+        setIsGeocoding(true);
+        const results = await Location.geocodeAsync(fullAddr);
+
+        if (results && results.length > 0) {
+          const { latitude, longitude } = results[0];
+          setLatitude(latitude);
+          setLongitude(longitude);
+        }
+      } catch (error: any) {
+        console.error("Geocoding error:", error);
+        if (error.message?.includes("Not authorized")) {
+          setLocationPermission(false);
+        }
+      } finally {
+        setIsGeocoding(false);
+      }
+    },
+    [locationPermission],
+  );
+
   // Memoized address form errors object
   const addressFormErrors = useMemo(
     () => ({
@@ -104,9 +181,16 @@ const RiderRegistration = () => {
   );
 
   // Memoized callback functions
-  const handleAddressChange = useCallback((newAddress: string) => {
-    setAddress(newAddress);
-  }, []);
+  const handleAddressChange = useCallback(
+    (newAddress: string) => {
+      setAddress(newAddress);
+      // NEW: Trigger geocoding when address changes
+      if (newAddress) {
+        geocodeAddress(newAddress);
+      }
+    },
+    [geocodeAddress],
+  );
 
   const handleAddressErrorsChange = useCallback((addressErrors: any) => {
     setErrors((prev) => ({ ...prev, ...addressErrors }));
@@ -118,8 +202,13 @@ const RiderRegistration = () => {
         barangay: barangayValue,
         purok: purokValue,
       });
+      // NEW: Generate full address for geocoding
+      if (barangayValue && purokValue) {
+        const fullAddr = `${purokValue}, ${barangayValue}, Mabini, Bohol`;
+        geocodeAddress(fullAddr);
+      }
     },
-    [],
+    [geocodeAddress],
   );
 
   // Fetch user email and mobile number from database
@@ -288,12 +377,12 @@ const RiderRegistration = () => {
 
       const userId = session.user.id;
 
-      // Prepare registration data
+      // Prepare registration data with coordinates
       const registrationData: RiderRegistrationData = {
         email,
         mobile,
         gcashNumber,
-        gcashName, // ADDED: GCash account name
+        gcashName,
         emergencyContactName,
         emergencyContactNumber,
         barangay: addressFields.barangay,
@@ -307,6 +396,9 @@ const RiderRegistration = () => {
         motorcycleRegistrationImage,
         acceptedTerms,
         acceptedConsent,
+        // NEW: Add coordinates
+        latitude,
+        longitude,
       };
 
       // Save to database
@@ -331,7 +423,7 @@ const RiderRegistration = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [acceptedTerms, acceptedConsent]);
+  }, [acceptedTerms, acceptedConsent, latitude, longitude]);
 
   // Render image preview or upload button
   const renderUploadSection = useCallback(
@@ -539,7 +631,38 @@ const RiderRegistration = () => {
               onErrorsChange={handleAddressErrorsChange}
               onFieldsChange={handleAddressFieldsUpdate}
               onMunicipalityChange={setMunicipality}
+              // NEW: Add coordinate props
+              onCoordinatesChange={(lat, lng) => {
+                setLatitude(lat);
+                setLongitude(lng);
+              }}
+              initialLatitude={latitude}
+              initialLongitude={longitude}
             />
+
+            {/* NEW: Permission warning */}
+            {locationPermission === false && (
+              <View style={styles.permissionWarning}>
+                <Ionicons name="warning" size={16} color="#f59e0b" />
+                <Text style={styles.permissionWarningText}>
+                  Enable location permission for accurate rider matching
+                </Text>
+                <TouchableOpacity
+                  onPress={requestLocationPermission}
+                  style={styles.permissionButton}
+                >
+                  <Text style={styles.permissionButtonText}>Enable</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* NEW: Geocoding status */}
+            {isGeocoding && (
+              <View style={styles.geocodingContainer}>
+                <ActivityIndicator size="small" color={COLORS.light.primary} />
+                <Text style={styles.geocodingText}>Getting coordinates...</Text>
+              </View>
+            )}
           </>
         )}
 
@@ -707,7 +830,6 @@ const RiderRegistration = () => {
                     <Text style={styles.summaryValue}>{gcashNumber}</Text>
                   </View>
                 )}
-                {/* ADDED: GCash Name in Summary */}
                 {gcashName && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>GCash Name:</Text>
@@ -949,7 +1071,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.light.primary,
   },
-  // New email container styling
   emailContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1167,5 +1288,61 @@ const styles = StyleSheet.create({
     color: COLORS.common.white,
     fontWeight: "600",
     fontSize: 15,
+  },
+  // NEW: Permission warning styles
+  permissionWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  permissionWarningText: {
+    fontSize: 12,
+    color: "#D97706",
+    flex: 1,
+  },
+  permissionButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  permissionButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  // NEW: Geocoding styles
+  geocodingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  geocodingText: {
+    fontSize: 12,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  coordinatesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+    backgroundColor: "#f0f9ff",
+    padding: 8,
+    borderRadius: 6,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: COLORS.light.primary,
+    fontFamily: "monospace",
   },
 });

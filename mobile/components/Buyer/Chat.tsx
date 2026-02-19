@@ -1,4 +1,4 @@
-// app/chat.tsx - Fixed with proper party type display and avatar support
+// app/chat.tsx - Optimized chat screen with proper avatar handling
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -83,10 +83,8 @@ const ChatScreen = () => {
     if (currentUserId && conversationId) {
       loadMessages();
 
-      // Fetch avatar if not provided in params
-      if (!otherPartyAvatar) {
-        fetchOtherPartyAvatar();
-      }
+      // No need to fetch avatar separately - it's passed in params from the conversation screen
+      // The conversation screen already loaded the avatar via joins
 
       // Set up subscription
       const subscription = setupSubscription();
@@ -134,51 +132,7 @@ const ChatScreen = () => {
     }
   };
 
-  const fetchOtherPartyAvatar = async () => {
-    if (!otherPartyId) return;
-
-    try {
-      let avatarUrl = null;
-
-      if (otherPartyType === "vendor") {
-        const { data, error } = await supabase
-          .from("vendor_profiles")
-          .select("avatar_url")
-          .eq("user_id", otherPartyId)
-          .single();
-
-        if (!error && data) {
-          avatarUrl = data.avatar_url;
-        }
-      } else if (otherPartyType === "rider") {
-        const { data, error } = await supabase
-          .from("rider_profiles")
-          .select("profiles(avatar_url)")
-          .eq("user_id", otherPartyId)
-          .single();
-
-        if (!error && data) {
-          // Handle nested profiles data
-          const profileData = data.profiles as { avatar_url?: string } | null;
-          avatarUrl = profileData?.avatar_url || null;
-        }
-      } else if (otherPartyType === "buyer") {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("avatar_url")
-          .eq("user_id", otherPartyId) // Fixed: changed from "id" to "user_id"
-          .single();
-
-        if (!error && data) {
-          avatarUrl = data.avatar_url;
-        }
-      }
-
-      setOtherPartyAvatarUrl(avatarUrl);
-    } catch (error) {
-      console.error("Error fetching other party avatar:", error);
-    }
-  };
+  // REMOVED: fetchOtherPartyAvatar function - no longer needed
 
   const loadMessages = async () => {
     setLoading(true);
@@ -188,7 +142,7 @@ const ChatScreen = () => {
       console.error("Error loading messages:", error);
       Alert.alert("Error", "Failed to load messages");
     } else {
-      // Convert database messages to your UI format with proper typing
+      // Convert database messages to UI format with proper typing
       const formattedMessages: Message[] = (data || []).map((msg) => ({
         id: msg.id,
         text: msg.message,
@@ -437,7 +391,7 @@ const ChatScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Messages List - Now directly inside the container */}
+      {/* Messages List */}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -450,7 +404,7 @@ const ChatScreen = () => {
         }}
       />
 
-      {/* Input Area - Fixed at bottom */}
+      {/* Input Area */}
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.attachButton} activeOpacity={0.7}>
           <Ionicons name="add-circle" size={28} color={COLORS.light.primary} />
@@ -593,6 +547,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e0f2ed",
   },
   userAvatarContainer: {
     marginLeft: 8,
@@ -604,6 +560,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.common.white,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e0f2ed",
   },
   messageBubble: {
     maxWidth: "70%",

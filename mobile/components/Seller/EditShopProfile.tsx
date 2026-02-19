@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -20,6 +21,7 @@ import { supabase } from "../../lib/supabase";
 import { COLORS } from "../../constants";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as Location from "expo-location"; // ADDED
 
 // Barangay data for Mabini, Bohol
 const BARANGAYS = [
@@ -51,11 +53,11 @@ const EditShopProfile = () => {
   const [form, setForm] = useState({
     shop_name: "",
     gcash_number: "",
-    gcash_name: "", // ADDED: GCash account name
+    gcash_name: "",
     avatar_url: "",
   });
 
-  // Address state - matching AddressForm pattern
+  // Address state
   const [addressData, setAddressData] = useState({
     address_id: "",
     barangay: "",
@@ -65,12 +67,88 @@ const EditShopProfile = () => {
     is_default: false,
   });
 
+  // NEW: Coordinate state
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(
+    null,
+  );
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImageSourceModal, setShowImageSourceModal] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // NEW: Request location permission on mount
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  // NEW: Function to request location permission
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === "granted");
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location Permission",
+          "We need location permission to convert your business address to coordinates for accurate rider matching. You can enable it in settings.",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                } else {
+                  Linking.openSettings();
+                }
+              },
+            },
+          ],
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting location permission:", error);
+      setLocationPermission(false);
+    }
+  };
+
+  // NEW: Geocode address to get coordinates
+  const geocodeAddress = useCallback(
+    async (fullAddr: string) => {
+      if (!fullAddr) return;
+
+      // Check if we have permission
+      if (!locationPermission) {
+        console.log("No location permission, skipping geocoding");
+        return;
+      }
+
+      try {
+        setIsGeocoding(true);
+        const results = await Location.geocodeAsync(fullAddr);
+
+        if (results && results.length > 0) {
+          const { latitude, longitude } = results[0];
+          setLatitude(latitude);
+          setLongitude(longitude);
+        }
+      } catch (error: any) {
+        console.error("Geocoding error:", error);
+        if (error.message?.includes("Not authorized")) {
+          setLocationPermission(false);
+        }
+      } finally {
+        setIsGeocoding(false);
+      }
+    },
+    [locationPermission],
+  );
 
   useEffect(() => {
     loadShopProfile();
@@ -86,7 +164,7 @@ const EditShopProfile = () => {
 
       const userId = session.user.id;
 
-      // Load vendor profile - ADDED gcash_name to the select
+      // Load vendor profile
       const { data: vendorData, error: vendorError } = await supabase
         .from("vendor_profiles")
         .select("shop_name, avatar_url, gcash_number, gcash_name, created_at")
@@ -99,7 +177,7 @@ const EditShopProfile = () => {
       const { data: address, error: addressError } = await supabase
         .from("addresses")
         .select(
-          "address_id, full_address, purok, barangay, municipality, is_default",
+          "address_id, full_address, purok, barangay, municipality, is_default, latitude, longitude", // ADDED latitude, longitude
         )
         .eq("user_id", userId)
         .eq("address_type", "business")
@@ -117,7 +195,7 @@ const EditShopProfile = () => {
         ...prev,
         shop_name: vendorData?.shop_name ?? "",
         gcash_number: vendorData?.gcash_number ?? "",
-        gcash_name: vendorData?.gcash_name ?? "", // ADDED
+        gcash_name: vendorData?.gcash_name ?? "",
         avatar_url: vendorData?.avatar_url ?? "",
       }));
 
@@ -129,6 +207,10 @@ const EditShopProfile = () => {
         full_address: address?.full_address || "",
         is_default: address?.is_default || false,
       });
+
+      // NEW: Set coordinates if they exist
+      setLatitude(address?.latitude || null);
+      setLongitude(address?.longitude || null);
     } catch (err) {
       console.error("Error loading shop profile:", err);
       Alert.alert("Error", "Failed to load shop profile");
@@ -148,12 +230,16 @@ const EditShopProfile = () => {
   // Handle barangay selection
   const handleBarangaySelect = (selectedBarangay: string) => {
     setAddressData((prev) => {
-      const updated = {
+      const fullAddr = generateFullAddress(selectedBarangay, prev.purok);
+      // NEW: Trigger geocoding when address changes
+      if (fullAddr && prev.purok) {
+        geocodeAddress(fullAddr);
+      }
+      return {
         ...prev,
         barangay: selectedBarangay,
-        full_address: generateFullAddress(selectedBarangay, prev.purok),
+        full_address: fullAddr,
       };
-      return updated;
     });
     setShowAddressModal(false);
     setSearchQuery("");
@@ -162,11 +248,18 @@ const EditShopProfile = () => {
   // Handle purok input
   const handlePurokChange = (text: string) => {
     const normalizedPurok = text.replace(/\s+/g, " ").trim();
-    setAddressData((prev) => ({
-      ...prev,
-      purok: text,
-      full_address: generateFullAddress(prev.barangay, normalizedPurok),
-    }));
+    setAddressData((prev) => {
+      const fullAddr = generateFullAddress(prev.barangay, normalizedPurok);
+      // NEW: Trigger geocoding when address changes
+      if (fullAddr && prev.barangay) {
+        geocodeAddress(fullAddr);
+      }
+      return {
+        ...prev,
+        purok: text,
+        full_address: fullAddr,
+      };
+    });
   };
 
   // Filter barangays based on search
@@ -188,7 +281,7 @@ const EditShopProfile = () => {
         shop_name: updates.shop_name?.trim(),
         avatar_url: updates.avatar_url,
         gcash_number: updates.gcash_number?.trim(),
-        gcash_name: updates.gcash_name?.trim(), // ADDED
+        gcash_name: updates.gcash_name?.trim(),
       };
 
       if (!payload.shop_name) {
@@ -352,7 +445,7 @@ const EditShopProfile = () => {
       // Update vendor profile
       await updateVendorProfile(userId, form, true);
 
-      // Upsert business address
+      // Upsert business address with coordinates
       const addrPayload = {
         user_id: userId,
         full_address: addressData.full_address,
@@ -361,6 +454,8 @@ const EditShopProfile = () => {
         municipality: addressData.municipality,
         address_type: "business",
         is_default: false,
+        latitude: latitude, // NEW: Add coordinates
+        longitude: longitude, // NEW: Add coordinates
       };
 
       if (addressData.address_id) {
@@ -641,11 +736,11 @@ const EditShopProfile = () => {
             </View>
           </View>
 
-          {/* Business Address - Matching AddressForm pattern */}
+          {/* Business Address */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Business Address</Text>
 
-            {/* Municipality - Display only (not editable) */}
+            {/* Municipality */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Municipality</Text>
               <View style={styles.readOnlyContainer}>
@@ -653,7 +748,7 @@ const EditShopProfile = () => {
               </View>
             </View>
 
-            {/* Barangay - Custom Selector (not editable, press to change) */}
+            {/* Barangay */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Barangay *</Text>
               <TouchableOpacity
@@ -684,7 +779,7 @@ const EditShopProfile = () => {
               )}
             </View>
 
-            {/* Purok - Text Input (editable) */}
+            {/* Purok */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Purok / Sitio *</Text>
               <TextInput
@@ -702,6 +797,30 @@ const EditShopProfile = () => {
                 Enter your specific purok, sitio, or nearby landmark
               </Text>
             </View>
+
+            {/* NEW: Permission warning */}
+            {locationPermission === false && (
+              <View style={styles.permissionWarning}>
+                <Ionicons name="warning" size={16} color="#f59e0b" />
+                <Text style={styles.permissionWarningText}>
+                  Enable location permission for accurate rider matching
+                </Text>
+                <TouchableOpacity
+                  onPress={requestLocationPermission}
+                  style={styles.permissionButton}
+                >
+                  <Text style={styles.permissionButtonText}>Enable</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* NEW: Geocoding status */}
+            {isGeocoding && (
+              <View style={styles.geocodingContainer}>
+                <ActivityIndicator size="small" color={COLORS.light.primary} />
+                <Text style={styles.geocodingText}>Getting coordinates...</Text>
+              </View>
+            )}
 
             {/* Full Address Preview */}
             {addressData.barangay && addressData.purok && (
@@ -1070,5 +1189,61 @@ const styles = StyleSheet.create({
     color: "#ef4444",
     textAlign: "center",
     fontWeight: "600",
+  },
+  // NEW: Permission warning styles
+  permissionWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  permissionWarningText: {
+    fontSize: 12,
+    color: "#D97706",
+    flex: 1,
+  },
+  permissionButton: {
+    backgroundColor: COLORS.light.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  permissionButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  // NEW: Geocoding styles
+  geocodingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  geocodingText: {
+    fontSize: 12,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  coordinatesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+    backgroundColor: "#f0f9ff",
+    padding: 8,
+    borderRadius: 6,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: COLORS.light.primary,
+    fontFamily: "monospace",
   },
 });

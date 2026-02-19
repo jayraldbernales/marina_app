@@ -127,7 +127,7 @@ const Settings = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Notifications */}
+        {/* Notifications
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Notifications</Text>
 
@@ -218,7 +218,7 @@ const Settings = () => {
               thumbColor={promotions ? COLORS.light.primary : "#f4f4f4"}
             />
           </View>
-        </View>
+        </View> */}
 
         {/* More */}
         <View style={styles.card}>
