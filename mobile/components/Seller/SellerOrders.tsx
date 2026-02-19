@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, router, useFocusEffect } from "expo-router";
+import { useNavigation, router } from "expo-router";
 import { COLORS } from "@/constants";
 import { sellerOrderStyles } from "./styles/sellerOrderStyles";
 import { supabase } from "@/lib/supabase";
@@ -1203,7 +1203,6 @@ const SellerOrders = () => {
         {/* Dispatch Status Indicator - Show when preparing and no rider yet */}
         {order.status === "preparing" && !order.riderAssignment && (
           <View style={sellerOrderStyles.dispatchStatusRow}>
-            <ActivityIndicator size="small" color={COLORS.light.primary} />
             <Text style={sellerOrderStyles.dispatchStatusText}>
               Looking for available riders...
             </Text>
@@ -1215,7 +1214,6 @@ const SellerOrders = () => {
           order.riderAssignment &&
           order.riderAssignment.status === "pending" && (
             <View style={sellerOrderStyles.dispatchStatusRow}>
-              <ActivityIndicator size="small" color="#f59e0b" />
               <Text
                 style={[
                   sellerOrderStyles.dispatchStatusText,

@@ -360,30 +360,6 @@ const RiderDelivery = () => {
                   Cancel Delivery
                 </Text>
               </TouchableOpacity>
-              <View
-                style={{
-                  padding: 12,
-                  backgroundColor: "#f0f9ff",
-                  borderRadius: 8,
-                  marginBottom: 12,
-                  width: "100%",
-                  alignItems: "center",
-                }}
-              >
-                <Ionicons name="time-outline" size={24} color="#0369a1" />
-                <Text
-                  style={{
-                    color: "#0369a1",
-                    textAlign: "center",
-                    marginTop: 4,
-                  }}
-                >
-                  Waiting for seller to prepare your order
-                </Text>
-                <Text style={{ color: "#0284c7", fontSize: 12, marginTop: 4 }}>
-                  You'll be notified when ready for pickup
-                </Text>
-              </View>
             </>
           )}
 

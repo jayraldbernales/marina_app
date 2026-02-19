@@ -53,7 +53,6 @@ export type Delivery = {
 
 class DeliveryService {
   // Get deliveries for a rider
-  // Get deliveries for a rider
   async getRiderDeliveries(riderId: string): Promise<Delivery[]> {
     // Check if we're properly authenticated
     const {
