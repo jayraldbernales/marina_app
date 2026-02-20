@@ -22,6 +22,8 @@ import {
   UITabStatus,
 } from "@/services/deliveryService";
 import { locationService } from "@/services/locationService";
+// NEW: Import dispatchService
+import { dispatchService } from "@/services/dispatchService";
 
 // Map database status to UI tabs
 const statusToTab = (status: DatabaseDeliveryStatus): UITabStatus => {
@@ -143,11 +145,14 @@ const RiderDelivery = () => {
     }
   };
 
-  // Handle accepting a delivery offer
+  // Handle accepting a delivery offer - MODIFIED
   const handleAcceptDelivery = async (deliveryId: string) => {
     if (!riderId) return;
 
     try {
+      // Clear timeout first
+      await dispatchService.clearDeliveryTimeout(deliveryId);
+
       const result = await deliveryService.respondToOffer(
         deliveryId,
         riderId,
@@ -161,7 +166,7 @@ const RiderDelivery = () => {
     }
   };
 
-  // Handle rejecting a delivery
+  // Handle rejecting a delivery - MODIFIED
   const handleRejectDelivery = async (deliveryId: string) => {
     if (!riderId) return;
 
@@ -175,6 +180,9 @@ const RiderDelivery = () => {
           style: "destructive",
           onPress: async () => {
             try {
+              // Clear timeout first
+              await dispatchService.clearDeliveryTimeout(deliveryId);
+
               await deliveryService.respondToOffer(deliveryId, riderId, false);
               Alert.alert("Success", "Delivery rejected");
               loadDeliveries();

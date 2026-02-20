@@ -30,7 +30,7 @@ type OrderStatus =
   | "delivered"
   | "cancelled"
   | "rejected"
-  | "no_riders_available"
+  | "finding_rider"
   | "dispatch_failed";
 
 type PaymentStatus =
@@ -73,7 +73,6 @@ type DisplayOrder = {
   customerName?: string;
   specialInstructions?: string;
   riderAssignment?: RiderAssignment | null;
-  dispatchStatus?: string;
 };
 
 // Order Details Modal Component
@@ -89,6 +88,7 @@ const OrderDetailsModal = ({
   order: DisplayOrder | null;
   onVerifyPayment?: (orderId: string) => void;
   onRejectPayment?: (orderId: string) => void;
+  onFindRider?: (orderId: string) => void;
 }) => {
   if (!order) return null;
 
@@ -114,7 +114,7 @@ const OrderDetailsModal = ({
         return "#6b7280";
       case "rejected":
         return "#ef4444";
-      case "no_riders_available":
+      case "finding_rider":
         return "#f97316";
       case "dispatch_failed":
         return "#ef4444";
@@ -139,8 +139,8 @@ const OrderDetailsModal = ({
         return "Cancelled";
       case "rejected":
         return "Rejected";
-      case "no_riders_available":
-        return "No Riders Available";
+      case "finding_rider":
+        return "Finding Rider";
       case "dispatch_failed":
         return "Dispatch Failed";
       default:
@@ -231,11 +231,6 @@ const OrderDetailsModal = ({
               <Text style={sellerOrderStyles.modalOrderDate}>
                 {order.orderDate}
               </Text>
-              {order.dispatchStatus && (
-                <Text style={sellerOrderStyles.dispatchStatus}>
-                  Dispatch: {order.dispatchStatus}
-                </Text>
-              )}
             </View>
 
             {/* Customer Info */}
@@ -372,7 +367,16 @@ const OrderDetailsModal = ({
                 <Text style={sellerOrderStyles.modalSectionTitle}>
                   Rider Information
                 </Text>
-                <View style={sellerOrderStyles.riderRow}>
+                <TouchableOpacity
+                  style={sellerOrderStyles.riderRow}
+                  onPress={() =>
+                    router.push({
+                      pathname: "../buyer/view-rider",
+                      params: { rider_user_id: order.riderAssignment?.id },
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
                   {order.riderAssignment.avatar ? (
                     <Image
                       source={order.riderAssignment.avatar}
@@ -397,13 +401,14 @@ const OrderDetailsModal = ({
                         {order.riderAssignment.status}
                       </Text>
                     )}
-                    {order.riderAssignment.vehicle && (
-                      <Text style={sellerOrderStyles.riderVehicle}>
-                        {order.riderAssignment.vehicle}
-                      </Text>
-                    )}
                   </View>
-                </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color="#999"
+                    style={{ marginLeft: 8 }}
+                  />
+                </TouchableOpacity>
               </View>
             )}
 
@@ -495,7 +500,9 @@ const OrderDetailsModal = ({
 };
 
 const SellerOrders = () => {
-  const [activeTab, setActiveTab] = useState<OrderStatus>("pending");
+  const [activeTab, setActiveTab] = useState<OrderStatus | "finding_rider">(
+    "pending",
+  );
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -505,7 +512,7 @@ const SellerOrders = () => {
   const navigation = useNavigation();
   const user = useUserStore((s) => s.user);
 
-  const tabs: { key: OrderStatus; label: string }[] = [
+  const tabs: { key: OrderStatus | "finding_rider"; label: string }[] = [
     { key: "pending", label: "Pending" },
     { key: "preparing", label: "Preparing" },
     { key: "ready-to-ship", label: "Ready to Ship" },
@@ -518,6 +525,56 @@ const SellerOrders = () => {
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setModalVisible(true);
+  };
+
+  // Handle Find Rider (retry dispatch)
+  const handleFindRider = async (orderId: string) => {
+    Alert.alert("Find Rider", "Looking for available riders again?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Find Rider",
+        onPress: async () => {
+          try {
+            setUpdatingOrderId(orderId);
+
+            const result = await dispatchService.handleOrderAcceptance(
+              orderId,
+              user?.id!,
+            );
+
+            if (result.success) {
+              Alert.alert(
+                "Success",
+                `Found ${result.riderCount} rider(s)! Waiting for acceptance.`,
+                [{ text: "OK" }],
+              );
+              // Refresh orders to show updated status
+              fetchOrders();
+            } else if (result.reason === "no_riders") {
+              Alert.alert(
+                "No Riders Available",
+                "Still no riders available in your area. The order will remain in 'finding rider' status.",
+                [{ text: "OK" }],
+              );
+            } else {
+              Alert.alert(
+                "Dispatch Failed",
+                "Failed to find a rider. Please try again.",
+                [{ text: "OK" }],
+              );
+            }
+          } catch (error) {
+            console.error("Find rider error:", error);
+            Alert.alert(
+              "Error",
+              "An error occurred while finding a rider. Please try again.",
+            );
+          } finally {
+            setUpdatingOrderId(null);
+          }
+        },
+      },
+    ]);
   };
 
   // Handle verify payment
@@ -722,7 +779,7 @@ const SellerOrders = () => {
         return "#6b7280";
       case "rejected":
         return "#ef4444";
-      case "no_riders_available":
+      case "finding_rider":
         return "#f97316";
       case "dispatch_failed":
         return "#ef4444";
@@ -805,22 +862,19 @@ const SellerOrders = () => {
           customerName: order.profiles?.full_name,
           specialInstructions: order.note,
           riderAssignment: null,
-          dispatchStatus:
-            order.order_status === "preparing"
-              ? "Looking for rider..."
-              : undefined,
         });
       }
 
       setOrders(displayOrders);
 
-      // Fetch rider assignments for ALL orders that might have riders (not just ready-to-ship and beyond)
+      // Fetch rider assignments for orders that might have riders
       for (const order of displayOrders) {
         if (
           order.status === "preparing" ||
           order.status === "ready-to-ship" ||
           order.status === "shipped" ||
-          order.status === "delivered"
+          order.status === "delivered" ||
+          order.status === "finding_rider"
         ) {
           await fetchRiderAssignment(order.id);
         }
@@ -843,7 +897,7 @@ const SellerOrders = () => {
       .on(
         "postgres_changes",
         {
-          event: "*", // Listen to all events (INSERT, UPDATE, DELETE)
+          event: "*",
           schema: "public",
           table: "deliveries",
         },
@@ -874,6 +928,7 @@ const SellerOrders = () => {
       subscription.unsubscribe();
     };
   }, [user?.id]);
+
   useEffect(() => {
     fetchOrders();
   }, [user?.id]);
@@ -1014,12 +1069,6 @@ const SellerOrders = () => {
 
       // If moving to preparing, start dispatch
       if (newStatus === "preparing") {
-        Alert.alert(
-          "Finding Rider",
-          "Looking for available riders nearby. You can close this screen - we'll notify you when a rider accepts.",
-          [{ text: "OK" }],
-        );
-
         dispatchService
           .handleOrderAcceptance(orderId, user?.id!)
           .then((result) => {
@@ -1032,10 +1081,10 @@ const SellerOrders = () => {
             } else if (result.reason === "no_riders") {
               Alert.alert(
                 "No Riders Available",
-                "No riders are currently available in your area. The order will remain in 'preparing' status until a rider becomes available.",
+                "No riders are currently available in your area. The order will be placed in 'finding rider' status.",
                 [{ text: "OK" }],
               );
-              fetchOrders(); // Refresh to show "no_riders_available" status
+              fetchOrders(); // Refresh to show "finding_rider" status
             }
           })
           .catch((error) => {
@@ -1063,33 +1112,25 @@ const SellerOrders = () => {
     const hasStock = await checkStockAvailability(orderId);
     if (!hasStock) return;
 
-    Alert.alert(
-      "Accept Order",
-      "Accept this order? This will start looking for available riders.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Accept",
-          onPress: () => updateOrderStatus(orderId, "preparing"),
-        },
-      ],
-    );
+    Alert.alert("Accept Order", "Accept this order?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Accept",
+        onPress: () => updateOrderStatus(orderId, "preparing"),
+      },
+    ]);
   };
 
   // Handle Reject Order
   const handleRejectOrder = (orderId: string) => {
-    Alert.alert(
-      "Reject Order",
-      "Are you sure you want to reject this order? This will cancel the order and restore product stock.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reject",
-          style: "destructive",
-          onPress: () => updateOrderStatus(orderId, "rejected"),
-        },
-      ],
-    );
+    Alert.alert("Reject Order", "Are you sure you want to reject this order?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Reject",
+        style: "destructive",
+        onPress: () => updateOrderStatus(orderId, "rejected"),
+      },
+    ]);
   };
 
   // Handle Mark Ready to Ship
@@ -1158,6 +1199,9 @@ const SellerOrders = () => {
     if (activeTab === "cancelled") {
       return o.status === "cancelled" || o.status === "rejected";
     }
+    if (activeTab === "preparing") {
+      return o.status === "preparing" || o.status === "finding_rider";
+    }
     return o.status === activeTab;
   });
 
@@ -1190,8 +1234,8 @@ const SellerOrders = () => {
                 ? "Rejected"
                 : order.status === "cancelled"
                   ? "Cancelled"
-                  : order.status === "no_riders_available"
-                    ? "No Riders"
+                  : order.status === "finding_rider"
+                    ? "Finding Rider"
                     : order.status === "dispatch_failed"
                       ? "Dispatch Failed"
                       : tabs.find((t) => t.key === order.status)?.label ||
@@ -1199,81 +1243,6 @@ const SellerOrders = () => {
             </Text>
           </View>
         </View>
-
-        {/* Dispatch Status Indicator - Show when preparing and no rider yet */}
-        {order.status === "preparing" && !order.riderAssignment && (
-          <View style={sellerOrderStyles.dispatchStatusRow}>
-            <Text style={sellerOrderStyles.dispatchStatusText}>
-              Looking for available riders...
-            </Text>
-          </View>
-        )}
-
-        {/* Dispatch Status Indicator - Show when preparing and rider assigned but not accepted yet */}
-        {order.status === "preparing" &&
-          order.riderAssignment &&
-          order.riderAssignment.status === "pending" && (
-            <View style={sellerOrderStyles.dispatchStatusRow}>
-              <Text
-                style={[
-                  sellerOrderStyles.dispatchStatusText,
-                  { color: "#f59e0b" },
-                ]}
-              >
-                Waiting for rider to accept...
-              </Text>
-            </View>
-          )}
-
-        {/* Rider Info - Show when rider is assigned and has accepted */}
-        {order.riderAssignment && order.riderAssignment.status !== "pending" ? (
-          <View style={sellerOrderStyles.riderRow}>
-            {order.riderAssignment.avatar ? (
-              <Image
-                source={order.riderAssignment.avatar}
-                style={sellerOrderStyles.riderAvatar}
-              />
-            ) : (
-              <View style={sellerOrderStyles.riderAvatarPlaceholder}>
-                <Text style={sellerOrderStyles.riderAvatarText}>
-                  {order.riderAssignment.name.charAt(0)}
-                </Text>
-              </View>
-            )}
-            <View style={sellerOrderStyles.riderInfo}>
-              <Text style={sellerOrderStyles.riderName} numberOfLines={1}>
-                {order.riderAssignment.name}
-              </Text>
-              {order.riderAssignment.status && (
-                <Text style={sellerOrderStyles.riderStatus} numberOfLines={1}>
-                  {order.riderAssignment.status}
-                </Text>
-              )}
-              {order.riderAssignment.vehicle && (
-                <Text style={sellerOrderStyles.riderVehicle} numberOfLines={1}>
-                  {order.riderAssignment.vehicle}
-                </Text>
-              )}
-            </View>
-            <TouchableOpacity
-              style={sellerOrderStyles.riderAction}
-              onPress={() =>
-                router.push(`/rider/${order.riderAssignment?.id}` as any)
-              }
-            >
-              <Text style={sellerOrderStyles.riderActionText}>View</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          order.status !== "preparing" &&
-          order.status !== "pending" && (
-            <View style={sellerOrderStyles.unassignedRow}>
-              <Text style={sellerOrderStyles.unassignedText}>
-                No rider assigned
-              </Text>
-            </View>
-          )
-        )}
 
         {/* Order Items */}
         {order.items.slice(0, 2).map((item) => {
@@ -1384,6 +1353,26 @@ const SellerOrders = () => {
                   <Text style={sellerOrderStyles.primaryButtonText}>
                     Mark Ready to Ship
                   </Text>
+                )}
+              </TouchableOpacity>
+            )}
+            {order.status === "finding_rider" && (
+              <TouchableOpacity
+                style={[
+                  sellerOrderStyles.primaryButton,
+                  isUpdating && { opacity: 0.5 },
+                ]}
+                onPress={() => handleFindRider(order.id)}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Find Rider
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
             )}
@@ -1546,6 +1535,7 @@ const SellerOrders = () => {
         order={selectedOrder}
         onVerifyPayment={handleVerifyPayment}
         onRejectPayment={handleRejectPayment}
+        onFindRider={handleFindRider}
       />
     </SafeAreaView>
   );

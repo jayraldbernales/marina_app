@@ -68,7 +68,7 @@ class DeliveryService {
     const { data: userData, error: userError } =
       await supabase.rpc("get_auth_uid");
     console.log("Database auth.uid():", userData);
-    console.log("🔍 Fetching deliveries for rider:", riderId);
+    console.log("Fetching deliveries for rider:", riderId);
 
     // STEP 1: First, just get the deliveries without the join to see if RLS is working
     const { data: rawDeliveries, error: rawError } = await supabase
@@ -76,11 +76,11 @@ class DeliveryService {
       .select("*")
       .eq("rider_user_id", riderId);
 
-    console.log("📦 Raw deliveries found:", rawDeliveries?.length || 0);
+    console.log("Raw deliveries found:", rawDeliveries?.length || 0);
     if (rawDeliveries && rawDeliveries.length > 0) {
       console.log("First raw delivery:", rawDeliveries[0]);
     } else {
-      console.log("❌ No raw deliveries found for rider:", riderId);
+      console.log("No raw deliveries found for rider:", riderId);
     }
 
     // STEP 2: Now try the full query with join
@@ -122,11 +122,11 @@ class DeliveryService {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("❌ Error fetching deliveries with join:", error);
+      console.error("Error fetching deliveries with join:", error);
       return [];
     }
 
-    console.log("📦 Joined deliveries count:", deliveries?.length || 0);
+    console.log("Joined deliveries count:", deliveries?.length || 0);
     if (deliveries && deliveries.length > 0) {
       console.log("First joined delivery:", deliveries[0]);
       console.log("Has orders data?", !!deliveries[0].orders);
@@ -134,6 +134,7 @@ class DeliveryService {
 
     return this.formatDeliveries(deliveries);
   }
+
   async getAvailableDeliveries() {
     const { data, error } = await supabase
       .from("deliveries")
@@ -177,25 +178,52 @@ class DeliveryService {
     return this.formatDeliveries(data || []);
   }
 
-  // Respond to a delivery offer
+  // Respond to a delivery offer - FIXED to always use v2
   async respondToOffer(
     deliveryId: string,
     riderId: string,
     accepted: boolean,
     rejectionReason?: string,
   ) {
-    const { data, error } = await supabase.rpc("record_offer_response", {
+    // ALWAYS use v2 for ALL responses (accept, reject, timeout)
+    const functionName = "record_offer_response_v2";
+
+    console.log("Calling v2 function:", {
+      deliveryId,
+      riderId,
+      accepted,
+      rejectionReason,
+    });
+
+    const { data, error } = await supabase.rpc(functionName, {
       p_delivery_id: deliveryId,
       p_rider_id: riderId,
       p_accepted: accepted,
       p_rejection_reason: rejectionReason,
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error("RPC Error:", error);
+      throw error;
+    }
+
+    console.log("RPC Response:", data);
+
+    // Clear timeout if this is a response from a rider
+    if (!rejectionReason?.includes("timeout")) {
+      try {
+        // Dynamic import to avoid circular dependency
+        const { dispatchService } = await import("./dispatchService");
+        await dispatchService.clearDeliveryTimeout(deliveryId);
+      } catch (importError) {
+        console.log("Could not import dispatchService for timeout clearing");
+      }
+    }
+
     return data;
   }
 
-  // Update delivery status
+  // Update delivery status - FIXED to update order status correctly
   async updateDeliveryStatus(
     deliveryId: string,
     status: DeliveryStatus,
@@ -205,8 +233,6 @@ class DeliveryService {
 
     if (status === "picked_up") {
       updates.pickup_time = new Date().toISOString();
-    } else if (status === "delivered") {
-      updates.delivered_time = new Date().toISOString();
 
       // Get the order_id for this delivery
       const { data: delivery } = await supabase
@@ -216,14 +242,68 @@ class DeliveryService {
         .single();
 
       if (delivery) {
+        // Update order status to shipped when picked up
+        await supabase
+          .from("orders")
+          .update({
+            order_status: "shipped",
+          })
+          .eq("order_id", delivery.order_id);
+      }
+    } else if (status === "delivered") {
+      updates.delivered_time = new Date().toISOString();
+
+      // Get the order_id and rider_user_id for this delivery
+      const { data: delivery } = await supabase
+        .from("deliveries")
+        .select("order_id, rider_user_id")
+        .eq("delivery_id", deliveryId)
+        .single();
+
+      if (delivery) {
         // Update order status to delivered
         await supabase
           .from("orders")
           .update({
-            order_status: "delivered",
-            updated_at: new Date().toISOString(),
+            order_status: "delivered", // This was missing!
           })
           .eq("order_id", delivery.order_id);
+
+        // Set rider back to AVAILABLE when delivery is completed
+        if (delivery.rider_user_id) {
+          await supabase
+            .from("rider_profiles")
+            .update({
+              is_available: true,
+            })
+            .eq("user_id", delivery.rider_user_id);
+        }
+      }
+    } else if (status === "failed" || status === "cancelled") {
+      // Also handle failed/cancelled deliveries - set rider back to available
+      const { data: delivery } = await supabase
+        .from("deliveries")
+        .select("rider_user_id, order_id")
+        .eq("delivery_id", deliveryId)
+        .single();
+
+      if (delivery) {
+        // Update order status to failed/cancelled
+        await supabase
+          .from("orders")
+          .update({
+            order_status: status,
+          })
+          .eq("order_id", delivery.order_id);
+
+        if (delivery.rider_user_id) {
+          await supabase
+            .from("rider_profiles")
+            .update({
+              is_available: true,
+            })
+            .eq("user_id", delivery.rider_user_id);
+        }
       }
     }
 

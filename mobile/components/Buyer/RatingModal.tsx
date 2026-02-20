@@ -1,4 +1,3 @@
-// app/buyer/components/RatingModal.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -105,7 +104,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
         .select("*")
         .eq("order_id", order.id)
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
 
       if (error && error.code !== "PGRST116") {
         console.error("Error checking existing review:", error);
@@ -142,33 +141,34 @@ const RatingModal: React.FC<RatingModalProps> = ({
     }
   }, [visible, order, existingReview]);
 
-  const validateRatings = () => {
-    // All ratings are now always selected (default 5)
-    return true;
-  };
-
   const handleSubmitRating = async () => {
     if (!order || !user?.id) return;
 
     setSubmitting(true);
     try {
-      // Get vendor and rider IDs
+      // Get vendor ID from order items
       const vendorId = order.vendorId || order.items[0]?.vendorId;
-
-      let riderId = order.riderId;
-      if (!riderId) {
-        const { data: orderData } = await supabase
-          .from("orders")
-          .select("rider_user_id")
-          .eq("order_id", order.id)
-          .single();
-
-        riderId = orderData?.rider_user_id;
-      }
 
       if (!vendorId) {
         Alert.alert("Error", "Vendor information not available");
         return;
+      }
+
+      // Get rider ID from deliveries table (if not already provided)
+      let riderId = order.riderId;
+      if (!riderId) {
+        const { data: deliveryData, error: deliveryError } = await supabase
+          .from("deliveries")
+          .select("rider_user_id")
+          .eq("order_id", order.id)
+          .not("rider_user_id", "is", null)
+          .maybeSingle();
+
+        if (deliveryError) {
+          console.error("Error fetching rider:", deliveryError);
+        }
+
+        riderId = deliveryData?.rider_user_id;
       }
 
       if (!riderId) {
@@ -267,7 +267,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
     return (
       <View style={orderStyles.productsContainer}>
         <Text style={orderStyles.productsTitle}>Products</Text>
-        {order.items.map((item, index) => (
+        {order.items.map((item) => (
           <View key={item.id} style={orderStyles.productItemCard}>
             {/* Product Image */}
             <View style={orderStyles.productImageContainer}>
@@ -295,7 +295,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                   {item.name}
                 </Text>
                 <Text style={orderStyles.productPrice}>
-                  ₱{order.totalAmount.toLocaleString()}
+                  ₱{(item.price * item.quantity).toLocaleString()}
                 </Text>
               </View>
               <View style={orderStyles.productMetaRow}>
@@ -447,7 +447,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
               {/* Divider */}
               <View style={orderStyles.ratingDivider} />
 
-              {/* Vendor Rating - Inline Small Stars */}
+              {/* Vendor and Rider Ratings */}
               <View style={orderStyles.serviceRatingsContainer}>
                 <Text style={orderStyles.serviceRatingsTitle}>
                   Rate Service

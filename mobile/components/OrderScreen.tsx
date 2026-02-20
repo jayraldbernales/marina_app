@@ -40,7 +40,15 @@ type PaymentStatus =
   | "cancelled"
   | "pending_verification";
 
-// UPDATED: Added vendorId to items
+// NEW: Rider Assignment type
+type RiderAssignment = {
+  id: string;
+  name: string;
+  avatar: string | null;
+  status: string;
+  vehicle?: string | null;
+};
+
 interface DisplayOrder {
   id: string;
   orderNumber: string;
@@ -68,9 +76,70 @@ interface DisplayOrder {
   deliveryAddress: string;
   vendorShopName?: string;
   vendorId?: string;
+  // NEW: Add rider assignment
+  riderAssignment?: RiderAssignment | null;
 }
 
-// NEW: Order Details Modal Component with Special Instructions and GCash Proof
+const fetchRiderAssignment = async (
+  orderId: string,
+): Promise<RiderAssignment | null> => {
+  try {
+    // Get the delivery with rider_user_id
+    const { data: delivery, error: deliveryError } = await supabase
+      .from("deliveries")
+      .select("rider_user_id, status")
+      .eq("order_id", orderId)
+      .not("rider_user_id", "is", null)
+      .maybeSingle();
+
+    if (deliveryError || !delivery) {
+      return null;
+    }
+
+    // Get rider profile with vehicle type
+    const { data: riderProfile, error: riderError } = await supabase
+      .from("rider_profiles")
+      .select("vehicle_type")
+      .eq("user_id", delivery.rider_user_id)
+      .maybeSingle();
+
+    if (riderError) {
+      return null;
+    }
+
+    // Get user profile with name and avatar
+    const { data: userProfile, error: userError } = await supabase
+      .from("profiles")
+      .select("full_name, avatar_url")
+      .eq("user_id", delivery.rider_user_id)
+      .maybeSingle();
+
+    if (userError || !userProfile) {
+      return null;
+    }
+
+    return {
+      id: delivery.rider_user_id,
+      name: userProfile.full_name || "Rider",
+      avatar: userProfile.avatar_url || null,
+      status:
+        delivery.status === "assigned"
+          ? "Assigned"
+          : delivery.status === "picked_up"
+            ? "Picked up"
+            : delivery.status === "ready_to_pickup"
+              ? "Ready to Pickup"
+              : delivery.status === "delivered"
+                ? "Delivered"
+                : delivery.status,
+      vehicle: riderProfile?.vehicle_type || null,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+// Order Details Modal Component - UPDATED with Rider Info
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -295,6 +364,54 @@ const OrderDetailsModal = ({
               )}
             </View>
 
+            {/* NEW: Rider Info Section */}
+            {order.riderAssignment && (
+              <View style={orderStyles.modalSection}>
+                <Text style={orderStyles.modalSectionTitle}>
+                  Rider Information
+                </Text>
+                <TouchableOpacity
+                  style={orderStyles.riderRow}
+                  onPress={() =>
+                    router.push({
+                      pathname: "../buyer/view-rider",
+                      params: { rider_user_id: order.riderAssignment?.id },
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
+                  {order.riderAssignment.avatar ? (
+                    <Image
+                      source={{ uri: order.riderAssignment.avatar }}
+                      style={orderStyles.riderAvatar}
+                    />
+                  ) : (
+                    <View style={orderStyles.riderAvatarPlaceholder}>
+                      <Text style={orderStyles.riderAvatarText}>
+                        {order.riderAssignment.name?.charAt(0) || "R"}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={orderStyles.riderInfo}>
+                    <Text style={orderStyles.riderName} numberOfLines={1}>
+                      {order.riderAssignment.name}
+                    </Text>
+                    {order.riderAssignment.status && (
+                      <Text style={orderStyles.riderStatus} numberOfLines={1}>
+                        {order.riderAssignment.status}
+                      </Text>
+                    )}
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color="#999"
+                    style={{ marginLeft: 8 }}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Order Items */}
             <View style={orderStyles.modalSection}>
               <Text style={orderStyles.modalSectionTitle}>Items</Text>
@@ -382,8 +499,6 @@ const OrdersScreen = () => {
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
-
-  // NEW: Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchVisible, setIsSearchVisible] = useState(false);
 
@@ -398,7 +513,7 @@ const OrdersScreen = () => {
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
-  // UPDATED: Map database status to UI tab - include rejected in cancelled tab
+  // Map database status to UI tab
   const getUITabFromDBStatus = (dbStatus: OrderStatus): string => {
     switch (dbStatus) {
       case "pending":
@@ -437,7 +552,7 @@ const OrdersScreen = () => {
     );
   };
 
-  // UPDATED: Handle order card press to show modal instead of product details
+  // Handle order card press to show modal
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setModalVisible(true);
@@ -500,9 +615,9 @@ const OrdersScreen = () => {
         .from("orders")
         .select(
           `
-          *,
-          addresses!inner(full_address)
-        `,
+        *,
+        addresses!inner(full_address)
+      `,
         )
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
@@ -525,18 +640,18 @@ const OrdersScreen = () => {
           .from("order_items")
           .select(
             `
-            *,
-            products!inner(
-              product_id,
-              product_name,
-              images,
-              harvested_at,
-              vendor_profiles!inner(
-                shop_name,
-                user_id
-              )
+          *,
+          products!inner(
+            product_id,
+            product_name,
+            images,
+            harvested_at,
+            vendor_profiles!inner(
+              shop_name,
+              user_id
             )
-          `,
+          )
+        `,
           )
           .eq("order_id", order.order_id);
 
@@ -556,6 +671,15 @@ const OrdersScreen = () => {
           image: item.products.images?.[0] || null,
           harvested_at: item.products.harvested_at,
         }));
+
+        // FIX: Fetch rider assignment for this order
+        const riderAssignment = await fetchRiderAssignment(order.order_id);
+        console.log(
+          "Rider assignment for order",
+          order.order_id,
+          ":",
+          riderAssignment,
+        ); // Add this log to debug
 
         const displayOrder: DisplayOrder = {
           id: order.order_id,
@@ -579,6 +703,7 @@ const OrdersScreen = () => {
             order.addresses?.full_address || "Address not specified",
           vendorShopName: displayItems[0]?.vendor,
           vendorId: displayItems[0]?.vendorId,
+          riderAssignment, // This was probably missing or commented out
         };
         displayOrders.push(displayOrder);
       }
@@ -592,7 +717,6 @@ const OrdersScreen = () => {
       setRefreshing(false);
     }
   };
-
   useEffect(() => {
     fetchOrders();
   }, [user?.id]);
@@ -601,6 +725,7 @@ const OrdersScreen = () => {
     setRefreshing(true);
     await fetchOrders();
   };
+
   const handleRateOrder = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setRatingModalVisible(true);
@@ -610,17 +735,14 @@ const OrdersScreen = () => {
     fetchOrders(); // Refresh orders to update any UI
   };
 
-  // NEW: Toggle search visibility
   const toggleSearch = () => {
     setIsSearchVisible(!isSearchVisible);
     if (isSearchVisible) {
-      setSearchQuery(""); // Clear search when closing
+      setSearchQuery("");
     }
   };
 
-  // UPDATED: Filter orders by tab AND search query
   const filteredOrders = orders.filter((order) => {
-    // First filter by tab
     const uiTab = getUITabFromDBStatus(order.status);
     if (activeTab === "cancelled") {
       if (order.status !== "cancelled" && order.status !== "rejected") {
@@ -630,47 +752,21 @@ const OrdersScreen = () => {
       return false;
     }
 
-    // Then filter by search query if it exists
     if (searchQuery.trim() === "") {
       return true;
     }
 
     const query = searchQuery.toLowerCase().trim();
 
-    // Search in order number
-    if (order.orderNumber.toLowerCase().includes(query)) {
+    if (order.orderNumber.toLowerCase().includes(query)) return true;
+    if (order.items.some((item) => item.name.toLowerCase().includes(query)))
       return true;
-    }
-
-    // Search in item names
-    if (order.items.some((item) => item.name.toLowerCase().includes(query))) {
+    if (order.items.some((item) => item.vendor.toLowerCase().includes(query)))
       return true;
-    }
-
-    // Search in vendor names
-    if (order.items.some((item) => item.vendor.toLowerCase().includes(query))) {
-      return true;
-    }
-
-    // Search in order date
-    if (order.orderDate.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in payment method
-    if (order.paymentMethod.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in delivery address
-    if (order.deliveryAddress.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in note
-    if (order.note && order.note.toLowerCase().includes(query)) {
-      return true;
-    }
+    if (order.orderDate.toLowerCase().includes(query)) return true;
+    if (order.paymentMethod.toLowerCase().includes(query)) return true;
+    if (order.deliveryAddress.toLowerCase().includes(query)) return true;
+    if (order.note && order.note.toLowerCase().includes(query)) return true;
 
     return false;
   });
@@ -717,13 +813,11 @@ const OrdersScreen = () => {
     }
   };
 
-  // UPDATED: Pay Now handler with conditions
   const handlePayNow = async (
     orderId: string,
     paymentMethod: string,
     paymentStatus: string,
   ) => {
-    // Don't show Pay Now if payment status is pending_verification
     if (paymentStatus === "pending_verification") {
       Alert.alert(
         "Payment Pending Verification",
@@ -732,10 +826,8 @@ const OrdersScreen = () => {
       return;
     }
 
-    // Only proceed with payment for COD orders or if payment is still pending
     if (paymentMethod === "cod") {
       Alert.alert("Payment", "This would redirect to payment gateway");
-      // Implement payment gateway integration here
     } else {
       Alert.alert("Payment Method", "Online payments will be processed here.");
     }
@@ -846,7 +938,6 @@ const OrdersScreen = () => {
       order.subtotal ||
       order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-    // Determine if Pay Now button should be shown
     const showPayNow =
       order.status === "pending" &&
       order.paymentStatus !== "pending_verification" &&
@@ -929,9 +1020,8 @@ const OrdersScreen = () => {
           );
         })}
 
-        {/* Order Footer - Payment and Pricing Info */}
+        {/* Order Footer */}
         <View style={orderStyles.orderFooter}>
-          {/* Price Summary */}
           <View style={orderStyles.priceSummary}>
             {order.deliveryFee > 0 && (
               <View style={orderStyles.priceRow}>
@@ -956,7 +1046,6 @@ const OrdersScreen = () => {
             </View>
           </View>
 
-          {/* Action Buttons based on status */}
           <View style={orderStyles.actionButtons}>
             {order.status === "pending" && (
               <>
@@ -1091,7 +1180,7 @@ const OrdersScreen = () => {
 
   return (
     <SafeAreaView style={orderStyles.container}>
-      {/* Header - UPDATED with search icon */}
+      {/* Header */}
       <View style={orderStyles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1109,7 +1198,7 @@ const OrdersScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* NEW: Search Bar */}
+      {/* Search Bar */}
       {isSearchVisible && (
         <View style={{ backgroundColor: "#FFFFFF" }}>
           <View style={orderStyles.searchContainer}>
@@ -1179,7 +1268,6 @@ const OrdersScreen = () => {
           />
         }
       >
-        {/* NEW: Search result count */}
         {searchQuery.length > 0 && (
           <View style={orderStyles.searchResultInfo}>
             <Text style={orderStyles.searchResultText}>

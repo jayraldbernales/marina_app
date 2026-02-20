@@ -140,6 +140,7 @@ export const sellerOrderStyles = StyleSheet.create({
   actionButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
+    marginTop: 8,
     gap: 8,
   },
   primaryButton: {
@@ -274,27 +275,6 @@ export const sellerOrderStyles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     marginTop: 2,
   },
-  riderAction: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: COLORS.light.oceanMedium,
-  },
-  riderActionText: {
-    fontSize: 12,
-    color: COLORS.light.oceanMedium,
-    fontWeight: "600",
-  },
-  unassignedRow: {
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  unassignedText: {
-    fontSize: 13,
-    color: "#999",
-  },
 
   orderHeader: {
     flexDirection: "row",
@@ -354,7 +334,7 @@ export const sellerOrderStyles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingTop: 20,
     paddingBottom: 30,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     maxHeight: "90%",
   },
   modalHeader: {
@@ -614,57 +594,29 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  // Add to sellerOrderStyles.ts
+
   riderDistance: {
     fontSize: 11,
     color: "#10b981",
     marginTop: 2,
   },
 
-  assignRiderButton: {
-    backgroundColor: COLORS.light.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-    gap: 4,
-  },
-
-  assignRiderButtonText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  // Add these to your sellerOrderStyles object
-
-  // Dispatch Status Styles
-  dispatchStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f9ff",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-  },
-  dispatchStatusText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#0369a1",
-    fontWeight: "500",
-    flex: 1,
-  },
-
-  // Rider Vehicle Style (add to existing riderInfo or as separate)
   riderVehicle: {
     fontSize: 12,
     color: "#6b7280",
     marginTop: 2,
   },
-
-  // For the modal/order details
+  timerText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#f59e0b",
+    marginTop: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#fff3e0",
+    borderRadius: 4,
+    alignSelf: "flex-start",
+  },
   dispatchStatus: {
     fontSize: 13,
     color: "#f97316",

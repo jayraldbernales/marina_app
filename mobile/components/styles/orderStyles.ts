@@ -269,7 +269,7 @@ export const orderStyles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingTop: 20,
     paddingBottom: 30,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     maxHeight: "90%",
   },
   modalHeader: {
@@ -856,5 +856,53 @@ export const orderStyles = StyleSheet.create({
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
+  },
+  // Add these to your orderStyles
+  riderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  riderAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  riderAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  riderAvatarText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  riderInfo: {
+    flex: 1,
+  },
+  riderName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#212121",
+    marginBottom: 2,
+  },
+  riderStatus: {
+    fontSize: 13,
+    color: "#666",
+    textTransform: "capitalize",
+  },
+  riderVehicle: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
   },
 });
