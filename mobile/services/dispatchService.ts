@@ -12,6 +12,10 @@ class DispatchService {
   // Store active dispatches to prevent garbage collection
   private activeDispatches: Map<string, boolean> = new Map();
 
+  // Store timeouts for pending deliveries
+  private pendingTimeouts: Map<string, ReturnType<typeof setTimeout>> =
+    new Map();
+
   // Main function to handle order acceptance
   async handleOrderAcceptance(orderId: string, vendorUserId: string) {
     // Generate a unique dispatch ID
@@ -46,7 +50,7 @@ class DispatchService {
         .select("latitude, longitude, full_address, barangay")
         .eq("user_id", vendorUserId)
         .eq("address_type", "business")
-        .maybeSingle(); // Use maybeSingle() instead of single() to avoid error when not found
+        .maybeSingle();
 
       if (!addressError && businessAddress) {
         vendorAddress = businessAddress;
@@ -154,7 +158,7 @@ class DispatchService {
         const { error: updateError } = await supabase
           .from("orders")
           .update({
-            order_status: "no_riders_available",
+            order_status: "finding_rider",
             updated_at: new Date().toISOString(),
           })
           .eq("order_id", orderId);
@@ -250,6 +254,9 @@ class DispatchService {
             console.log(
               `✅ [${dispatchId}] Verified: Delivery ${deliveryId} now assigned to rider ${rider.rider_id}`,
             );
+
+            // Set timeout for this delivery (3 minutes)
+            this.setDeliveryTimeout(deliveryId, rider.rider_id);
           } else {
             console.log(`⚠️ [${dispatchId}] Verification failed:`, verifyData);
           }
@@ -280,6 +287,10 @@ class DispatchService {
             console.log(
               `✅ [${dispatchId}] Verified: Delivery ${deliveryId} now assigned to rider ${rider.rider_id}`,
             );
+
+            // Set timeout for this delivery (3 minutes)
+            this.setDeliveryTimeout(deliveryId, rider.rider_id);
+
             assigned = true;
             break;
           } else {
@@ -299,7 +310,7 @@ class DispatchService {
         await supabase
           .from("orders")
           .update({
-            order_status: "no_riders_available",
+            order_status: "finding_rider",
             updated_at: new Date().toISOString(),
           })
           .eq("order_id", orderId);
@@ -339,6 +350,113 @@ class DispatchService {
 
       this.activeDispatches.delete(dispatchId);
       throw error;
+    }
+  }
+
+  // Set timeout for pending deliveries
+  private setDeliveryTimeout(deliveryId: string, riderId: string) {
+    // Clear any existing timeout for this delivery
+    if (this.pendingTimeouts.has(deliveryId)) {
+      clearTimeout(this.pendingTimeouts.get(deliveryId));
+      this.pendingTimeouts.delete(deliveryId);
+    }
+
+    // Set new timeout (3 minutes = 180000 ms)
+    const timeout = setTimeout(
+      async () => {
+        try {
+          console.log(
+            `⏰ Timeout triggered for delivery ${deliveryId} (rider ${riderId})`,
+          );
+
+          // Check if delivery is still pending and assigned to same rider
+          const { data: delivery, error } = await supabase
+            .from("deliveries")
+            .select("status, rider_user_id")
+            .eq("delivery_id", deliveryId)
+            .single();
+
+          if (error) {
+            console.error("Error checking delivery status:", error);
+            return;
+          }
+
+          // If still pending and same rider (no response after 3 minutes)
+          if (
+            delivery?.status === "pending" &&
+            delivery?.rider_user_id === riderId
+          ) {
+            console.log(`Rider ${riderId} didn't respond - auto-rejecting`);
+
+            // Call the v2 database function with timeout reason
+            const { error: rpcError } = await supabase.rpc(
+              "record_offer_response_v2",
+              {
+                p_delivery_id: deliveryId,
+                p_rider_id: riderId,
+                p_accepted: false,
+                p_rejection_reason: "timeout",
+              },
+            );
+
+            if (rpcError) {
+              console.error("Error auto-rejecting delivery:", rpcError);
+            }
+
+            // Clear from pending timeouts
+            this.pendingTimeouts.delete(deliveryId);
+          }
+        } catch (error) {
+          console.error("Error in timeout handler:", error);
+        }
+      },
+      3 * 60 * 1000,
+    ); // 3 minutes
+
+    this.pendingTimeouts.set(deliveryId, timeout);
+    console.log(`⏰ Timeout set for delivery ${deliveryId} (3 minutes)`);
+  }
+
+  // Clear timeout when rider responds
+  async clearDeliveryTimeout(deliveryId: string) {
+    if (this.pendingTimeouts.has(deliveryId)) {
+      clearTimeout(this.pendingTimeouts.get(deliveryId));
+      this.pendingTimeouts.delete(deliveryId);
+      console.log(`✅ Timeout cleared for delivery ${deliveryId}`);
+    }
+  }
+
+  // Check for stuck deliveries on startup
+  async checkStuckDeliveries() {
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+      const { data: stuckDeliveries, error } = await supabase
+        .from("deliveries")
+        .select("delivery_id, rider_user_id")
+        .eq("status", "pending")
+        .not("rider_user_id", "is", null)
+        .lt("assigned_at", fiveMinutesAgo); // Older than 5 minutes
+
+      if (error) {
+        console.error("Error checking stuck deliveries:", error);
+        return;
+      }
+
+      for (const delivery of stuckDeliveries || []) {
+        console.log(
+          `Found stuck delivery ${delivery.delivery_id}, auto-rejecting`,
+        );
+
+        await supabase.rpc("record_offer_response_v2", {
+          p_delivery_id: delivery.delivery_id,
+          p_rider_id: delivery.rider_user_id,
+          p_accepted: false,
+          p_rejection_reason: "system_timeout",
+        });
+      }
+    } catch (error) {
+      console.error("Error in checkStuckDeliveries:", error);
     }
   }
 
@@ -408,33 +526,51 @@ class DispatchService {
     // TODO: Implement push notifications
   }
 
-  // Get rider assignment for an order
+  // Get rider assignment for an order - FIXED with type assertions
   async getRiderAssignment(orderId: string) {
+    console.log("Fetching rider assignment for order:", orderId);
+
     const { data, error } = await supabase
       .from("deliveries")
       .select(
         `
-        rider_user_id,
-        status,
-        assigned_at,
-        rider_profiles!fk_delivery_rider(
-          user_id,
-          vehicle_type,
-          profiles!rider_profiles_user_id_fkey(
-            full_name,
-            avatar_url
-          )
+      rider_user_id,
+      status,
+      assigned_at,
+      rider_profiles!inner(
+        vehicle_type,
+        profiles!inner(
+          full_name,
+          avatar_url
         )
-      `,
+      )
+    `,
       )
       .eq("order_id", orderId)
       .not("rider_user_id", "is", null)
       .maybeSingle();
 
-    if (error || !data) return null;
+    if (error) {
+      console.error("Error fetching rider assignment:", error);
+      return null;
+    }
 
-    const riderProfile = (data as any).rider_profiles?.[0];
-    const profileData = riderProfile?.profiles?.[0];
+    console.log("Rider assignment data:", data);
+
+    if (!data) {
+      console.log("No rider assignment found for order:", orderId);
+      return null;
+    }
+
+    // Safe access with type assertions
+    const riderProfiles = (data as any).rider_profiles;
+    const riderProfile = Array.isArray(riderProfiles)
+      ? riderProfiles[0]
+      : riderProfiles;
+
+    // Safe access to profiles
+    const profiles = riderProfile?.profiles;
+    const profileData = Array.isArray(profiles) ? profiles[0] : profiles;
 
     return {
       id: data.rider_user_id,
@@ -459,3 +595,8 @@ class DispatchService {
 }
 
 export const dispatchService = new DispatchService();
+
+// Run stuck delivery check on startup
+setTimeout(() => {
+  dispatchService.checkStuckDeliveries();
+}, 5000);

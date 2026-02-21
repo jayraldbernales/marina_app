@@ -12,7 +12,7 @@ export const sellerOrderStyles = StyleSheet.create({
     backgroundColor: COLORS.common.white,
     paddingTop: 48,
     padding: 16,
-    borderBottomWidth: 0, // Removed to match orderStyles
+    borderBottomWidth: 0,
   },
   backButton: {
     marginRight: 10,
@@ -24,7 +24,7 @@ export const sellerOrderStyles = StyleSheet.create({
     flex: 1,
   },
   tabsContainer: {
-    backgroundColor: COLORS.common.white, // Added to match orderStyles
+    backgroundColor: COLORS.common.white,
     maxHeight: 60,
   },
   tabsContent: {
@@ -35,8 +35,8 @@ export const sellerOrderStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginRight: 8,
-    borderRadius: 20, // Changed from 12 to match orderStyles
-    backgroundColor: "transparent", // Changed to match orderStyles
+    borderRadius: 20,
+    backgroundColor: "transparent",
   },
   activeTab: {
     backgroundColor: COLORS.light.primary,
@@ -57,23 +57,46 @@ export const sellerOrderStyles = StyleSheet.create({
   orderCard: {
     backgroundColor: COLORS.common.white,
     borderRadius: 16,
-    padding: 16, // Increased from 12
+    padding: 16,
     marginBottom: 12,
-    marginTop: 12, // Added to match orderStyles
-    shadowColor: "#000", // Added to match orderStyles
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
+    marginTop: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
-    elevation: 1, // Reduced from 2
+    elevation: 1,
   },
-
+  orderHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  leftColumn: {
+    flex: 1,
+  },
+  orderId: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: COLORS.light.primary,
+  },
+  orderDate: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    marginTop: 2,
+  },
+  customerName: {
+    fontSize: 14,
+    color: COLORS.light.primary,
+    marginTop: 4,
+    fontWeight: "600",
+  },
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 20, // Changed from 12 to match orderStyles
+    borderRadius: 20,
   },
   statusText: {
     color: COLORS.common.white,
@@ -94,6 +117,11 @@ export const sellerOrderStyles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
+  itemNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   itemName: {
     fontSize: 15,
     fontWeight: "bold",
@@ -105,16 +133,29 @@ export const sellerOrderStyles = StyleSheet.create({
     marginTop: 2,
   },
   itemPrice: {
-    fontSize: 14, // Increased from 13
-    fontWeight: "bold", // Added to match orderStyles
+    fontSize: 14,
+    fontWeight: "bold",
     color: COLORS.light.primary,
     marginTop: 4,
   },
+  preOrderBadge: {
+    backgroundColor: "#64748b",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  preOrderBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
   orderFooter: {
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0", // Changed from #cce3de
-    paddingTop: 12, // Increased from 8
-    marginTop: 4, // Changed from 0
+    borderTopColor: "#f0f0f0",
+    paddingTop: 12,
+    marginTop: 4,
   },
   totalRow: {
     flexDirection: "row",
@@ -140,6 +181,7 @@ export const sellerOrderStyles = StyleSheet.create({
   actionButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
+    marginTop: 8,
     gap: 8,
   },
   primaryButton: {
@@ -154,7 +196,7 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
   },
   secondaryButton: {
-    backgroundColor: "transparent", // Changed to match orderStyles
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: COLORS.light.primary,
     paddingHorizontal: 16,
@@ -187,7 +229,13 @@ export const sellerOrderStyles = StyleSheet.create({
     color: COLORS.light.oceanMedium,
     textAlign: "center",
   },
-  // Price summary styles (added to match orderStyles)
+  moreItemsText: {
+    fontSize: 12,
+    color: "#666",
+    fontStyle: "italic",
+    marginTop: 4,
+    marginBottom: 8,
+  },
   priceSummary: {
     marginBottom: 16,
     paddingTop: 0,
@@ -232,14 +280,14 @@ export const sellerOrderStyles = StyleSheet.create({
     color: "#666",
     marginTop: 2,
   },
-  // Rider assignment (kept from original seller styles)
+
+  // ─── Rider (card list) ─────────────────────────────────────────────────────
   riderRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0", // Updated to match
-    marginBottom: 8,
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    padding: 12,
   },
   riderAvatar: {
     width: 44,
@@ -267,179 +315,305 @@ export const sellerOrderStyles = StyleSheet.create({
   riderName: {
     fontSize: 14,
     fontWeight: "700",
-    color: COLORS.light.primary,
+    color: "#111",
   },
   riderStatus: {
     fontSize: 12,
     color: COLORS.light.oceanMedium,
     marginTop: 2,
   },
-  riderAction: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: COLORS.light.oceanMedium,
-  },
-  riderActionText: {
-    fontSize: 12,
-    color: COLORS.light.oceanMedium,
-    fontWeight: "600",
-  },
-  unassignedRow: {
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  unassignedText: {
-    fontSize: 13,
-    color: "#999",
-  },
-
-  orderHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-
-  leftColumn: {
-    flex: 1,
-  },
-  orderId: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: COLORS.light.primary,
-  },
-  orderDate: {
-    fontSize: 12,
-    color: COLORS.light.oceanMedium,
+  riderDistance: {
+    fontSize: 11,
+    color: "#10b981",
     marginTop: 2,
   },
-  customerName: {
-    fontSize: 14,
-    color: COLORS.light.primary,
-    marginTop: 4,
-    fontWeight: "600",
+  riderVehicle: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 2,
   },
-  itemNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  preOrderBadge: {
-    backgroundColor: "#64748b",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: "flex-start",
-    marginTop: 4,
-  },
-  preOrderBadgeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  // Add these to your sellerOrderStyles
+
+  // ─── Modal Shell ───────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
-    paddingHorizontal: 16,
-    maxHeight: "90%",
+    backgroundColor: "#f8f9fb",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 0,
+    paddingBottom: 36,
+    paddingHorizontal: 0,
+    maxHeight: "92%",
   },
+
+  // ─── Modal Header ──────────────────────────────────────────────────────────
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
-    paddingBottom: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: COLORS.common.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    borderBottomColor: "#f0f0f0",
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: COLORS.light.primary,
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+    letterSpacing: -0.3,
   },
   modalCloseButton: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
+
+  // ─── Modal body padding wrapper ────────────────────────────────────────────
+  modalBody: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+
+  // ─── Section labels ────────────────────────────────────────────────────────
   modalSection: {
-    marginBottom: 20,
-  },
-  modalSectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
     marginBottom: 12,
   },
+  modalSectionTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+
+  // ─── Order meta card ───────────────────────────────────────────────────────
   modalOrderInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  modalOrderLabel: {
+    fontSize: 11,
+    color: "#aaa",
+    marginBottom: 3,
+    fontWeight: "500",
+  },
+  modalOrderNumber: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+    letterSpacing: -0.2,
+  },
+  modalOrderDate: {
+    fontSize: 13,
+    color: "#555",
+  },
+
+  // ─── Customer info card ────────────────────────────────────────────────────
+  modalCustomerCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  modalCustomerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  modalCustomerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  modalCustomerNameBlock: {
+    flex: 1,
+  },
+  modalCustomerName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+  modalCustomerRole: {
+    fontSize: 12,
+    color: "#aaa",
+    fontWeight: "500",
+  },
+  modalCustomerDivider: {
+    height: 1,
+    backgroundColor: "#f3f4f6",
+    marginBottom: 10,
+  },
+  modalCustomerAddressRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  modalCustomerAddressIcon: {
+    marginRight: 8,
+    marginTop: 1,
+  },
+  modalAddress: {
+    fontSize: 13,
+    color: "#666",
+    flex: 1,
+    lineHeight: 19,
+  },
+
+  // ─── Payment info card ─────────────────────────────────────────────────────
+  modalPaymentCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  modalPaymentRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
-  modalOrderLabel: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 2,
-  },
-  modalOrderNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  modalOrderDate: {
-    fontSize: 14,
-    color: "#666",
-  },
-  modalCustomerName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 4,
-  },
-  modalAddress: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  modalPaymentRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
   modalPaymentLabel: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 13,
+    color: "#888",
   },
   modalPaymentValue: {
-    fontSize: 14,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
     color: "#333",
   },
+  modalPaymentDivider: {
+    height: 1,
+    backgroundColor: "#f3f4f6",
+    marginVertical: 10,
+  },
+
+  // ─── GCash reference ───────────────────────────────────────────────────────
+  gcashDetails: {
+    marginTop: 4,
+  },
+  gcashReference: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+    letterSpacing: 0.5,
+  },
+
+  // ─── View Proof Button ─────────────────────────────────────────────────────
+  // Used for both payment proof and delivery proof photos
+  proofRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  proofRowLabel: {
+    fontSize: 13,
+    color: "#555",
+    fontWeight: "500",
+  },
+  viewProofButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#eef2ff",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  viewProofButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+  },
+
+  // ─── Verification actions ──────────────────────────────────────────────────
+  verificationActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  verifyButton: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: "#10b981",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  verifyButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  rejectButton: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: "#ef4444",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  rejectButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // ─── Rider info card ───────────────────────────────────────────────────────
+  modalRiderCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  // ─── Items ─────────────────────────────────────────────────────────────────
   modalItemRow: {
     flexDirection: "row",
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    alignItems: "center",
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
   },
   modalItemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 56,
+    height: 56,
+    borderRadius: 10,
     marginRight: 12,
+    backgroundColor: "#f0f0f0",
   },
   modalItemDetails: {
     flex: 1,
@@ -448,8 +622,8 @@ export const sellerOrderStyles = StyleSheet.create({
   modalItemName: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#333",
-    marginBottom: 4,
+    color: "#111",
+    marginBottom: 3,
   },
   modalItemPrice: {
     alignItems: "flex-end",
@@ -457,13 +631,22 @@ export const sellerOrderStyles = StyleSheet.create({
   },
   modalItemPriceText: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
+    fontWeight: "700",
+    color: COLORS.light.primary,
   },
   modalItemQuantity: {
     fontSize: 12,
-    color: "#666",
+    color: "#aaa",
     marginTop: 2,
+  },
+
+  // ─── Price Summary card ────────────────────────────────────────────────────
+  modalPriceSummaryCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   modalPriceRow: {
     flexDirection: "row",
@@ -472,7 +655,7 @@ export const sellerOrderStyles = StyleSheet.create({
   },
   modalPriceLabel: {
     fontSize: 14,
-    color: "#666",
+    color: "#888",
   },
   modalPriceValue: {
     fontSize: 14,
@@ -480,40 +663,35 @@ export const sellerOrderStyles = StyleSheet.create({
     color: "#333",
   },
   modalTotalRow: {
-    marginTop: 8,
-    paddingTop: 8,
+    marginTop: 4,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: "#f0f0f0",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   modalTotalLabel: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
   },
   modalTotalValue: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 18,
+    fontWeight: "800",
     color: COLORS.light.primary,
+    letterSpacing: -0.5,
   },
-  moreItemsText: {
-    fontSize: 12,
-    color: "#666",
-    fontStyle: "italic",
-    marginTop: 4,
-    marginBottom: 8,
-  }, // Add to sellerOrderStyles
+
+  // ─── Misc ──────────────────────────────────────────────────────────────────
   specialInstructionsBox: {
-    flexDirection: "row",
     backgroundColor: "#f8f9fa",
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 12,
-    alignItems: "flex-start",
-    gap: 8,
   },
   specialInstructionsText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
+    fontSize: 13,
+    color: "#555",
     lineHeight: 20,
   },
   pendingVerificationBadge: {
@@ -532,23 +710,31 @@ export const sellerOrderStyles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
   },
-  gcashDetails: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-  },
-  gcashReference: {
+  timerText: {
     fontSize: 14,
     fontWeight: "600",
-    color: COLORS.light.primary,
-    flex: 1,
+    color: "#f59e0b",
+    marginTop: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#fff3e0",
+    borderRadius: 4,
+    alignSelf: "flex-start",
   },
+  dispatchStatus: {
+    fontSize: 13,
+    color: "#f97316",
+    marginTop: 4,
+    fontWeight: "500",
+  },
+
+  // Legacy aliases kept for any existing refs
   proofLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 12,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginBottom: 8,
   },
   proofImageContainer: {
@@ -578,97 +764,5 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     marginTop: 8,
-  },
-  verificationActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 8,
-  },
-  verifyButton: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: "#10b981",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  verifyButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  rejectButton: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: "#ef4444",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  rejectButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  // Add to sellerOrderStyles.ts
-  riderDistance: {
-    fontSize: 11,
-    color: "#10b981",
-    marginTop: 2,
-  },
-
-  assignRiderButton: {
-    backgroundColor: COLORS.light.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-    gap: 4,
-  },
-
-  assignRiderButtonText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  // Add these to your sellerOrderStyles object
-
-  // Dispatch Status Styles
-  dispatchStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f9ff",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-  },
-  dispatchStatusText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#0369a1",
-    fontWeight: "500",
-    flex: 1,
-  },
-
-  // Rider Vehicle Style (add to existing riderInfo or as separate)
-  riderVehicle: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 2,
-  },
-
-  // For the modal/order details
-  dispatchStatus: {
-    fontSize: 13,
-    color: "#f97316",
-    marginTop: 4,
-    fontWeight: "500",
   },
 });

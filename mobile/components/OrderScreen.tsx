@@ -40,7 +40,15 @@ type PaymentStatus =
   | "cancelled"
   | "pending_verification";
 
-// UPDATED: Added vendorId to items
+// NEW: Rider Assignment type
+type RiderAssignment = {
+  id: string;
+  name: string;
+  avatar: string | null;
+  status: string;
+  vehicle?: string | null;
+};
+
 interface DisplayOrder {
   id: string;
   orderNumber: string;
@@ -68,9 +76,70 @@ interface DisplayOrder {
   deliveryAddress: string;
   vendorShopName?: string;
   vendorId?: string;
+  // NEW: Add rider assignment
+  riderAssignment?: RiderAssignment | null;
 }
 
-// NEW: Order Details Modal Component with Special Instructions and GCash Proof
+const fetchRiderAssignment = async (
+  orderId: string,
+): Promise<RiderAssignment | null> => {
+  try {
+    // Get the delivery with rider_user_id
+    const { data: delivery, error: deliveryError } = await supabase
+      .from("deliveries")
+      .select("rider_user_id, status")
+      .eq("order_id", orderId)
+      .not("rider_user_id", "is", null)
+      .maybeSingle();
+
+    if (deliveryError || !delivery) {
+      return null;
+    }
+
+    // Get rider profile with vehicle type
+    const { data: riderProfile, error: riderError } = await supabase
+      .from("rider_profiles")
+      .select("vehicle_type")
+      .eq("user_id", delivery.rider_user_id)
+      .maybeSingle();
+
+    if (riderError) {
+      return null;
+    }
+
+    // Get user profile with name and avatar
+    const { data: userProfile, error: userError } = await supabase
+      .from("profiles")
+      .select("full_name, avatar_url")
+      .eq("user_id", delivery.rider_user_id)
+      .maybeSingle();
+
+    if (userError || !userProfile) {
+      return null;
+    }
+
+    return {
+      id: delivery.rider_user_id,
+      name: userProfile.full_name || "Rider",
+      avatar: userProfile.avatar_url || null,
+      status:
+        delivery.status === "assigned"
+          ? "Assigned"
+          : delivery.status === "picked_up"
+            ? "Picked up"
+            : delivery.status === "ready_to_pickup"
+              ? "Ready to Pickup"
+              : delivery.status === "delivered"
+                ? "Delivered"
+                : delivery.status,
+      vehicle: riderProfile?.vehicle_type || null,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+// Replace your OrderDetailsModal component in app/buyer/orders/index.tsx with this:
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -80,6 +149,41 @@ const OrderDetailsModal = ({
   onClose: () => void;
   order: DisplayOrder | null;
 }) => {
+  const [pickupProofUrl, setPickupProofUrl] = useState<string | null>(null);
+  const [deliveryProofUrl, setDeliveryProofUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (order?.id) {
+      fetchDeliveryProofs(order.id);
+    } else {
+      setPickupProofUrl(null);
+      setDeliveryProofUrl(null);
+    }
+  }, [order]);
+
+  const fetchDeliveryProofs = async (orderId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("deliveries")
+        .select("pickup_proof_url, delivered_proof_url")
+        .eq("order_id", orderId)
+        .maybeSingle();
+      if (!error && data) {
+        setPickupProofUrl(data.pickup_proof_url);
+        setDeliveryProofUrl(data.delivered_proof_url);
+      } else {
+        setPickupProofUrl(null);
+        setDeliveryProofUrl(null);
+      }
+    } catch (e) {
+      console.error("fetchDeliveryProofs:", e);
+    }
+  };
+
+  const openProofImage = (url: string) => Linking.openURL(url);
+
+  const S = orderStyles;
+
   if (!order) return null;
 
   const subtotal =
@@ -87,284 +191,336 @@ const OrderDetailsModal = ({
     order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const getStatusColor = (status: OrderStatus) => {
-    switch (status) {
-      case "pending":
-        return "#f59e0b";
-      case "preparing":
-        return "#3b82f6";
-      case "ready-to-ship":
-        return "#8b5cf6";
-      case "shipped":
-        return "#10b981";
-      case "delivered":
-        return "#10b981";
-      case "cancelled":
-        return "#6b7280";
-      case "rejected":
-        return "#ef4444";
-      default:
-        return COLORS.light.primary;
-    }
+    const map: Record<string, string> = {
+      pending: "#f59e0b",
+      preparing: "#3b82f6",
+      "ready-to-ship": "#8b5cf6",
+      shipped: "#10b981",
+      delivered: "#10b981",
+      cancelled: "#6b7280",
+      rejected: "#ef4444",
+    };
+    return map[status] ?? COLORS.light.primary;
   };
 
   const getStatusText = (status: OrderStatus) => {
-    switch (status) {
-      case "pending":
-        return "Pending";
-      case "preparing":
-        return "Preparing";
-      case "ready-to-ship":
-        return "Ready to Ship";
-      case "shipped":
-        return "Shipped";
-      case "delivered":
-        return "Completed";
-      case "cancelled":
-        return "Cancelled";
-      case "rejected":
-        return "Rejected";
-      default:
-        return status;
-    }
+    const map: Record<string, string> = {
+      pending: "Pending",
+      preparing: "Preparing",
+      "ready-to-ship": "Ready to Ship",
+      shipped: "Shipped",
+      delivered: "Completed",
+      cancelled: "Cancelled",
+      rejected: "Rejected",
+    };
+    return map[status] ?? status;
   };
 
   const getPaymentStatusColor = (status?: PaymentStatus) => {
-    switch (status) {
-      case "paid":
-        return "#10b981";
-      case "pending":
-        return "#f59e0b";
-      case "pending_verification":
-        return "#8b5cf6";
-      case "failed":
-      case "cancelled":
-        return "#ef4444";
-      default:
-        return "#6b7280";
-    }
+    const map: Record<string, string> = {
+      paid: "#10b981",
+      pending: "#f59e0b",
+      pending_verification: "#8b5cf6",
+      failed: "#ef4444",
+      cancelled: "#ef4444",
+    };
+    return map[status ?? ""] ?? "#6b7280";
   };
 
   const getPaymentStatusText = (status?: PaymentStatus) => {
-    switch (status) {
-      case "paid":
-        return "Paid";
-      case "pending":
-        return "Pending";
-      case "pending_verification":
-        return "Pending Verification";
-      case "failed":
-        return "Failed";
-      case "cancelled":
-        return "Cancelled";
-      default:
-        return "Unknown";
-    }
-  };
-
-  const openProofImage = (url: string) => {
-    Linking.openURL(url);
+    const map: Record<string, string> = {
+      paid: "Paid",
+      pending: "Pending",
+      pending_verification: "Pending Verification",
+      failed: "Failed",
+      cancelled: "Cancelled",
+    };
+    return map[status ?? ""] ?? "Unknown";
   };
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      transparent={true}
+      transparent
       onRequestClose={onClose}
     >
-      <View style={orderStyles.modalOverlay}>
-        <View style={orderStyles.modalContent}>
-          {/* Modal Header */}
-          <View style={orderStyles.modalHeader}>
-            <Text style={orderStyles.modalTitle}>Order Details</Text>
-            <TouchableOpacity
-              onPress={onClose}
-              style={orderStyles.modalCloseButton}
-            >
-              <Ionicons name="close" size={24} color="#666" />
+      <View style={S.modalOverlay}>
+        <View style={S.modalContent}>
+          {/* ── Header ── */}
+          <View style={S.modalHeader}>
+            <Text style={S.modalTitle}>Order Details</Text>
+            <TouchableOpacity style={S.modalCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={16} color="#555" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Order Info */}
-            <View style={orderStyles.modalSection}>
-              <View style={orderStyles.modalOrderInfo}>
+          <ScrollView style={S.modalBody} showsVerticalScrollIndicator={false}>
+            {/* ── Order meta ── */}
+            <View style={S.modalSection}>
+              <Text style={S.modalSectionTitle}>Order</Text>
+              <View style={S.modalOrderInfo}>
                 <View>
-                  <Text style={orderStyles.modalOrderLabel}>Order Number</Text>
-                  <Text style={orderStyles.modalOrderNumber}>
-                    #{order.orderNumber}
-                  </Text>
+                  <Text style={S.modalOrderLabel}>Order Number</Text>
+                  <Text style={S.modalOrderNumber}>#{order.orderNumber}</Text>
                 </View>
-                <View
-                  style={[
-                    orderStyles.statusBadge,
-                    { backgroundColor: getStatusColor(order.status) },
-                  ]}
-                >
-                  <Text style={orderStyles.statusText}>
-                    {getStatusText(order.status)}
+                <View style={{ alignItems: "flex-end" }}>
+                  <View
+                    style={[
+                      S.statusBadge,
+                      { backgroundColor: getStatusColor(order.status) },
+                    ]}
+                  >
+                    <Text style={S.statusText}>
+                      {getStatusText(order.status)}
+                    </Text>
+                  </View>
+                  <Text style={[S.modalOrderDate, { marginTop: 6 }]}>
+                    {order.orderDate}
                   </Text>
                 </View>
               </View>
-              <Text style={orderStyles.modalOrderDate}>{order.orderDate}</Text>
             </View>
 
-            {/* Delivery Address */}
-            <View style={orderStyles.modalSection}>
-              <Text style={orderStyles.modalSectionTitle}>
-                Delivery Address
-              </Text>
-              <Text style={orderStyles.modalAddress}>
-                {order.deliveryAddress}
-              </Text>
+            {/* ── Delivery Address ── */}
+            <View style={S.modalSection}>
+              <Text style={S.modalSectionTitle}>Delivery Address</Text>
+              <View style={S.modalAddressCard}>
+                <Ionicons
+                  name="location-outline"
+                  size={15}
+                  color="#aaa"
+                  style={S.modalAddressIcon}
+                />
+                <Text style={S.modalAddress}>{order.deliveryAddress}</Text>
+              </View>
             </View>
 
-            {/* Special Instructions */}
+            {/* ── Special Instructions ── */}
             {order.note && (
-              <View style={orderStyles.modalSection}>
-                <Text style={orderStyles.modalSectionTitle}>
-                  Special Instructions
-                </Text>
-                <View style={orderStyles.specialInstructionsBox}>
-                  <Text style={orderStyles.specialInstructionsText}>
-                    {order.note}
-                  </Text>
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Special Instructions</Text>
+                <View style={S.specialInstructionsBox}>
+                  <Text style={S.specialInstructionsText}>{order.note}</Text>
                 </View>
               </View>
             )}
 
-            {/* Payment Info */}
-            <View style={orderStyles.modalSection}>
-              <Text style={orderStyles.modalSectionTitle}>
-                Payment Information
-              </Text>
-              <View style={orderStyles.modalPaymentRow}>
-                <Text style={orderStyles.modalPaymentLabel}>
-                  Payment Method:
-                </Text>
-                <Text style={orderStyles.modalPaymentValue}>
-                  {order.paymentMethod === "cod" ? "Cash on Delivery" : "GCash"}
-                </Text>
-              </View>
-              <View style={orderStyles.modalPaymentRow}>
-                <Text style={orderStyles.modalPaymentLabel}>
-                  Payment Status:
-                </Text>
-                <Text
-                  style={[
-                    orderStyles.modalPaymentValue,
-                    { color: getPaymentStatusColor(order.paymentStatus) },
-                  ]}
-                >
-                  {getPaymentStatusText(order.paymentStatus)}
-                </Text>
-              </View>
-
-              {/* GCash Payment Proof */}
-              {order.paymentMethod === "gcash" && order.paymentProofUrl && (
-                <View style={orderStyles.gcashProofSection}>
-                  <Text style={orderStyles.proofLabel}>Payment Proof:</Text>
-                  <TouchableOpacity
-                    style={orderStyles.proofImageContainer}
-                    onPress={() => openProofImage(order.paymentProofUrl!)}
+            {/* ── Payment ── */}
+            <View style={S.modalSection}>
+              <Text style={S.modalSectionTitle}>Payment</Text>
+              <View style={S.modalPaymentCard}>
+                <View style={S.modalPaymentRow}>
+                  <Text style={S.modalPaymentLabel}>Method</Text>
+                  <Text style={S.modalPaymentValue}>
+                    {order.paymentMethod === "cod"
+                      ? "Cash on Delivery"
+                      : "GCash"}
+                  </Text>
+                </View>
+                <View style={S.modalPaymentRow}>
+                  <Text style={S.modalPaymentLabel}>Status</Text>
+                  <Text
+                    style={[
+                      S.modalPaymentValue,
+                      {
+                        color: getPaymentStatusColor(order.paymentStatus),
+                        fontWeight: "700",
+                      },
+                    ]}
                   >
-                    <Image
-                      source={{ uri: order.paymentProofUrl }}
-                      style={orderStyles.proofImage}
-                      resizeMode="contain"
-                    />
-                    <View style={orderStyles.proofOverlay}>
-                      <Ionicons name="eye-outline" size={24} color="#fff" />
-                      <Text style={orderStyles.proofOverlayText}>
-                        Tap to view full image
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                    {getPaymentStatusText(order.paymentStatus)}
+                  </Text>
+                </View>
 
-                  {order.gcashReference && (
-                    <View style={orderStyles.referenceRow}>
-                      <Text style={orderStyles.referenceLabel}>
-                        Reference Number:
-                      </Text>
-                      <Text style={orderStyles.referenceValue}>
-                        {order.gcashReference}
-                      </Text>
+                {/* GCash extras */}
+                {order.paymentMethod === "gcash" && order.paymentProofUrl && (
+                  <>
+                    <View style={S.modalPaymentDivider} />
+                    {order.gcashReference && (
+                      <View style={[S.modalPaymentRow, { marginBottom: 10 }]}>
+                        <Text style={S.referenceLabel}>Reference Number</Text>
+                        <Text style={S.referenceValue}>
+                          {order.gcashReference}
+                        </Text>
+                      </View>
+                    )}
+                    {/* Payment proof — View button only */}
+                    <View style={S.proofRow}>
+                      <Text style={S.proofRowLabel}>Payment Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() => openProofImage(order.paymentProofUrl!)}
+                      >
+                        <Ionicons
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
+                        />
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </View>
+            </View>
+
+            {/* ── Delivery Proof — View buttons only ── */}
+            {(pickupProofUrl || deliveryProofUrl) && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Delivery Proof</Text>
+                <View style={S.modalPaymentCard}>
+                  {pickupProofUrl && (
+                    <View
+                      style={[
+                        S.proofRow,
+                        { marginBottom: deliveryProofUrl ? 10 : 0 },
+                      ]}
+                    >
+                      <Text style={S.proofRowLabel}>Pickup Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() => openProofImage(pickupProofUrl)}
+                      >
+                        <Ionicons
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
+                        />
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {deliveryProofUrl && (
+                    <View style={S.proofRow}>
+                      <Text style={S.proofRowLabel}>Delivery Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() => openProofImage(deliveryProofUrl)}
+                      >
+                        <Ionicons
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
+                        />
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
-              )}
-            </View>
+              </View>
+            )}
 
-            {/* Order Items */}
-            <View style={orderStyles.modalSection}>
-              <Text style={orderStyles.modalSectionTitle}>Items</Text>
+            {/* ── Rider ── */}
+            {order.riderAssignment && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Rider</Text>
+                <TouchableOpacity
+                  style={S.riderRow}
+                  onPress={() =>
+                    router.push({
+                      pathname: "../buyer/view-rider",
+                      params: { rider_user_id: order.riderAssignment?.id },
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
+                  {order.riderAssignment.avatar ? (
+                    <Image
+                      source={{ uri: order.riderAssignment.avatar }}
+                      style={S.riderAvatar}
+                    />
+                  ) : (
+                    <View style={S.riderAvatarPlaceholder}>
+                      <Text style={S.riderAvatarText}>
+                        {order.riderAssignment.name?.charAt(0) || "R"}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={S.riderInfo}>
+                    <Text style={S.riderName} numberOfLines={1}>
+                      {order.riderAssignment.name}
+                    </Text>
+                    {order.riderAssignment.status && (
+                      <Text style={S.riderStatus} numberOfLines={1}>
+                        {order.riderAssignment.status}
+                      </Text>
+                    )}
+                    {order.riderAssignment.vehicle && (
+                      <Text style={S.riderVehicle}>
+                        {order.riderAssignment.vehicle}
+                      </Text>
+                    )}
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ── Items ── */}
+            <View style={S.modalSection}>
+              <Text style={S.modalSectionTitle}>Items</Text>
               {order.items.map((item) => {
                 const freshness = computeFreshness(item.harvested_at);
                 return (
-                  <View key={item.id} style={orderStyles.modalItemRow}>
+                  <View key={item.id} style={S.modalItemRow}>
                     {item.image ? (
                       <Image
                         source={{ uri: item.image }}
-                        style={orderStyles.modalItemImage}
+                        style={S.modalItemImage}
                       />
                     ) : (
                       <View
                         style={[
-                          orderStyles.modalItemImage,
+                          S.modalItemImage,
                           { backgroundColor: "#e0e0e0" },
                         ]}
                       />
                     )}
-                    <View style={orderStyles.modalItemDetails}>
-                      <Text style={orderStyles.modalItemName}>{item.name}</Text>
-                      <Text style={orderStyles.modalItemVendor}>
-                        {item.vendor}
-                      </Text>
+                    <View style={S.modalItemDetails}>
+                      <Text style={S.modalItemName}>{item.name}</Text>
+                      <Text style={S.modalItemVendor}>{item.vendor}</Text>
                       {freshness.isPreOrder && (
-                        <View style={orderStyles.preOrderBadge}>
-                          <Text style={orderStyles.preOrderBadgeText}>
-                            Pre-order
-                          </Text>
+                        <View style={S.preOrderBadge}>
+                          <Text style={S.preOrderBadgeText}>Pre-order</Text>
                         </View>
                       )}
                     </View>
-                    <View style={orderStyles.modalItemPrice}>
-                      <Text style={orderStyles.modalItemPriceText}>
+                    <View style={S.modalItemPrice}>
+                      <Text style={S.modalItemPriceText}>
                         ₱{item.price.toLocaleString()}
                       </Text>
-                      <Text style={orderStyles.modalItemQuantity}>
-                        x{item.quantity}
-                      </Text>
+                      <Text style={S.modalItemQuantity}>×{item.quantity}</Text>
                     </View>
                   </View>
                 );
               })}
             </View>
 
-            {/* Price Summary */}
-            <View style={orderStyles.modalSection}>
-              <Text style={orderStyles.modalSectionTitle}>Price Summary</Text>
-              <View style={orderStyles.modalPriceRow}>
-                <Text style={orderStyles.modalPriceLabel}>Subtotal</Text>
-                <Text style={orderStyles.modalPriceValue}>
-                  ₱{subtotal.toLocaleString()}
-                </Text>
-              </View>
-              {order.deliveryFee > 0 && (
-                <View style={orderStyles.modalPriceRow}>
-                  <Text style={orderStyles.modalPriceLabel}>Delivery Fee</Text>
-                  <Text style={orderStyles.modalPriceValue}>
-                    ₱{order.deliveryFee.toLocaleString()}
+            {/* ── Price Summary ── */}
+            <View style={S.modalSection}>
+              <Text style={S.modalSectionTitle}>Summary</Text>
+              <View style={S.modalPriceSummaryCard}>
+                <View style={S.modalPriceRow}>
+                  <Text style={S.modalPriceLabel}>Subtotal</Text>
+                  <Text style={S.modalPriceValue}>
+                    ₱{subtotal.toLocaleString()}
                   </Text>
                 </View>
-              )}
-              <View
-                style={[orderStyles.modalPriceRow, orderStyles.modalTotalRow]}
-              >
-                <Text style={orderStyles.modalTotalLabel}>Total Amount</Text>
-                <Text style={orderStyles.modalTotalValue}>
-                  ₱{order.totalAmount.toLocaleString()}
-                </Text>
+                {order.deliveryFee > 0 && (
+                  <View style={S.modalPriceRow}>
+                    <Text style={S.modalPriceLabel}>Delivery Fee</Text>
+                    <Text style={S.modalPriceValue}>
+                      ₱{order.deliveryFee.toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                <View style={S.modalTotalRow}>
+                  <Text style={S.modalTotalLabel}>Total</Text>
+                  <Text style={S.modalTotalValue}>
+                    ₱{order.totalAmount.toLocaleString()}
+                  </Text>
+                </View>
               </View>
             </View>
           </ScrollView>
@@ -373,7 +529,6 @@ const OrderDetailsModal = ({
     </Modal>
   );
 };
-
 const OrdersScreen = () => {
   const [activeTab, setActiveTab] = useState<string>("to-pay");
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
@@ -382,8 +537,6 @@ const OrdersScreen = () => {
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
-
-  // NEW: Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchVisible, setIsSearchVisible] = useState(false);
 
@@ -398,7 +551,7 @@ const OrdersScreen = () => {
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
-  // UPDATED: Map database status to UI tab - include rejected in cancelled tab
+  // Map database status to UI tab
   const getUITabFromDBStatus = (dbStatus: OrderStatus): string => {
     switch (dbStatus) {
       case "pending":
@@ -437,7 +590,7 @@ const OrdersScreen = () => {
     );
   };
 
-  // UPDATED: Handle order card press to show modal instead of product details
+  // Handle order card press to show modal
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setModalVisible(true);
@@ -500,9 +653,9 @@ const OrdersScreen = () => {
         .from("orders")
         .select(
           `
-          *,
-          addresses!inner(full_address)
-        `,
+        *,
+        addresses!inner(full_address)
+      `,
         )
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
@@ -525,18 +678,18 @@ const OrdersScreen = () => {
           .from("order_items")
           .select(
             `
-            *,
-            products!inner(
-              product_id,
-              product_name,
-              images,
-              harvested_at,
-              vendor_profiles!inner(
-                shop_name,
-                user_id
-              )
+          *,
+          products!inner(
+            product_id,
+            product_name,
+            images,
+            harvested_at,
+            vendor_profiles!inner(
+              shop_name,
+              user_id
             )
-          `,
+          )
+        `,
           )
           .eq("order_id", order.order_id);
 
@@ -556,6 +709,15 @@ const OrdersScreen = () => {
           image: item.products.images?.[0] || null,
           harvested_at: item.products.harvested_at,
         }));
+
+        // FIX: Fetch rider assignment for this order
+        const riderAssignment = await fetchRiderAssignment(order.order_id);
+        console.log(
+          "Rider assignment for order",
+          order.order_id,
+          ":",
+          riderAssignment,
+        ); // Add this log to debug
 
         const displayOrder: DisplayOrder = {
           id: order.order_id,
@@ -579,6 +741,7 @@ const OrdersScreen = () => {
             order.addresses?.full_address || "Address not specified",
           vendorShopName: displayItems[0]?.vendor,
           vendorId: displayItems[0]?.vendorId,
+          riderAssignment, // This was probably missing or commented out
         };
         displayOrders.push(displayOrder);
       }
@@ -592,7 +755,6 @@ const OrdersScreen = () => {
       setRefreshing(false);
     }
   };
-
   useEffect(() => {
     fetchOrders();
   }, [user?.id]);
@@ -601,6 +763,7 @@ const OrdersScreen = () => {
     setRefreshing(true);
     await fetchOrders();
   };
+
   const handleRateOrder = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setRatingModalVisible(true);
@@ -610,17 +773,14 @@ const OrdersScreen = () => {
     fetchOrders(); // Refresh orders to update any UI
   };
 
-  // NEW: Toggle search visibility
   const toggleSearch = () => {
     setIsSearchVisible(!isSearchVisible);
     if (isSearchVisible) {
-      setSearchQuery(""); // Clear search when closing
+      setSearchQuery("");
     }
   };
 
-  // UPDATED: Filter orders by tab AND search query
   const filteredOrders = orders.filter((order) => {
-    // First filter by tab
     const uiTab = getUITabFromDBStatus(order.status);
     if (activeTab === "cancelled") {
       if (order.status !== "cancelled" && order.status !== "rejected") {
@@ -630,47 +790,21 @@ const OrdersScreen = () => {
       return false;
     }
 
-    // Then filter by search query if it exists
     if (searchQuery.trim() === "") {
       return true;
     }
 
     const query = searchQuery.toLowerCase().trim();
 
-    // Search in order number
-    if (order.orderNumber.toLowerCase().includes(query)) {
+    if (order.orderNumber.toLowerCase().includes(query)) return true;
+    if (order.items.some((item) => item.name.toLowerCase().includes(query)))
       return true;
-    }
-
-    // Search in item names
-    if (order.items.some((item) => item.name.toLowerCase().includes(query))) {
+    if (order.items.some((item) => item.vendor.toLowerCase().includes(query)))
       return true;
-    }
-
-    // Search in vendor names
-    if (order.items.some((item) => item.vendor.toLowerCase().includes(query))) {
-      return true;
-    }
-
-    // Search in order date
-    if (order.orderDate.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in payment method
-    if (order.paymentMethod.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in delivery address
-    if (order.deliveryAddress.toLowerCase().includes(query)) {
-      return true;
-    }
-
-    // Search in note
-    if (order.note && order.note.toLowerCase().includes(query)) {
-      return true;
-    }
+    if (order.orderDate.toLowerCase().includes(query)) return true;
+    if (order.paymentMethod.toLowerCase().includes(query)) return true;
+    if (order.deliveryAddress.toLowerCase().includes(query)) return true;
+    if (order.note && order.note.toLowerCase().includes(query)) return true;
 
     return false;
   });
@@ -717,13 +851,11 @@ const OrdersScreen = () => {
     }
   };
 
-  // UPDATED: Pay Now handler with conditions
   const handlePayNow = async (
     orderId: string,
     paymentMethod: string,
     paymentStatus: string,
   ) => {
-    // Don't show Pay Now if payment status is pending_verification
     if (paymentStatus === "pending_verification") {
       Alert.alert(
         "Payment Pending Verification",
@@ -732,10 +864,8 @@ const OrdersScreen = () => {
       return;
     }
 
-    // Only proceed with payment for COD orders or if payment is still pending
     if (paymentMethod === "cod") {
       Alert.alert("Payment", "This would redirect to payment gateway");
-      // Implement payment gateway integration here
     } else {
       Alert.alert("Payment Method", "Online payments will be processed here.");
     }
@@ -846,7 +976,6 @@ const OrdersScreen = () => {
       order.subtotal ||
       order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-    // Determine if Pay Now button should be shown
     const showPayNow =
       order.status === "pending" &&
       order.paymentStatus !== "pending_verification" &&
@@ -929,9 +1058,8 @@ const OrdersScreen = () => {
           );
         })}
 
-        {/* Order Footer - Payment and Pricing Info */}
+        {/* Order Footer */}
         <View style={orderStyles.orderFooter}>
-          {/* Price Summary */}
           <View style={orderStyles.priceSummary}>
             {order.deliveryFee > 0 && (
               <View style={orderStyles.priceRow}>
@@ -956,7 +1084,6 @@ const OrdersScreen = () => {
             </View>
           </View>
 
-          {/* Action Buttons based on status */}
           <View style={orderStyles.actionButtons}>
             {order.status === "pending" && (
               <>
@@ -1011,7 +1138,15 @@ const OrdersScreen = () => {
               <>
                 <TouchableOpacity
                   style={orderStyles.secondaryButton}
-                  onPress={() => router.push("/order-tracking")}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/order-tracking",
+                      params: {
+                        orderId: order.id,
+                        orderNumber: order.orderNumber,
+                      },
+                    })
+                  }
                 >
                   <Text style={orderStyles.secondaryButtonText}>
                     Track Order
@@ -1091,7 +1226,7 @@ const OrdersScreen = () => {
 
   return (
     <SafeAreaView style={orderStyles.container}>
-      {/* Header - UPDATED with search icon */}
+      {/* Header */}
       <View style={orderStyles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1109,7 +1244,7 @@ const OrdersScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* NEW: Search Bar */}
+      {/* Search Bar */}
       {isSearchVisible && (
         <View style={{ backgroundColor: "#FFFFFF" }}>
           <View style={orderStyles.searchContainer}>
@@ -1179,7 +1314,6 @@ const OrdersScreen = () => {
           />
         }
       >
-        {/* NEW: Search result count */}
         {searchQuery.length > 0 && (
           <View style={orderStyles.searchResultInfo}>
             <Text style={orderStyles.searchResultText}>

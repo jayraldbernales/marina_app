@@ -33,7 +33,6 @@ class LocationService {
     );
 
     this.isTracking = true;
-    console.log("📍 Location tracking started");
   }
 
   async updateLocationOnce() {
@@ -62,7 +61,7 @@ class LocationService {
     if (error) {
       console.error("Failed to update location:", error);
     } else {
-      console.log(`📍 Location updated: ${latitude}, ${longitude}`);
+      console.log(`Location updated: ${latitude}, ${longitude}`);
     }
   }
 
@@ -73,7 +72,6 @@ class LocationService {
     }
     this.isTracking = false;
     this.riderId = null;
-    console.log("📍 Location tracking stopped");
   }
 
   isTrackingActive() {
