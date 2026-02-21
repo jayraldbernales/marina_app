@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,67 +6,351 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Image,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
 import { COLORS } from "../constants";
+import { supabase } from "@/lib/supabase";
+
+type OrderStatus =
+  | "pending"
+  | "preparing"
+  | "ready-to-ship"
+  | "shipped"
+  | "delivered"
+  | "cancelled"
+  | "rejected";
+
+type OrderItem = {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  vendor: string;
+};
+
+type RiderInfo = {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  vehicle?: string;
+  plateNumber?: string;
+  phone?: string;
+};
+
+type OrderTrackingParams = {
+  orderId: string;
+  orderNumber?: string;
+};
 
 const OrderTrackingScreen = () => {
-  const orderStatuses: Array<{
-    title: string;
-    subtitle: string;
-    time: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    completed: boolean;
-  }> = [
-    {
+  const params = useLocalSearchParams<OrderTrackingParams>();
+  const { orderId, orderNumber } = params;
+
+  const [loading, setLoading] = useState(true);
+  const [order, setOrder] = useState<any>(null);
+  const [rider, setRider] = useState<RiderInfo | null>(null);
+  const [orderStatuses, setOrderStatuses] = useState<
+    Array<{
+      title: string;
+      subtitle: string;
+      time: string;
+      icon: keyof typeof Ionicons.glyphMap;
+      completed: boolean;
+    }>
+  >([]);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+
+  useEffect(() => {
+    if (orderId) {
+      fetchOrderDetails();
+    }
+  }, [orderId]);
+
+  const fetchRiderInfo = async (
+    riderUserId: string,
+  ): Promise<RiderInfo | null> => {
+    try {
+      // Get rider profile with vehicle type
+      const { data: riderProfile, error: riderError } = await supabase
+        .from("rider_profiles")
+        .select("vehicle_type, license_plate")
+        .eq("user_id", riderUserId)
+        .maybeSingle();
+
+      if (riderError) {
+        console.error("Error fetching rider profile:", riderError);
+        return null;
+      }
+
+      // Get user profile with name and avatar
+      const { data: userProfile, error: userError } = await supabase
+        .from("profiles")
+        .select("full_name, avatar_url, mobile_number")
+        .eq("user_id", riderUserId)
+        .maybeSingle();
+
+      if (userError || !userProfile) {
+        console.error("Error fetching user profile:", userError);
+        return null;
+      }
+
+      return {
+        id: riderUserId,
+        name: userProfile.full_name || "Rider",
+        avatar: userProfile.avatar_url,
+        vehicle: riderProfile?.vehicle_type,
+        plateNumber: riderProfile?.license_plate,
+        phone: userProfile.mobile_number,
+      };
+    } catch (error) {
+      console.error("Error in fetchRiderInfo:", error);
+      return null;
+    }
+  };
+
+  const fetchOrderDetails = async () => {
+    try {
+      setLoading(true);
+      console.log("Fetching order details for ID:", orderId);
+
+      // Fetch order details
+      const { data: orderData, error: orderError } = await supabase
+        .from("orders")
+        .select(
+          `
+          *,
+          addresses!inner(full_address)
+        `,
+        )
+        .eq("order_id", orderId)
+        .single();
+
+      if (orderError) {
+        console.error("Order fetch error:", orderError);
+        throw orderError;
+      }
+      console.log("Order data fetched:", orderData);
+      setOrder(orderData);
+
+      // Fetch order items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from("order_items")
+        .select(
+          `
+          *,
+          products!inner(
+            product_name,
+            vendor_profiles!inner(
+              shop_name
+            )
+          )
+        `,
+        )
+        .eq("order_id", orderId);
+
+      if (itemsError) {
+        console.error("Items fetch error:", itemsError);
+        throw itemsError;
+      }
+
+      const formattedItems = itemsData.map((item: any) => ({
+        id: item.order_item_id,
+        name: item.products.product_name,
+        price: item.unit_price,
+        quantity: item.quantity,
+        vendor: item.products.vendor_profiles.shop_name,
+      }));
+      setOrderItems(formattedItems);
+
+      // Fetch delivery to get rider_user_id
+      const { data: deliveryData, error: deliveryError } = await supabase
+        .from("deliveries")
+        .select("rider_user_id, pickup_time, delivered_time")
+        .eq("order_id", orderId)
+        .maybeSingle();
+
+      if (deliveryError) {
+        console.error("Delivery fetch error:", deliveryError);
+      } else if (deliveryData?.rider_user_id) {
+        // Fetch rider info using the rider_user_id
+        const riderInfo = await fetchRiderInfo(deliveryData.rider_user_id);
+        setRider(riderInfo);
+      }
+
+      // Build status timeline
+      buildStatusTimeline(orderData.order_status, deliveryData);
+    } catch (error) {
+      console.error("Error in fetchOrderDetails:", error);
+      Alert.alert("Error", "Failed to load order details");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const buildStatusTimeline = (orderStatus: OrderStatus, deliveryData: any) => {
+    const createdTime = order?.created_at
+      ? new Date(order.created_at)
+      : new Date();
+
+    const statuses: Array<{
+      title: string;
+      subtitle: string;
+      time: string;
+      icon: keyof typeof Ionicons.glyphMap;
+      completed: boolean;
+    }> = [];
+
+    // Order Confirmed - always completed
+    statuses.push({
       title: "Order Confirmed",
       subtitle: "Your order has been confirmed",
-      time: "2:30 pm",
+      time: formatTime(createdTime),
       icon: "checkmark-circle",
       completed: true,
-    },
-    {
+    });
+
+    // Preparing - completed if status is past pending
+    const preparingCompleted = !["pending", "cancelled", "rejected"].includes(
+      orderStatus,
+    );
+    statuses.push({
       title: "Preparing Order",
-      subtitle: "Fresh seafood being prepared",
-      time: "2:45 pm",
+      subtitle: "Vendor is preparing your items",
+      time:
+        preparingCompleted && deliveryData?.pickup_time
+          ? formatTime(new Date(deliveryData.pickup_time))
+          : preparingCompleted
+            ? "Completed"
+            : "In progress",
       icon: "restaurant",
-      completed: true,
-    },
-    {
+      completed: preparingCompleted,
+    });
+
+    // Out for Delivery - completed if status is shipped or delivered
+    const shippedCompleted = ["shipped", "delivered"].includes(orderStatus);
+    statuses.push({
       title: "Out for Delivery",
-      subtitle: "On the way to your location",
-      time: "In transit",
+      subtitle: "Rider is on the way to your location",
+      time:
+        shippedCompleted && deliveryData?.pickup_time
+          ? formatTime(new Date(deliveryData.pickup_time))
+          : shippedCompleted
+            ? "In transit"
+            : "Pending",
       icon: "car",
-      completed: true,
-    },
-    {
+      completed: shippedCompleted,
+    });
+
+    // Delivered - completed only if status is delivered
+    const deliveredCompleted = orderStatus === "delivered";
+    statuses.push({
       title: "Delivered",
       subtitle: "Order delivered successfully",
-      time: "Pending",
+      time:
+        deliveredCompleted && deliveryData?.delivered_time
+          ? formatTime(new Date(deliveryData.delivered_time))
+          : deliveredCompleted
+            ? "Completed"
+            : "Pending",
       icon: "home",
-      completed: false,
-    },
-  ];
+      completed: deliveredCompleted,
+    });
+
+    setOrderStatuses(statuses);
+  };
+
+  const formatTime = (date: Date) => {
+    return date
+      .toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+      .toLowerCase();
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const handleCallRider = () => {
+    if (rider?.phone) {
+      Linking.openURL(`tel:${rider.phone}`);
+    } else {
+      Alert.alert("Error", "Rider phone number not available");
+    }
+  };
+
+  const handleViewRiderProfile = () => {
+    if (rider?.id) {
+      router.push({
+        pathname: "../buyer/view-rider",
+        params: { rider_user_id: rider.id },
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => router.back()}
+              >
+                <Ionicons name="arrow-back" size={24} color="#fff" />
+              </TouchableOpacity>
+              <View>
+                <Text style={styles.headerTitle}>Order Tracking</Text>
+                <Text style={styles.headerSubtitle}>
+                  {orderNumber || "Loading..."}
+                </Text>
+              </View>
+            </View>
+            <View style={{ width: 40 }} />
+          </View>
+        </View>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
+          <ActivityIndicator size="large" color={COLORS.light.primary} />
+          <Text style={{ marginTop: 12 }}>Loading order details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header - matching dashboard header exactly */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerLeft}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => router.push("/(tabs)/orders")}
+              onPress={() => router.back()}
             >
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
             <View>
               <Text style={styles.headerTitle}>Order Tracking</Text>
-              <Text style={styles.headerSubtitle}>MRN-2025-01</Text>
+              <Text style={styles.headerSubtitle}>
+                {order?.order_number || orderNumber}
+              </Text>
             </View>
           </View>
-          {/* Empty view for spacing to match dashboard layout */}
           <View style={{ width: 40 }} />
         </View>
       </View>
@@ -117,7 +401,7 @@ const OrderTrackingScreen = () => {
                   <Ionicons
                     name="checkmark-circle"
                     size={24}
-                    color={COLORS.light.primary}
+                    color="green"
                     style={styles.checkmark}
                   />
                 )}
@@ -126,24 +410,62 @@ const OrderTrackingScreen = () => {
           </View>
         </View>
 
-        {/* Delivery Rider Section */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Delivery Rider</Text>
-          <View style={styles.riderCard}>
-            <View style={styles.riderInfo}>
-              <View style={styles.riderAvatar}>
-                <Text style={styles.riderAvatarText}>JD</Text>
-              </View>
-              <View>
-                <Text style={styles.riderName}>Juan Dela Cruz</Text>
-                <Text style={styles.riderPlate}>ABC 1234</Text>
-              </View>
+        {/* Delivery Rider Section - Only show if rider assigned */}
+        {rider && (
+          <TouchableOpacity
+            style={styles.sectionCard}
+            onPress={handleViewRiderProfile}
+            activeOpacity={0.7}
+          >
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Delivery Rider</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={COLORS.light.primary}
+              />
             </View>
-            <TouchableOpacity style={styles.callButton}>
-              <Ionicons name="call" size={24} color={COLORS.light.primary} />
-            </TouchableOpacity>
-          </View>
-        </View>
+            <View style={styles.riderCard}>
+              <View style={styles.riderInfo}>
+                {rider.avatar ? (
+                  <Image
+                    source={{ uri: rider.avatar }}
+                    style={styles.riderAvatarImage}
+                  />
+                ) : (
+                  <View style={styles.riderAvatarPlaceholder}>
+                    <Text style={styles.riderAvatarText}>
+                      {rider.name.charAt(0)}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.riderDetails}>
+                  <Text style={styles.riderName}>{rider.name}</Text>
+                  {rider.vehicle && (
+                    <Text style={styles.riderVehicle}>{rider.vehicle}</Text>
+                  )}
+                  {rider.plateNumber && (
+                    <Text style={styles.riderPlate}>
+                      Plate: {rider.plateNumber}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              {rider.phone && (
+                <TouchableOpacity
+                  style={styles.callButton}
+                  onPress={handleCallRider}
+                >
+                  <Ionicons
+                    name="call"
+                    size={24}
+                    color={COLORS.light.primary}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* Delivery Address Section */}
         <View style={styles.sectionCard}>
@@ -156,33 +478,60 @@ const OrderTrackingScreen = () => {
             <Text style={styles.addressTitle}>Delivery Address</Text>
           </View>
           <Text style={styles.addressText}>
-            Purok 2, Cawayanan, Mabini, Bohol
+            {order?.addresses?.full_address || "Address not specified"}
           </Text>
+          {order?.created_at && (
+            <Text style={styles.orderDate}>
+              Ordered on: {formatDate(order.created_at)}
+            </Text>
+          )}
         </View>
 
         {/* Order Summary Section */}
         <View style={[styles.sectionCard, { marginBottom: 20 }]}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
           <View style={styles.summaryCard}>
-            <View style={styles.summaryItem}>
-              <View>
-                <Text style={styles.summaryProductName}>Fresh Red Snapper</Text>
-                <Text style={styles.summaryProductQty}>Qty: 2</Text>
+            {orderItems.map((item, index) => (
+              <View key={item.id}>
+                <View style={styles.summaryItem}>
+                  <View>
+                    <Text style={styles.summaryProductName}>{item.name}</Text>
+                    <Text style={styles.summaryProductVendor}>
+                      {item.vendor}
+                    </Text>
+                    <Text style={styles.summaryProductQty}>
+                      Qty: {item.quantity}
+                    </Text>
+                  </View>
+                  <Text style={styles.summaryPrice}>
+                    ₱{(item.price * item.quantity).toLocaleString()}
+                  </Text>
+                </View>
+                {index < orderItems.length - 1 && (
+                  <View style={styles.itemDivider} />
+                )}
               </View>
-              <Text style={styles.summaryPrice}>₱ 760.00</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <View>
-                <Text style={styles.summaryProductName}>Tiger Prawns</Text>
-                <Text style={styles.summaryProductQty}>Qty: 1</Text>
-              </View>
-              <Text style={styles.summaryPrice}>₱ 50.00</Text>
-            </View>
+            ))}
+
             <View style={styles.divider} />
+
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryTotal}>Total:</Text>
-              <Text style={styles.summaryTotalPrice}>₱ 810.00</Text>
+              <Text style={styles.summaryTotal}>Total Amount:</Text>
+              <Text style={styles.summaryTotalPrice}>
+                ₱{order?.total_amount?.toLocaleString() || "0"}
+              </Text>
             </View>
+
+            {order?.payment_method && (
+              <View style={styles.paymentMethodRow}>
+                <Text style={styles.paymentMethodLabel}>Payment Method:</Text>
+                <Text style={styles.paymentMethodValue}>
+                  {order.payment_method === "cod"
+                    ? "Cash on Delivery"
+                    : "GCash"}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -190,7 +539,7 @@ const OrderTrackingScreen = () => {
         <View style={styles.actionButtons}>
           <TouchableOpacity
             style={styles.supportButton}
-            onPress={() => router.push("./support&help")}
+            onPress={() => router.push("/support&help")}
           >
             <Text style={styles.supportButtonText}>Contact Support</Text>
           </TouchableOpacity>
@@ -198,7 +547,7 @@ const OrderTrackingScreen = () => {
             style={styles.trackButton}
             onPress={() => router.push("/(tabs)/orders")}
           >
-            <Text style={styles.trackButtonText}>Track another order</Text>
+            <Text style={styles.trackButtonText}>Back to Orders</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -211,7 +560,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.light.background,
   },
-  // Header - exact match from dashboard
   header: {
     backgroundColor: COLORS.light.primary,
     paddingTop: 60,
@@ -242,14 +590,11 @@ const styles = StyleSheet.create({
     color: "#7fffd4",
     fontSize: 14,
   },
-  // Scroll area - matching dashboard
   scrollArea: {
     paddingHorizontal: 12,
     paddingTop: 12,
     paddingBottom: 20,
   },
-
-  // Section Card - matching product card background
   sectionCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -260,13 +605,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 2 },
   },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: COLORS.light.primary,
-    marginBottom: 12,
   },
-  // Status styles
   statusContainer: {
     marginTop: 4,
   },
@@ -326,7 +675,6 @@ const styles = StyleSheet.create({
   checkmark: {
     marginLeft: 8,
   },
-  // Rider styles
   riderCard: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -335,8 +683,15 @@ const styles = StyleSheet.create({
   riderInfo: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
-  riderAvatar: {
+  riderAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  riderAvatarPlaceholder: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -350,15 +705,24 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#fff",
   },
+  riderDetails: {
+    flex: 1,
+  },
   riderName: {
     fontSize: 15,
     fontWeight: "600",
     color: COLORS.light.primary,
     marginBottom: 2,
   },
+  riderVehicle: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
   riderPlate: {
     fontSize: 13,
     color: "#666",
+    marginTop: 2,
   },
   callButton: {
     width: 48,
@@ -367,8 +731,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.light.seafoam,
     justifyContent: "center",
     alignItems: "center",
+    marginLeft: 8,
   },
-  // Address styles
   addressHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -385,7 +749,6 @@ const styles = StyleSheet.create({
     color: "#666",
     marginLeft: 28,
   },
-  // Summary styles
   summaryCard: {
     marginTop: 4,
   },
@@ -401,9 +764,15 @@ const styles = StyleSheet.create({
     color: COLORS.light.primary,
     marginBottom: 2,
   },
+  summaryProductVendor: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
   summaryProductQty: {
     fontSize: 12,
     color: "#666",
+    marginTop: 2,
   },
   summaryPrice: {
     fontSize: 14,
@@ -425,7 +794,34 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.light.coral,
   },
-  // Action buttons
+  orderDate: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 8,
+    marginLeft: 28,
+  },
+  itemDivider: {
+    height: 1,
+    backgroundColor: "#f0f0f0",
+    marginVertical: 8,
+  },
+  paymentMethodRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+  },
+  paymentMethodLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  paymentMethodValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+  },
   actionButtons: {
     flexDirection: "row",
     gap: 12,

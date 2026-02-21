@@ -60,10 +60,7 @@ export const orderStyles = StyleSheet.create({
     marginBottom: 12,
     marginTop: 12,
     shadowColor: COLORS.light.primary,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 1,
@@ -257,119 +254,346 @@ export const orderStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "600",
-  }, // Add these to your orderStyles.ts
+  },
+
+  // ─── Search ────────────────────────────────────────────────────────────────
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    marginHorizontal: 16,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 16,
+    color: "#333",
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchResultInfo: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  searchResultText: {
+    fontSize: 14,
+    color: "#666",
+    fontStyle: "italic",
+  },
+
+  // ─── Modal Shell ───────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
-    paddingHorizontal: 18,
-    maxHeight: "90%",
+    backgroundColor: "#f8fbf9",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 0,
+    paddingBottom: 36,
+    paddingHorizontal: 0,
+    maxHeight: "92%",
   },
+
+  // ─── Modal Header ──────────────────────────────────────────────────────────
   modalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: COLORS.common.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: COLORS.light.primary,
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+    letterSpacing: -0.3,
   },
   modalCloseButton: {
-    padding: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
+
+  // ─── Modal body padding ────────────────────────────────────────────────────
+  modalBody: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+
+  // ─── Section labels ────────────────────────────────────────────────────────
   modalSection: {
-    marginBottom: 24,
+    marginBottom: 12,
   },
+  modalSectionTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+
+  // ─── Order meta card ───────────────────────────────────────────────────────
   modalOrderInfo: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
-  },
-  modalOrderLabel: {
-    fontSize: 14,
-    color: "#666",
-  },
-  modalOrderNumber: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.light.primary,
-    marginTop: 2,
-  },
-  modalOrderDate: {
-    fontSize: 14,
-    color: "#666",
-  },
-  modalSectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.light.primary,
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
+  modalOrderLabel: {
+    fontSize: 11,
+    color: "#aaa",
+    marginBottom: 3,
+    fontWeight: "500",
+  },
+  modalOrderNumber: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+    letterSpacing: -0.2,
+  },
+  modalOrderDate: {
+    fontSize: 13,
+    color: "#555",
+  },
+
+  // ─── Address card ──────────────────────────────────────────────────────────
+  modalAddressCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  modalAddressIcon: {
+    marginRight: 10,
+    marginTop: 1,
+  },
   modalAddress: {
-    fontSize: 14,
-    color: "#333",
+    fontSize: 13,
+    color: "#555",
+    flex: 1,
+    lineHeight: 19,
+  },
+
+  // ─── Special instructions ──────────────────────────────────────────────────
+  specialInstructionsBox: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    padding: 14,
+  },
+  specialInstructionsText: {
+    fontSize: 13,
+    color: "#555",
     lineHeight: 20,
+  },
+
+  // ─── Payment card ──────────────────────────────────────────────────────────
+  modalPaymentCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   modalPaymentRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 8,
   },
   modalPaymentLabel: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 13,
+    color: "#888",
   },
   modalPaymentValue: {
-    fontSize: 14,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
     color: "#333",
   },
+  modalPaymentDivider: {
+    height: 1,
+    backgroundColor: "#f3f4f6",
+    marginVertical: 10,
+  },
+
+  // ─── GCash reference ───────────────────────────────────────────────────────
+  gcashProofSection: {
+    marginTop: 4,
+  },
+  referenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  referenceLabel: {
+    fontSize: 13,
+    color: "#888",
+    flex: 1,
+  },
+  referenceValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+    letterSpacing: 0.5,
+  },
+
+  // ─── View Proof Button ─────────────────────────────────────────────────────
+  proofRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  proofRowLabel: {
+    fontSize: 13,
+    color: "#555",
+    fontWeight: "500",
+  },
+  viewProofButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#eef2ff",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  viewProofButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.light.primary,
+  },
+
+  // ─── Rider card ────────────────────────────────────────────────────────────
+  riderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    padding: 14,
+  },
+  riderAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  riderAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  riderAvatarText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  riderInfo: {
+    flex: 1,
+  },
+  riderName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 2,
+  },
+  riderStatus: {
+    fontSize: 12,
+    color: COLORS.light.oceanMedium,
+    textTransform: "capitalize",
+  },
+  riderVehicle: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
+  },
+
+  // ─── Items ─────────────────────────────────────────────────────────────────
   modalItemRow: {
     flexDirection: "row",
-    marginBottom: 16,
+    alignItems: "center",
+    backgroundColor: COLORS.common.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
   },
   modalItemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 56,
+    height: 56,
+    borderRadius: 10,
     marginRight: 12,
+    backgroundColor: "#f0f0f0",
   },
   modalItemDetails: {
     flex: 1,
+    justifyContent: "center",
   },
   modalItemName: {
     fontSize: 14,
-    fontWeight: "500",
-    color: COLORS.light.primary,
+    fontWeight: "600",
+    color: "#111",
     marginBottom: 2,
   },
   modalItemVendor: {
     fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
+    color: "#aaa",
   },
   modalItemPrice: {
     alignItems: "flex-end",
+    justifyContent: "center",
   },
   modalItemPriceText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: COLORS.light.primary,
-    marginBottom: 2,
   },
   modalItemQuantity: {
     fontSize: 12,
-    color: "#666",
+    color: "#aaa",
+    marginTop: 2,
+  },
+
+  // ─── Price Summary card ────────────────────────────────────────────────────
+  modalPriceSummaryCard: {
+    backgroundColor: COLORS.common.white,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   modalPriceRow: {
     flexDirection: "row",
@@ -378,53 +602,41 @@ export const orderStyles = StyleSheet.create({
   },
   modalPriceLabel: {
     fontSize: 14,
-    color: "#666",
+    color: "#888",
   },
   modalPriceValue: {
     fontSize: 14,
+    fontWeight: "500",
     color: "#333",
   },
   modalTotalRow: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
-  modalTotalLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.light.primary,
-  },
-  modalTotalValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.light.primary,
-  },
-  // Add to orderStyles
-  specialInstructionsBox: {
-    flexDirection: "row",
-    backgroundColor: "#f8f9fa",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  specialInstructionsText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-    lineHeight: 20,
-  },
-  gcashProofSection: {
-    marginTop: 12,
+    marginTop: 4,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
+  modalTotalLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+  },
+  modalTotalValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.light.primary,
+    letterSpacing: -0.5,
+  },
+
+  // ─── Legacy aliases (kept for existing refs) ───────────────────────────────
   proofLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginBottom: 8,
   },
   proofImageContainer: {
@@ -433,7 +645,7 @@ export const orderStyles = StyleSheet.create({
     height: 200,
     borderRadius: 8,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: 16,
   },
   proofImage: {
     width: "100%",
@@ -455,63 +667,8 @@ export const orderStyles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 8,
   },
-  referenceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  referenceLabel: {
-    fontSize: 14,
-    color: "#666",
-    width: 120,
-  },
-  referenceValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.light.primary,
-    flex: 1,
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    marginHorizontal: 16,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
 
-  searchIcon: {
-    marginRight: 8,
-  },
-
-  searchInput: {
-    flex: 1,
-    height: 40,
-    fontSize: 16,
-    color: "#333",
-  },
-
-  clearButton: {
-    padding: 4,
-  },
-
-  searchResultInfo: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-
-  searchResultText: {
-    fontSize: 14,
-    color: "#666",
-    fontStyle: "italic",
-  },
-  // Add these to your existing orderStyles object
-
-  // Rating Modal Content (if not already present)
+  // ─── Rating Modal ──────────────────────────────────────────────────────────
   ratingModalContent: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 20,
@@ -520,77 +677,62 @@ export const orderStyles = StyleSheet.create({
     maxHeight: "90%",
     width: "100%",
   },
-
-  // Order Info Section
   ratingOrderInfo: {
     marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
   },
-
   ratingOrderNumber: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 4,
   },
-
   ratingOrderDate: {
     fontSize: 14,
     color: "#666",
   },
-
-  // Products Summary
   productsSummary: {
     backgroundColor: "#F8F9FA",
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
   },
-
   productsSummaryTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
   },
-
   productItem: {
     fontSize: 13,
     color: "#4B5563",
     marginBottom: 4,
     paddingLeft: 8,
   },
-
-  // Rating Section
   ratingSection: {
     marginBottom: 16,
   },
-
   ratingHeader: {
     marginBottom: 8,
   },
-
   ratingLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 2,
   },
-
   ratingDescription: {
     fontSize: 13,
     color: "#666",
     marginBottom: 8,
   },
-
   starsRow: {
     flexDirection: "row",
     justifyContent: "center",
     marginVertical: 8,
   },
-
   ratingHint: {
     fontSize: 14,
     color: "#666",
@@ -598,19 +740,14 @@ export const orderStyles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 4,
   },
-
-  // Divider
   ratingDivider: {
     height: 1,
     backgroundColor: "#F0F0F0",
     marginVertical: 16,
   },
-
-  // Comment Section
   ratingCommentContainer: {
     marginBottom: 24,
   },
-
   ratingCommentInput: {
     borderWidth: 1,
     borderColor: "#E0E0E0",
@@ -622,14 +759,11 @@ export const orderStyles = StyleSheet.create({
     textAlignVertical: "top",
     marginTop: 8,
   },
-
-  // Action Buttons
   ratingActions: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-
   ratingDeleteButton: {
     backgroundColor: "#FEE2E2",
     paddingVertical: 12,
@@ -639,13 +773,11 @@ export const orderStyles = StyleSheet.create({
     marginRight: 8,
     alignItems: "center",
   },
-
   ratingDeleteButtonText: {
     color: "#DC2626",
     fontSize: 14,
     fontWeight: "600",
   },
-
   ratingSubmitButton: {
     backgroundColor: COLORS.light.primary,
     paddingVertical: 12,
@@ -655,13 +787,11 @@ export const orderStyles = StyleSheet.create({
     marginLeft: 8,
     alignItems: "center",
   },
-
   ratingSubmitButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
   },
-
   ratingNote: {
     fontSize: 12,
     color: "#999",
@@ -669,19 +799,15 @@ export const orderStyles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
-
   disabledButton: {
     opacity: 0.5,
   },
-
-  // Review Status Styles (for OrderDetailsModal)
   reviewStatusContainer: {
     alignItems: "center",
     padding: 16,
     backgroundColor: "#F9FAFB",
     borderRadius: 8,
   },
-
   reviewStatusText: {
     fontSize: 14,
     color: "#4B5563",
@@ -689,20 +815,17 @@ export const orderStyles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
-
   updateReviewButton: {
     backgroundColor: "#E5E7EB",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 6,
   },
-
   updateReviewButtonText: {
     color: "#4B5563",
     fontSize: 14,
     fontWeight: "500",
   },
-
   rateOrderButton: {
     backgroundColor: COLORS.light.primary,
     flexDirection: "row",
@@ -713,26 +836,20 @@ export const orderStyles = StyleSheet.create({
     borderRadius: 8,
     gap: 8,
   },
-
   rateOrderButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
   },
-  // Add these new styles to your existing orderStyles
-
-  // Product Items with Images
   productsContainer: {
     marginBottom: 16,
   },
-
   productsTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 12,
   },
-
   productItemCard: {
     flexDirection: "row",
     backgroundColor: "#F8F9FA",
@@ -740,61 +857,49 @@ export const orderStyles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
-
   productImageContainer: {
     marginRight: 12,
   },
-
   productImage: {
     width: 60,
     height: 60,
     borderRadius: 8,
   },
-
   productImagePlaceholder: {
     backgroundColor: "#E5E7EB",
     justifyContent: "center",
     alignItems: "center",
   },
-
   productInfo: {
     flex: 1,
     justifyContent: "center",
   },
-
   productName: {
     fontSize: 14,
     fontWeight: "500",
     color: "#333",
     marginBottom: 4,
   },
-
   productMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
-
   productQuantity: {
     fontSize: 13,
     color: "#666",
   },
-
   productPrice: {
     fontSize: 16,
     fontWeight: "600",
     color: COLORS.light.primary,
   },
-
   productVendor: {
     fontSize: 12,
     color: "#999",
   },
-
-  // Product Rating Section (Large Stars)
   productRatingSection: {
     alignItems: "center",
   },
-
   productRatingLabel: {
     fontSize: 16,
     fontWeight: "600",
@@ -802,31 +907,25 @@ export const orderStyles = StyleSheet.create({
     marginBottom: 12,
     alignSelf: "flex-start",
   },
-
   productStarsRow: {
     flexDirection: "row",
     justifyContent: "center",
     marginBottom: 8,
   },
-
   productRatingHint: {
     fontSize: 14,
     color: "#666",
     fontWeight: "500",
   },
-
-  // Inline Rating Section (Small Stars)
   serviceRatingsContainer: {
     marginBottom: 16,
   },
-
   serviceRatingsTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 12,
   },
-
   inlineRatingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -834,75 +933,22 @@ export const orderStyles = StyleSheet.create({
     marginBottom: 12,
     paddingVertical: 4,
   },
-
   inlineRatingLabel: {
     fontSize: 15,
     color: "#4B5563",
     flex: 1,
   },
-
   inlineStarsContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   inlineStar: {
     marginHorizontal: 2,
   },
-
-  // Comment Section
   commentLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
-  },
-  // Add these to your orderStyles
-  riderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f8f9fa",
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  riderAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
-  },
-  riderAvatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.light.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  riderAvatarText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  riderInfo: {
-    flex: 1,
-  },
-  riderName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#212121",
-    marginBottom: 2,
-  },
-  riderStatus: {
-    fontSize: 13,
-    color: "#666",
-    textTransform: "capitalize",
-  },
-  riderVehicle: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 2,
   },
 });

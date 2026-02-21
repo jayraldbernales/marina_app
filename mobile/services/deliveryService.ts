@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import * as FileSystem from "expo-file-system";
 
 export type DeliveryItem = {
   id: string;
@@ -35,6 +36,8 @@ export type Delivery = {
   items: DeliveryItem[];
   status: DatabaseDeliveryStatus;
   total_amount: number;
+  delivery_fee?: number;
+  subtotal?: number;
   scheduled_date: string;
   delivery_address: string;
   vendor_address: string;
@@ -49,6 +52,11 @@ export type Delivery = {
   delivered_at?: string;
   rejection_count?: number;
   assignment_attempts?: number;
+  pickup_proof_url?: string;
+  delivered_proof_url?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  vendor_phone?: string;
 };
 
 class DeliveryService {
@@ -59,29 +67,16 @@ class DeliveryService {
       data: { session },
       error: sessionError,
     } = await supabase.auth.getSession();
-    console.log("Session exists:", !!session);
-    console.log("Session user ID:", session?.user?.id);
-    console.log("Rider ID passed:", riderId);
-    console.log("Match?", session?.user?.id === riderId);
 
     // Also check what the database sees
     const { data: userData, error: userError } =
       await supabase.rpc("get_auth_uid");
-    console.log("Database auth.uid():", userData);
-    console.log("Fetching deliveries for rider:", riderId);
 
     // STEP 1: First, just get the deliveries without the join to see if RLS is working
     const { data: rawDeliveries, error: rawError } = await supabase
       .from("deliveries")
       .select("*")
       .eq("rider_user_id", riderId);
-
-    console.log("Raw deliveries found:", rawDeliveries?.length || 0);
-    if (rawDeliveries && rawDeliveries.length > 0) {
-      console.log("First raw delivery:", rawDeliveries[0]);
-    } else {
-      console.log("No raw deliveries found for rider:", riderId);
-    }
 
     // STEP 2: Now try the full query with join
     const { data: deliveries, error } = await supabase
@@ -93,6 +88,7 @@ class DeliveryService {
           order_id,
           order_number,
           total_amount,
+          delivery_fee,
           created_at,
           user_id,
           vendor_user_id,
@@ -126,12 +122,6 @@ class DeliveryService {
       return [];
     }
 
-    console.log("Joined deliveries count:", deliveries?.length || 0);
-    if (deliveries && deliveries.length > 0) {
-      console.log("First joined delivery:", deliveries[0]);
-      console.log("Has orders data?", !!deliveries[0].orders);
-    }
-
     return this.formatDeliveries(deliveries);
   }
 
@@ -145,6 +135,7 @@ class DeliveryService {
           order_id,
           order_number,
           total_amount,
+          delivery_fee,
           created_at,
           user_id,
           vendor_user_id,
@@ -207,8 +198,6 @@ class DeliveryService {
       throw error;
     }
 
-    console.log("RPC Response:", data);
-
     // Clear timeout if this is a response from a rider
     if (!rejectionReason?.includes("timeout")) {
       try {
@@ -223,7 +212,141 @@ class DeliveryService {
     return data;
   }
 
-  // Update delivery status - FIXED to update order status correctly
+  // Upload image to Supabase Storage
+  async uploadProofImage(
+    uri: string,
+    deliveryId: string,
+    riderId: string,
+    type: "pickup" | "delivery",
+  ): Promise<string> {
+    try {
+      // Create filename with path structure: delivery-proofs/{riderId}/{type}-proof-{deliveryId}-{timestamp}.jpg
+      const fileName = `${type}-proof-${deliveryId}-${Date.now()}.jpg`;
+      const filePath = `${riderId}/${fileName}`;
+
+      // Convert image to base64
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Convert base64 to binary
+      const binaryData = atob(base64);
+      const bytes = new Uint8Array(binaryData.length);
+      for (let i = 0; i < binaryData.length; i++) {
+        bytes[i] = binaryData.charCodeAt(i);
+      }
+
+      // Upload to Supabase Storage
+      const { error } = await supabase.storage
+        .from("delivery-proofs")
+        .upload(filePath, bytes, {
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      // Get public URL
+      const { data: publicData } = supabase.storage
+        .from("delivery-proofs")
+        .getPublicUrl(filePath);
+
+      console.log(`Upload successful: ${publicData.publicUrl}`);
+      return publicData.publicUrl;
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      throw error;
+    }
+  }
+
+  // Confirm pickup with proof photo
+  async confirmPickupWithProof(
+    deliveryId: string,
+    orderId: string,
+    imageUrl: string,
+  ) {
+    try {
+      console.log(`Confirming pickup for delivery ${deliveryId}`);
+
+      // Update deliveries table
+      const { error: deliveryError } = await supabase
+        .from("deliveries")
+        .update({
+          pickup_proof_url: imageUrl,
+          status: "picked_up",
+          pickup_time: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("delivery_id", deliveryId);
+
+      if (deliveryError) throw deliveryError;
+
+      // Update order status to shipped
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          order_status: "shipped",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("order_id", orderId);
+
+      if (orderError) throw orderError;
+
+      console.log(`Pickup confirmed for delivery ${deliveryId}`);
+    } catch (error) {
+      console.error("Error confirming pickup:", error);
+      throw error;
+    }
+  }
+
+  // Confirm delivery with proof photo
+  async confirmDeliveryWithProof(
+    deliveryId: string,
+    orderId: string,
+    riderId: string,
+    imageUrl: string,
+  ) {
+    try {
+      // Update deliveries table
+      const { error: deliveryError } = await supabase
+        .from("deliveries")
+        .update({
+          delivered_proof_url: imageUrl,
+          status: "delivered",
+          delivered_time: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("delivery_id", deliveryId);
+
+      if (deliveryError) throw deliveryError;
+
+      // Update order status to delivered
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          order_status: "delivered",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("order_id", orderId);
+
+      if (orderError) throw orderError;
+
+      // Set rider back to AVAILABLE when delivery is completed
+      const { error: riderError } = await supabase
+        .from("rider_profiles")
+        .update({
+          is_available: true,
+        })
+        .eq("user_id", riderId);
+
+      if (riderError) throw riderError;
+    } catch (error) {
+      console.error("Error confirming delivery:", error);
+      throw error;
+    }
+  }
+
+  // Update delivery status - kept for backward compatibility
   async updateDeliveryStatus(
     deliveryId: string,
     status: DeliveryStatus,
@@ -265,7 +388,7 @@ class DeliveryService {
         await supabase
           .from("orders")
           .update({
-            order_status: "delivered", // This was missing!
+            order_status: "delivered",
           })
           .eq("order_id", delivery.order_id);
 
@@ -357,8 +480,29 @@ class DeliveryService {
         order.vendor_user_id,
       );
 
+      // Get customer profile for name and phone
+      const { data: customerProfile } = await supabase
+        .from("profiles")
+        .select("full_name, mobile_number")
+        .eq("user_id", order.user_id)
+        .single();
+
+      // Get vendor's mobile number from profiles table
+      const { data: vendorUserProfile } = await supabase
+        .from("profiles")
+        .select("mobile_number")
+        .eq("user_id", order.vendor_user_id)
+        .single();
+
       // Get order items - now from order.order_items
       const orderItems = order.order_items || [];
+
+      // Calculate subtotal from items
+      const itemsSubtotal = orderItems.reduce(
+        (sum: number, item: any) =>
+          sum + (item.unit_price || 0) * (item.quantity || 0),
+        0,
+      );
 
       const items = orderItems.map((item: any) => {
         const images = item.products?.images || [];
@@ -384,6 +528,8 @@ class DeliveryService {
         items,
         status: d.status,
         total_amount: order.total_amount || 0,
+        delivery_fee: order.delivery_fee || 0,
+        subtotal: itemsSubtotal,
         scheduled_date: new Date(d.created_at).toLocaleDateString(),
         delivery_address: customerAddress.full_address || "",
         vendor_address: vendorAddress?.full_address || "",
@@ -398,6 +544,12 @@ class DeliveryService {
         delivered_at: d.delivered_time,
         rejection_count: d.rejection_count,
         assignment_attempts: d.assignment_attempts,
+        pickup_proof_url: d.pickup_proof_url,
+        delivered_proof_url: d.delivered_proof_url,
+        // Contact information
+        customer_name: customerProfile?.full_name || "Customer",
+        customer_phone: customerProfile?.mobile_number || "No phone",
+        vendor_phone: vendorUserProfile?.mobile_number || "No phone",
       });
     }
 
