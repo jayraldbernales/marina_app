@@ -39,6 +39,7 @@ interface Product {
   };
   category?: string | null;
   type: "product";
+  freshness_status: FreshnessStatus;
 }
 
 interface Vendor {
@@ -48,7 +49,8 @@ interface Vendor {
   description?: string | null;
   location?: string | null;
   product_count?: number;
-  rating?: number;
+  rating: number;
+  totalReviews: number;
   type: "vendor";
 }
 
@@ -82,6 +84,13 @@ interface FreshnessResult {
   color: string;
 }
 
+// Review data type
+interface ReviewData {
+  vendor_rating: number;
+  review_id: string;
+  created_at: string;
+}
+
 // -------------------- CONSTANTS --------------------
 
 const FRESHNESS_FILTERS: Array<{
@@ -98,6 +107,13 @@ const FRESHNESS_FILTERS: Array<{
   { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
   { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
   { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+];
+
+// Filter out products that are not fresh (exclude FAIR and OLD)
+const ALLOWED_FRESHNESS = [
+  FreshnessStatus.ULTRA_FRESH,
+  FreshnessStatus.FRESH,
+  FreshnessStatus.GOOD,
 ];
 
 const PRICE_RANGES: PriceRange[] = [
@@ -128,6 +144,12 @@ const getFreshnessScore = (harvestedAt: string): number => {
     default:
       return 0;
   }
+};
+
+// Check if product is fresh enough to display
+const isProductFresh = (harvestedAt: string): boolean => {
+  const freshness = computeFreshness(harvestedAt);
+  return ALLOWED_FRESHNESS.includes(freshness.status);
 };
 
 // Type guards
@@ -198,6 +220,41 @@ const BuyerSearch = () => {
     }
   }, []);
 
+  // Fetch vendor rating
+  const fetchVendorRating = useCallback(async (vendorId: string) => {
+    try {
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from("reviews")
+        .select("vendor_rating")
+        .eq("vendor_user_id", vendorId);
+
+      if (reviewsError) {
+        console.error("Error fetching vendor reviews:", reviewsError);
+        return { rating: 0, totalReviews: 0 };
+      }
+
+      const reviews = (reviewsData as ReviewData[]) || [];
+
+      if (reviews.length === 0) {
+        return { rating: 0, totalReviews: 0 };
+      }
+
+      const sumRatings = reviews.reduce(
+        (sum, review) => sum + review.vendor_rating,
+        0,
+      );
+      const avgRating = Math.round((sumRatings / reviews.length) * 10) / 10;
+
+      return {
+        rating: avgRating,
+        totalReviews: reviews.length,
+      };
+    } catch (error) {
+      console.error("Error in fetchVendorRating:", error);
+      return { rating: 0, totalReviews: 0 };
+    }
+  }, []);
+
   // Search products
   const searchProducts = useCallback(async (query: string) => {
     try {
@@ -237,50 +294,60 @@ const BuyerSearch = () => {
         return [];
       }
 
-      return (data || []).map((item: any) => {
-        let categoryName: string | null = null;
-        if (item.categories) {
-          if (Array.isArray(item.categories) && item.categories.length > 0) {
-            categoryName = item.categories[0]?.category_name || null;
-          } else if (
-            !Array.isArray(item.categories) &&
-            item.categories?.category_name
-          ) {
-            categoryName = item.categories.category_name;
+      const products = (data || [])
+        .map((item: any) => {
+          let categoryName: string | null = null;
+          if (item.categories) {
+            if (Array.isArray(item.categories) && item.categories.length > 0) {
+              categoryName = item.categories[0]?.category_name || null;
+            } else if (
+              !Array.isArray(item.categories) &&
+              item.categories?.category_name
+            ) {
+              categoryName = item.categories.category_name;
+            }
           }
-        }
 
-        let vendorData = item.vendor_profiles;
-        let shopName = "Seafood Vendor";
-        let avatarUrl: string | null = null;
+          let vendorData = item.vendor_profiles;
+          let shopName = "Seafood Vendor";
+          let avatarUrl: string | null = null;
 
-        if (vendorData) {
-          if (Array.isArray(vendorData) && vendorData.length > 0) {
-            shopName = vendorData[0]?.shop_name || "Seafood Vendor";
-            avatarUrl = vendorData[0]?.avatar_url || null;
-          } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
-            shopName = vendorData.shop_name;
-            avatarUrl = vendorData.avatar_url || null;
+          if (vendorData) {
+            if (Array.isArray(vendorData) && vendorData.length > 0) {
+              shopName = vendorData[0]?.shop_name || "Seafood Vendor";
+              avatarUrl = vendorData[0]?.avatar_url || null;
+            } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
+              shopName = vendorData.shop_name;
+              avatarUrl = vendorData.avatar_url || null;
+            }
           }
-        }
 
-        return {
-          id: item.product_id,
-          name: item.product_name,
-          price: Number(item.price ?? 0),
-          stock: Number(item.stock ?? 0),
-          thumbnail: item.images?.[0] ?? null,
-          harvested_at: item.harvested_at,
-          unit: item.unit,
-          vendor: {
-            id: item.vendor_user_id,
-            shop_name: shopName,
-            avatar_url: avatarUrl,
-          },
-          category: categoryName,
-          type: "product" as const,
-        };
-      });
+          const freshness = computeFreshness(item.harvested_at);
+
+          return {
+            id: item.product_id,
+            name: item.product_name,
+            price: Number(item.price ?? 0),
+            stock: Number(item.stock ?? 0),
+            thumbnail: item.images?.[0] ?? null,
+            harvested_at: item.harvested_at,
+            unit: item.unit,
+            vendor: {
+              id: item.vendor_user_id,
+              shop_name: shopName,
+              avatar_url: avatarUrl,
+            },
+            category: categoryName,
+            type: "product" as const,
+            freshness_status: freshness.status,
+          };
+        })
+        // Filter out products that are not fresh
+        .filter((product: Product) =>
+          ALLOWED_FRESHNESS.includes(product.freshness_status),
+        );
+
+      return products;
     } catch (error) {
       console.error("Error in searchProducts:", error);
       return [];
@@ -288,62 +355,71 @@ const BuyerSearch = () => {
   }, []);
 
   // Search vendors
-  const searchVendors = useCallback(async (query: string) => {
-    try {
-      let dbQuery = supabase
-        .from("vendor_profiles")
-        .select(
-          `
+  const searchVendors = useCallback(
+    async (query: string) => {
+      try {
+        let dbQuery = supabase
+          .from("vendor_profiles")
+          .select(
+            `
             user_id,
             shop_name,
             avatar_url,
             gcash_name,
             approval_status
           `,
-        )
-        .eq("approval_status", "approved");
+          )
+          .eq("approval_status", "approved");
 
-      if (query.trim()) {
-        dbQuery = dbQuery.ilike("shop_name", `%${query}%`);
-      }
+        if (query.trim()) {
+          dbQuery = dbQuery.ilike("shop_name", `%${query}%`);
+        }
 
-      const { data, error } = await dbQuery.order("shop_name", {
-        ascending: true,
-      });
+        const { data, error } = await dbQuery.order("shop_name", {
+          ascending: true,
+        });
 
-      if (error) {
-        console.error("Error searching vendors:", error);
+        if (error) {
+          console.error("Error searching vendors:", error);
+          return [];
+        }
+
+        const vendorsWithDetails = await Promise.all(
+          (data || []).map(async (vendor: any) => {
+            const { count: productCount } = await supabase
+              .from("products")
+              .select("*", { count: "exact", head: true })
+              .eq("vendor_user_id", vendor.user_id)
+              .eq("is_active", true)
+              .gt("stock", 0);
+
+            // Fetch vendor rating
+            const { rating, totalReviews } = await fetchVendorRating(
+              vendor.user_id,
+            );
+
+            return {
+              id: vendor.user_id,
+              shop_name: vendor.shop_name || "Unnamed Shop",
+              avatar_url: vendor.avatar_url,
+              description: null,
+              location: null,
+              product_count: productCount || 0,
+              rating: rating,
+              totalReviews: totalReviews,
+              type: "vendor" as const,
+            };
+          }),
+        );
+
+        return vendorsWithDetails;
+      } catch (error) {
+        console.error("Error in searchVendors:", error);
         return [];
       }
-
-      const vendorsWithDetails = await Promise.all(
-        (data || []).map(async (vendor: any) => {
-          const { count: productCount } = await supabase
-            .from("products")
-            .select("*", { count: "exact", head: true })
-            .eq("vendor_user_id", vendor.user_id)
-            .eq("is_active", true)
-            .gt("stock", 0);
-
-          return {
-            id: vendor.user_id,
-            shop_name: vendor.shop_name || "Unnamed Shop",
-            avatar_url: vendor.avatar_url,
-            description: null,
-            location: null,
-            product_count: productCount || 0,
-            rating: 4.5,
-            type: "vendor" as const,
-          };
-        }),
-      );
-
-      return vendorsWithDetails;
-    } catch (error) {
-      console.error("Error in searchVendors:", error);
-      return [];
-    }
-  }, []);
+    },
+    [fetchVendorRating],
+  );
 
   // Apply all filters
   const applyFilters = useCallback(
@@ -423,9 +499,14 @@ const BuyerSearch = () => {
           break;
       }
 
-      // Sort vendors alphabetically
+      // Sort vendors by rating (highest first) then alphabetically
       const sortedVendors = [...vendors] as Vendor[];
-      sortedVendors.sort((a, b) => a.shop_name.localeCompare(b.shop_name));
+      sortedVendors.sort((a, b) => {
+        if (a.rating !== b.rating) {
+          return b.rating - a.rating; // Higher rating first
+        }
+        return a.shop_name.localeCompare(b.shop_name); // Then alphabetically
+      });
 
       // Return vendors first, then products
       return [...sortedVendors, ...sortedProducts];
@@ -732,7 +813,13 @@ const BuyerSearch = () => {
             {item.shop_name}
           </Text>
 
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <View
               style={{
                 flexDirection: "row",
@@ -740,19 +827,22 @@ const BuyerSearch = () => {
                 marginRight: 12,
               }}
             >
-              <Text style={{ fontSize: 11, color: "#666", marginLeft: 2 }}>
+              <Text style={{ fontSize: 11, color: "#666" }}>
                 {item.product_count || 0} products
               </Text>
             </View>
 
-            {item.rating && (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="star" size={12} color="#FFB800" />
-                <Text style={{ fontSize: 11, color: "#666", marginLeft: 2 }}>
-                  {item.rating.toFixed(1)}
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons name="star" size={12} color="#FFB800" />
+              <Text style={{ fontSize: 11, color: "#666", marginLeft: 2 }}>
+                {item.rating > 0 ? item.rating.toFixed(1) : "0.0"}
+              </Text>
+              {item.totalReviews > 0 && (
+                <Text style={{ fontSize: 10, color: "#999", marginLeft: 2 }}>
+                  ({item.totalReviews})
                 </Text>
-              </View>
-            )}
+              )}
+            </View>
           </View>
         </View>
 

@@ -4,16 +4,12 @@ import {
   LayoutDashboard,
   Users,
   Store,
+  Bike,
   ShoppingCart,
   BarChart3,
-  ChevronLeft,
-  ChevronRight,
   Anchor,
   FileCheck,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
-
 interface NavItem {
   title: string;
   href: string;
@@ -25,37 +21,30 @@ const adminNavItems: NavItem[] = [
   { title: "Users", href: "/admin/users", icon: Users },
   { title: "Applications", href: "/admin/applications", icon: FileCheck },
   { title: "Vendors", href: "/admin/vendors", icon: Store },
+  { title: "Riders", href: "/admin/riders", icon: Bike },
   { title: "Orders", href: "/admin/orders", icon: ShoppingCart },
   { title: "Reports", href: "/admin/reports", icon: BarChart3 },
 ];
 
 export function AdminSidebar() {
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={cn(
-        "fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300 ease-out flex flex-col",
-        collapsed ? "w-16" : "w-64",
-      )}
-    >
+    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-card border-r border-border flex flex-col">
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-border">
+      <div className="h-16 flex items-center px-4 border-b border-border">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
             <Anchor className="w-5 h-5 text-primary-foreground" />
           </div>
-          {!collapsed && (
-            <div className="animate-fade-in">
-              <h1 className="font-semibold text-foreground text-lg tracking-tight">
-                MARINA
-              </h1>
-              <p className="text-xs text-muted-foreground -mt-0.5">
-                Admin Portal
-              </p>
-            </div>
-          )}
+          <div>
+            <h1 className="font-semibold text-foreground text-lg tracking-tight">
+              MARINA
+            </h1>
+            <p className="text-xs text-muted-foreground -mt-0.5">
+              Admin Portal
+            </p>
+          </div>
         </div>
       </div>
 
@@ -76,35 +65,12 @@ export function AdminSidebar() {
                   : "text-muted-foreground hover:text-foreground hover:bg-muted",
               )}
             >
-              <Icon
-                className={cn("w-5 h-5 shrink-0", collapsed && "mx-auto")}
-              />
-              {!collapsed && (
-                <span className="animate-fade-in">{item.title}</span>
-              )}
+              <Icon className="w-5 h-5 shrink-0" />
+              <span>{item.title}</span>
             </Link>
           );
         })}
       </nav>
-
-      {/* Bottom Actions */}
-      <div className="p-3 border-t border-border space-y-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full justify-center text-muted-foreground hover:text-foreground"
-        >
-          {collapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <>
-              <ChevronLeft className="w-4 h-4 mr-2" />
-              <span>Collapse</span>
-            </>
-          )}
-        </Button>
-      </div>
     </aside>
   );
 }

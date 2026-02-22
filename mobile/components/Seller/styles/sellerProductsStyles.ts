@@ -247,4 +247,36 @@ export const sellerProductsStyles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 22,
   },
+  sold: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  // Add these new styles for horizontal scrolling filters
+  horizontalFilterContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  horizontalTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#f3f4f6",
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  activeHorizontalTab: {
+    backgroundColor: COLORS.light.primary,
+    borderColor: COLORS.light.primary,
+  },
+  horizontalTabText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.light.oceanMedium,
+  },
+  activeHorizontalTabText: {
+    color: "#ffffff",
+    fontWeight: "600",
+  },
 });

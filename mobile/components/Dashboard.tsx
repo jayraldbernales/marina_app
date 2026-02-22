@@ -1,4 +1,4 @@
-// app/buyer/dashboard.tsx - Fixed rating and JSX syntax
+// app/buyer/dashboard.tsx - Using product ratings from reviews table
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
@@ -21,6 +21,7 @@ import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleto
 import { supabase } from "../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../utils/freshness";
 import { RealtimeChannel } from "@supabase/supabase-js";
+import { fetchMultipleProductRatings } from "../utils/productRatings";
 
 // -------------------- TYPES --------------------
 
@@ -38,7 +39,8 @@ interface Product {
     avatar_url?: string | null;
   };
   category?: string | null;
-  rating: number; // Added rating field (frontend only)
+  rating: number; // Product rating from reviews table
+  totalReviews: number; // Total number of reviews for this product
 }
 
 interface RawProductRow {
@@ -102,17 +104,6 @@ const getGreeting = (fullName?: string) => {
 
 const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
-};
-
-// Generate random rating for frontend (no database column needed)
-const generateRandomRating = (productId: string) => {
-  const hash = productId.split("").reduce((acc, char) => {
-    return acc + char.charCodeAt(0);
-  }, 0);
-
-  // Generate rating between 4.0 and 5.0
-  const baseRating = 4.0 + (hash % 10) / 10;
-  return Math.round(baseRating * 10) / 10;
 };
 
 // Freshness filter labels
@@ -329,7 +320,7 @@ const BuyerDashboard = () => {
     }
   }, []);
 
-  // Fetch products - optimized query with only needed fields
+  // Fetch products with product ratings from reviews table
   const fetchProducts = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -363,6 +354,12 @@ const BuyerDashboard = () => {
         return [];
       }
 
+      // Get unique product IDs to fetch ratings
+      const productIds = (data || []).map((item: any) => item.product_id);
+
+      // Fetch all product ratings at once using the shared function
+      const productRatingsMap = await fetchMultipleProductRatings(productIds);
+
       // Type-safe mapping with proper null checks
       const mappedProducts: Product[] = (data || []).map((item: any) => {
         // Handle categories (could be array or single object)
@@ -393,6 +390,12 @@ const BuyerDashboard = () => {
           }
         }
 
+        // Get product rating from map
+        const productRating = productRatingsMap[item.product_id] || {
+          rating: 0,
+          totalReviews: 0,
+        };
+
         return {
           id: item.product_id,
           name: item.product_name,
@@ -407,7 +410,8 @@ const BuyerDashboard = () => {
             avatar_url: avatarUrl,
           },
           category: categoryName,
-          rating: generateRandomRating(item.product_id), // Add random rating (frontend only)
+          rating: productRating.rating,
+          totalReviews: productRating.totalReviews,
         };
       });
 
@@ -1019,7 +1023,7 @@ const BuyerDashboard = () => {
                         </View>
                       </View>
 
-                      {/* Second row: Vendor name on left, rating on right */}
+                      {/* Second row: Vendor name on left, product rating on right */}
                       <View
                         style={{
                           flexDirection: "row",
@@ -1035,7 +1039,7 @@ const BuyerDashboard = () => {
                           {product.vendor.shop_name}
                         </Text>
 
-                        {/* Rating section - exactly like your old dashboard */}
+                        {/* Rating section - Using actual product rating from reviews table */}
                         <View
                           style={{ flexDirection: "row", alignItems: "center" }}
                         >
@@ -1045,7 +1049,9 @@ const BuyerDashboard = () => {
                             color="#FFD700"
                           />
                           <Text style={buyerDashboardStyles.productRating}>
-                            {product.rating.toFixed(1)}
+                            {product.rating > 0
+                              ? product.rating.toFixed(1)
+                              : "0.0"}
                           </Text>
                         </View>
                       </View>

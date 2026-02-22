@@ -7,7 +7,7 @@ interface RecentOrdersProps {
 }
 
 const statusStyles: Record<
-  Order["status"],
+  string, // Change from Order["status"] to string to be more flexible
   {
     variant: "default" | "secondary" | "destructive" | "outline";
     className: string;
@@ -29,9 +29,34 @@ const statusStyles: Record<
     variant: "secondary",
     className: "bg-destructive/10 text-destructive border-destructive/20",
   },
+  // Add a default fallback for unknown statuses
+  unknown: {
+    variant: "outline",
+    className: "bg-muted/10 text-muted-foreground border-muted/20",
+  },
+};
+
+// Helper function to safely get status styles
+const getStatusStyle = (status: string | undefined) => {
+  if (!status) return statusStyles.unknown;
+  return statusStyles[status.toLowerCase()] || statusStyles.unknown;
 };
 
 export function RecentOrders({ orders }: RecentOrdersProps) {
+  // Guard clause for empty orders
+  if (!orders || orders.length === 0) {
+    return (
+      <div className="bg-card rounded-xl border border-border shadow-card p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-2">
+          Recent Orders
+        </h3>
+        <p className="text-sm text-muted-foreground text-center py-8">
+          No recent orders found
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
       <div className="p-6 border-b border-border">
@@ -62,45 +87,47 @@ export function RecentOrders({ orders }: RecentOrdersProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {orders.map((order) => (
-              <tr
-                key={order.id}
-                className="hover:bg-muted/30 transition-colors"
-              >
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-sm font-medium text-foreground">
-                    {order.orderNumber}
-                  </span>
-                  <p className="text-xs text-muted-foreground">{order.date}</p>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-sm text-foreground">
-                    {order.buyerName}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-sm text-foreground">
-                    {order.vendorName}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge
-                    variant={statusStyles[order.status].variant}
-                    className={cn(
-                      "capitalize",
-                      statusStyles[order.status].className
-                    )}
-                  >
-                    {order.status}
-                  </Badge>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right">
-                  <span className="text-sm font-medium text-foreground">
-                    ₱{order.total.toLocaleString()}
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {orders.map((order) => {
+              const statusStyle = getStatusStyle(order.status);
+              return (
+                <tr
+                  key={order.id}
+                  className="hover:bg-muted/30 transition-colors"
+                >
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-sm font-medium text-foreground">
+                      {order.orderNumber || "N/A"}
+                    </span>
+                    <p className="text-xs text-muted-foreground">
+                      {order.date || "Unknown date"}
+                    </p>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-sm text-foreground">
+                      {order.buyerName || "Unknown"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-sm text-foreground">
+                      {order.vendorName || "Unknown"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <Badge
+                      variant={statusStyle.variant}
+                      className={cn("capitalize", statusStyle.className)}
+                    >
+                      {order.status || "pending"}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <span className="text-sm font-medium text-foreground">
+                      ₱{(order.total || 0).toLocaleString()}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

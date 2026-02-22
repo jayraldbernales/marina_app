@@ -11,7 +11,9 @@ interface AdminLayoutProps {
 const pageTitles: Record<string, string> = {
   "/admin": "Dashboard Overview",
   "/admin/users": "User Management",
+  "/admin/applications": "Applications Management",
   "/admin/vendors": "Vendor Management",
+  "/admin/riders": "Rider Management",
   "/admin/orders": "Order Monitoring",
   "/admin/reports": "Reports & Analytics",
 };

@@ -23,6 +23,7 @@ const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
 const Applications = lazy(() => import("@/pages/admin/Applications"));
 const UserManagement = lazy(() => import("@/pages/UserManagement"));
 const VendorManagement = lazy(() => import("@/pages/VendorManagement"));
+const RiderManagement = lazy(() => import("@/pages/RiderManagement"));
 const OrderMonitoring = lazy(() => import("@/pages/OrderMonitoring"));
 const ReportsAnalytics = lazy(() => import("@/pages/ReportsAnalytics"));
 
@@ -120,6 +121,16 @@ function AppRoutes() {
             <ProtectedRoute allowedRole="admin">
               <AdminLayout>
                 <OrderMonitoring />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/riders"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminLayout>
+                <RiderManagement />
               </AdminLayout>
             </ProtectedRoute>
           }
