@@ -55,22 +55,18 @@ const COLORS: Record<FreshnessStatus, string> = {
 const LABELS: Record<FreshnessStatus, string> = {
   [FreshnessStatus.PRE_ORDER]: "Pre-order",
   [FreshnessStatus.ULTRA_FRESH]: "Today’s Catch",
-  [FreshnessStatus.FRESH]: "Fresh (Iced)",
-  [FreshnessStatus.GOOD]: "Still Fresh",
-  [FreshnessStatus.FAIR]: "Consume Soon",
-  [FreshnessStatus.NOT_FRESH]: "Not Fresh",
-  [FreshnessStatus.UNKNOWN]: "Harvest Time Unknown",
+  [FreshnessStatus.FRESH]: "Yesterday’s Catch",
+  [FreshnessStatus.GOOD]: "2 Days Ago",
+  [FreshnessStatus.FAIR]: "3 Days Ago",
+  [FreshnessStatus.NOT_FRESH]: "Too Old",
+  [FreshnessStatus.UNKNOWN]: "Unknown Harvest",
 };
 
-/**
- * Selling windows in HOURS
- * These are intentionally coarse and realistic for wet markets.
- */
 const THRESHOLDS = {
-  ultraFresh: 8, // ≤ 8 hours — just harvested, highest quality
-  fresh: 24, // 8–24 hours — safe & fresh (same day)
-  good: 48, // 24–48 hours — still acceptable, cook immediately
-  fair: 60, // 48–60 hours — LAST CALL, sell today only
+  ultraFresh: 24, // ≤ 1 day
+  fresh: 48, // ≤ 2 days
+  good: 72, // ≤ 3 days
+  fair: 96, // ≤ 4 days
 } as const;
 
 /**

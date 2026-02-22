@@ -17,6 +17,8 @@ import { COLORS } from "../../constants";
 import { supabase } from "../../lib/supabase";
 import { computeFreshness } from "../../utils/freshness";
 import { formatHoursAgo } from "../../utils/time";
+import { fetchProductRating } from "../../utils/productRatings";
+import { ProductDiscount } from "../../utils/ProductDiscount";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -53,8 +55,6 @@ const formatTimeForDisplay = (dateString?: string | null) => {
   }
 };
 
-// REMOVED: Old computeFreshnessLabel function - now using the imported utility
-
 export default function ProductView() {
   const params = useLocalSearchParams();
   const productId =
@@ -63,6 +63,8 @@ export default function ProductView() {
   const [product, setProduct] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [rating, setRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
@@ -71,7 +73,7 @@ export default function ProductView() {
       const { data, error } = await supabase
         .from("products")
         .select(
-          "product_id, product_name, description, price, stock, unit, harvested_at, images, category_id, is_active, categories!inner(category_name)",
+          "product_id, product_name, description, price, discount_percent, stock, unit, harvested_at, images, category_id, is_active, sold_quantity, categories!inner(category_name)",
         )
         .eq("product_id", productId)
         .single();
@@ -83,6 +85,11 @@ export default function ProductView() {
       }
 
       setProduct(data);
+
+      // Fetch rating
+      const ratingData = await fetchProductRating(productId);
+      setRating(ratingData.rating);
+      setTotalReviews(ratingData.totalReviews);
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Unexpected error loading product.");
@@ -188,18 +195,19 @@ export default function ProductView() {
     );
   }
 
-  // CHANGED: Using computeFreshness from freshness.ts
   const freshness = computeFreshness(product?.harvested_at);
   const images = product?.images || [];
   const categoryName = product?.categories?.category_name ?? null;
   const harvestDate = formatDateForDisplay(product?.harvested_at);
   const harvestTime = formatTimeForDisplay(product?.harvested_at);
   const price = Number(product?.price) || 0;
+  const discountPercent = Number(product?.discount_percent) || 0;
+  const soldQuantity = Number(product?.sold_quantity) || 0;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
-        {/* Header - Kept Original */}
+        {/* Header */}
         <View style={styles.headerBar}>
           <TouchableOpacity onPress={goBack}>
             <Ionicons
@@ -223,7 +231,7 @@ export default function ProductView() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Image Carousel - Full Width */}
+          {/* Image Carousel with Discount Badge */}
           <View style={styles.imageCarouselContainer}>
             {images.length > 0 ? (
               <>
@@ -244,6 +252,15 @@ export default function ProductView() {
                   keyExtractor={(item, index) => `${item}-${index}`}
                 />
                 {renderImageIndicator()}
+
+                {/* Discount Badge */}
+                {discountPercent > 0 && (
+                  <View style={styles.discountBadge}>
+                    <Text style={styles.discountBadgeText}>
+                      -{discountPercent}%
+                    </Text>
+                  </View>
+                )}
               </>
             ) : (
               <View style={styles.noImageContainer}>
@@ -253,25 +270,31 @@ export default function ProductView() {
             )}
           </View>
 
-          {/* Price & Title Section - Shopee Style */}
+          {/* Price & Title Section */}
           <View style={styles.priceSection}>
-            <View style={styles.priceRow}>
-              <Text style={styles.currencySymbol}>₱</Text>
-              <Text style={styles.priceAmount}>{price.toLocaleString()}</Text>
-              <Text style={styles.priceUnit}>/{product.unit}</Text>
-            </View>
+            {/* Use ProductDiscount component for price display */}
+            <ProductDiscount
+              price={price}
+              discountPercent={discountPercent}
+              showBadge={false}
+              textSize="large"
+            />
 
             <Text style={styles.productTitle}>{product.product_name}</Text>
 
-            {/* Stats Row */}
+            {/* Stats Row - Now includes Sold and Rating */}
             <View style={styles.statsRow}>
+              {/* Stock */}
               <View style={styles.statItem}>
                 <Ionicons name="cube-outline" size={14} color="#757575" />
                 <Text style={styles.statText}>
                   {product.stock} {product.unit} left
                 </Text>
               </View>
+
               <View style={styles.statDivider} />
+
+              {/* Freshness */}
               <View style={styles.statItem}>
                 <View
                   style={[
@@ -280,8 +303,27 @@ export default function ProductView() {
                   ]}
                 />
                 <Text style={[styles.statText, { color: freshness.color }]}>
-                  {freshness.label}{" "}
-                  {/* CHANGED: freshness.label instead of freshness.text */}
+                  {freshness.label}
+                </Text>
+              </View>
+
+              <View style={styles.statDivider} />
+
+              {/* Sold Quantity */}
+              <View style={styles.statItem}>
+                <Ionicons name="bag-check-outline" size={14} color="#757575" />
+                <Text style={styles.statText}>
+                  Sold: {soldQuantity} {product.unit}
+                </Text>
+              </View>
+
+              <View style={styles.statDivider} />
+
+              {/* Rating */}
+              <View style={styles.statItem}>
+                <Ionicons name="star" size={14} color="#FFB800" />
+                <Text style={styles.statText}>
+                  {rating > 0 ? rating.toFixed(1) : "0.0"} ({totalReviews})
                 </Text>
               </View>
             </View>
@@ -390,15 +432,14 @@ export default function ProductView() {
             </View>
 
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Product ID: </Text>
+              <Text style={styles.infoLabel}>Product ID</Text>
               <Text style={styles.infoValue}>{product.product_id}</Text>
             </View>
 
             <View style={styles.infoDivider} />
 
-            {/* CHANGED: Added Freshness Status info */}
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Freshness: </Text>
+              <Text style={styles.infoLabel}>Freshness</Text>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <View
                   style={[
@@ -429,6 +470,44 @@ export default function ProductView() {
                 {product.stock} {product.unit}
               </Text>
             </View>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Sold Quantity</Text>
+              <Text style={styles.infoValue}>
+                {soldQuantity} {product.unit}
+              </Text>
+            </View>
+
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Rating</Text>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              >
+                <Ionicons name="star" size={16} color="#FFB800" />
+                <Text style={styles.infoValue}>
+                  {rating > 0 ? rating.toFixed(1) : "0.0"} ({totalReviews}{" "}
+                  {totalReviews === 1 ? "review" : "reviews"})
+                </Text>
+              </View>
+            </View>
+
+            {discountPercent > 0 && (
+              <>
+                <View style={styles.infoDivider} />
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Discount</Text>
+                  <View style={styles.discountInfoBadge}>
+                    <Text style={styles.discountInfoText}>
+                      {discountPercent}% OFF
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
           </View>
         </ScrollView>
       </View>
@@ -445,7 +524,6 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
-  // Original Header Styles - Unchanged
   headerBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -505,8 +583,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 32,
   },
-
-  // Image Carousel - Full Width Shopee Style
   imageCarouselContainer: {
     height: IMAGE_HEIGHT,
     backgroundColor: "#fff",
@@ -550,36 +626,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
   },
-
-  // Price Section - Shopee Style
+  discountBadge: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    backgroundColor: "#dc2626",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  discountBadgeText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   priceSection: {
     backgroundColor: "#fff",
     padding: 16,
     marginBottom: 8,
-  },
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 12,
-  },
-  currencySymbol: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: COLORS.light.coral,
-    marginTop: 4,
-  },
-  priceAmount: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: COLORS.light.coral,
-    marginLeft: 4,
-  },
-  priceUnit: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#757575",
-    marginTop: 12,
-    marginLeft: 4,
   },
   productTitle: {
     fontSize: 18,
@@ -591,20 +661,21 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
   },
   statItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
   statDivider: {
     width: 1,
     height: 14,
     backgroundColor: "#e0e0e0",
-    marginHorizontal: 12,
+    marginHorizontal: 8,
   },
   statText: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#757575",
   },
   freshnessDot: {
@@ -612,8 +683,6 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-
-  // Category & Status Section - Shopee Style
   categorySection: {
     backgroundColor: "#fff",
     paddingVertical: 8,
@@ -671,8 +740,6 @@ const styles = StyleSheet.create({
   statusTextInactive: {
     color: "#ef4444",
   },
-
-  // Harvest Section - Shopee Style
   harvestSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -714,8 +781,6 @@ const styles = StyleSheet.create({
     color: "#212121",
     textAlign: "center",
   },
-
-  // Description Section - Shopee Style
   descriptionSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -726,8 +791,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: "#424242",
   },
-
-  // Info Section - Shopee Style
   infoSection: {
     backgroundColor: "#fff",
     padding: 16,
@@ -751,5 +814,16 @@ const styles = StyleSheet.create({
   infoDivider: {
     height: 1,
     backgroundColor: "#f5f5f5",
+  },
+  discountInfoBadge: {
+    backgroundColor: "#dc2626",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  discountInfoText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
 });
