@@ -2,29 +2,53 @@ import { StatCard } from "@/components/dashboard/StatCard";
 import { ActivityChart } from "@/components/dashboard/ActivityChart";
 import { RecentOrders } from "@/components/dashboard/RecentOrders";
 import { TopVendors } from "@/components/dashboard/TopVendors";
-import {
-  mockStats,
-  mockWeeklyData,
-  mockOrders,
-  mockVendors,
-} from "@/data/mockData";
+import { useAdminDashboard } from "@/hooks/useAdminDashboard";
 import {
   Users,
   Store,
   ShoppingCart,
   CheckCircle,
   UserCheck,
-  Eye,
+  Bike, // Changed from Eye to Bike for riders
 } from "lucide-react";
 
 const AdminDashboard = () => {
+  const { stats, weeklyData, recentOrders, topVendors, loading } =
+    useAdminDashboard();
+
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6">
+          <p className="text-center text-muted-foreground">
+            Loading dashboard…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6 bg-card rounded-xl border border-border shadow-card">
+          <p className="text-center text-destructive">
+            Failed to load dashboard data.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const s = stats;
+
   return (
     <div className="space-y-6 animate-slide-in">
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
         <StatCard
           title="Total Users"
-          value={mockStats.totalUsers}
+          value={s.totalUsers}
           change="+12% from last month"
           changeType="positive"
           icon={Users}
@@ -32,7 +56,7 @@ const AdminDashboard = () => {
         />
         <StatCard
           title="Total Vendors"
-          value={mockStats.totalVendors}
+          value={s.totalVendors}
           change="+8% from last month"
           changeType="positive"
           icon={Store}
@@ -40,7 +64,7 @@ const AdminDashboard = () => {
         />
         <StatCard
           title="Total Orders"
-          value={mockStats.totalOrders}
+          value={s.totalOrders}
           change="+23% from last month"
           changeType="positive"
           icon={ShoppingCart}
@@ -48,7 +72,7 @@ const AdminDashboard = () => {
         />
         <StatCard
           title="Completed"
-          value={mockStats.completedTransactions}
+          value={s.completedTransactions}
           change="84% completion rate"
           changeType="neutral"
           icon={CheckCircle}
@@ -56,18 +80,18 @@ const AdminDashboard = () => {
         />
         <StatCard
           title="Buyers"
-          value={mockStats.buyerCount}
+          value={s.buyerCount}
           change="+15% growth"
           changeType="positive"
           icon={UserCheck}
           iconColor="bg-coral"
         />
         <StatCard
-          title="Viewers"
-          value={mockStats.viewerCount}
-          change="Active monitors"
+          title="Riders"
+          value={s.riderCount}
+          change="Active delivery partners"
           changeType="neutral"
-          icon={Eye}
+          icon={Bike} // Changed from Eye to Bike
           iconColor="bg-warning"
         />
       </div>
@@ -83,7 +107,7 @@ const AdminDashboard = () => {
               Order activity this week
             </p>
           </div>
-          <ActivityChart data={mockWeeklyData} type="bar" />
+          <ActivityChart data={weeklyData} type="bar" />
         </div>
 
         <div className="bg-card rounded-xl border border-border shadow-card p-6">
@@ -95,20 +119,21 @@ const AdminDashboard = () => {
               Weekly performance overview
             </p>
           </div>
-          <ActivityChart data={mockWeeklyData} type="line" />
+          <ActivityChart data={weeklyData} type="line" />
         </div>
       </div>
 
       {/* Tables Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <RecentOrders orders={mockOrders.slice(0, 5)} />
+          <RecentOrders orders={recentOrders} />
         </div>
         <div>
-          <TopVendors vendors={mockVendors} />
+          <TopVendors vendors={topVendors} />
         </div>
       </div>
     </div>
   );
 };
+
 export default AdminDashboard;

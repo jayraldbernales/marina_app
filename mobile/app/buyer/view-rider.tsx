@@ -37,6 +37,12 @@ type DeliveryHistory = {
   };
 };
 
+type ReviewData = {
+  rider_rating: number;
+  review_id: string;
+  created_at: string;
+};
+
 export default function ViewRiderScreen() {
   const params = useLocalSearchParams();
   const riderUserId = params?.rider_user_id as string;
@@ -49,7 +55,8 @@ export default function ViewRiderScreen() {
   const [stats, setStats] = useState({
     totalDeliveries: 0,
     completedDeliveries: 0,
-    rating: 4.8, // Temporary rating
+    rating: 0,
+    totalReviews: 0,
   });
 
   const loadRiderProfile = useCallback(async () => {
@@ -98,10 +105,38 @@ export default function ViewRiderScreen() {
         .eq("rider_user_id", riderUserId)
         .eq("status", "delivered");
 
+      // Fetch rider's ratings from reviews
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from("reviews")
+        .select("rider_rating, review_id, created_at")
+        .eq("rider_user_id", riderUserId);
+
+      if (reviewsError) {
+        console.error("Error fetching reviews:", reviewsError);
+      }
+
+      const reviews = (reviewsData as ReviewData[]) || [];
+
+      // Calculate average rating - default to 0 if no reviews
+      let avgRating = 0;
+      let totalReviews = 0;
+
+      if (reviews.length > 0) {
+        totalReviews = reviews.length;
+        const sumRatings = reviews.reduce(
+          (sum, review) => sum + review.rider_rating,
+          0,
+        );
+        avgRating = sumRatings / totalReviews;
+        // Round to 1 decimal place
+        avgRating = Math.round(avgRating * 10) / 10;
+      }
+
       setStats({
         totalDeliveries: totalCount || 0,
         completedDeliveries: completedCount || 0,
-        rating: 4.8,
+        rating: avgRating,
+        totalReviews: totalReviews,
       });
     } catch (err) {
       console.error("Error loading rider profile:", err);
@@ -139,8 +174,6 @@ export default function ViewRiderScreen() {
         console.error("Error fetching delivery history:", error);
         return;
       }
-
-      console.log("Raw delivery history data:", JSON.stringify(data, null, 2)); // Debug log
 
       // Transform the data to match DeliveryHistory type
       const transformedData: DeliveryHistory[] = (data || [])
@@ -372,7 +405,10 @@ export default function ViewRiderScreen() {
                     color="#FFD700"
                   />
                   <Text style={styles.riderRatingText}>
-                    {stats.rating.toFixed(1)} • Rider Rating
+                    {stats.rating > 0 ? stats.rating.toFixed(1) : "0.0"} •
+                    {stats.totalReviews > 0
+                      ? ` ${stats.totalReviews} review${stats.totalReviews === 1 ? "" : "s"}`
+                      : " No ratings yet"}
                   </Text>
                 </View>
 

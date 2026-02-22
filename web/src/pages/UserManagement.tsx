@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { mockUsers } from "@/data/mockData";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 import type { User, UserRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,72 +18,145 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Search, UserPlus, Edit2, UserX, Mail, Shield } from "lucide-react";
+import {
+  Search,
+  Mail,
+  Shield,
+  Loader2,
+  Ban,
+  CheckCircle,
+  AlertTriangle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface UserWithBan extends User {
+  banned?: boolean;
+}
 
 const UserManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [users, setUsers] = useState<User[]>(mockUsers);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newUser, setNewUser] = useState({
-    name: "",
-    email: "",
-    role: "viewer" as UserRole,
-  });
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [users, setUsers] = useState<UserWithBan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserWithBan | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
+
+  // Fetch users from profiles table (excluding admins)
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(
+          `
+          user_id,
+          full_name,
+          email,
+          role,
+          banned,
+          created_at
+        `,
+        )
+        .neq("role", "admin") // 👈 Exclude admins
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mappedUsers: UserWithBan[] = (data || []).map((profile: any) => ({
+        id: profile.user_id,
+        name: profile.full_name || "Unnamed User",
+        email: profile.email || "",
+        role: profile.role as UserRole,
+        banned: profile.banned || false,
+        createdAt: profile.created_at,
+      }));
+
+      setUsers(mappedUsers);
+    } catch (error: any) {
+      console.error("Error fetching users:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load users",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const handleBanUser = async () => {
+    if (!selectedUser) return;
+
+    setIsUpdating(true);
+    try {
+      const newBanStatus = !selectedUser.banned;
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ banned: newBanStatus })
+        .eq("user_id", selectedUser.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setUsers(
+        users.map((u) =>
+          u.id === selectedUser.id ? { ...u, banned: newBanStatus } : u,
+        ),
+      );
+
+      toast({
+        title: newBanStatus ? "User Banned" : "User Unbanned",
+        description: `${selectedUser.name} has been ${newBanStatus ? "banned" : "unbanned"} successfully.`,
+      });
+
+      setBanDialogOpen(false);
+      setSelectedUser(null);
+    } catch (error: any) {
+      console.error("Error updating user ban status:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update user status",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRole = roleFilter === "all" || user.role === roleFilter;
-    return matchesSearch && matchesRole;
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "banned" && user.banned) ||
+      (statusFilter === "active" && !user.banned);
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
-  const handleCreateUser = () => {
-    if (!newUser.name || !newUser.email) {
-      toast({
-        title: "Error",
-        description: "Please fill in all fields",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const user: User = {
-      id: `u${Date.now()}`,
-      ...newUser,
-    };
-
-    setUsers([...users, user]);
-    setNewUser({ name: "", email: "", role: "viewer" });
-    setIsCreateOpen(false);
-
-    toast({
-      title: "User Created",
-      description: `${user.name} has been added successfully.`,
-    });
-  };
-
-  const handleDeactivate = (userId: string) => {
-    toast({
-      title: "User Deactivated",
-      description: `User ${userId} has been deactivated.`,
-    });
-
-    // TODO: call API
-    // await deactivateUser(userId)
-  };
-
-  const roleColors: Record<UserRole, string> = {
-    admin: "bg-primary/10 text-primary border-primary/20",
+  const roleColors: Record<string, string> = {
     viewer: "bg-muted text-muted-foreground border-border",
+    user: "bg-muted text-muted-foreground border-border",
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-slide-in">
@@ -92,88 +165,32 @@ const UserManagement = () => {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search users..."
+            placeholder="Search users by name or email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
         <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Filter by role" />
+          <SelectTrigger className="w-full sm:w-32">
+            <SelectValue placeholder="Role" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Roles</SelectItem>
-            <SelectItem value="admin">Admin</SelectItem>
             <SelectItem value="viewer">Viewer</SelectItem>
+            <SelectItem value="user">User</SelectItem>
           </SelectContent>
         </Select>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <UserPlus className="w-4 h-4" />
-              Add User
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
-              <DialogDescription>
-                Add a new user to the system. They will receive an email
-                invitation.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Enter full name"
-                  value={newUser.name}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, name: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter email address"
-                  value={newUser.email}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, email: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select
-                  value={newUser.role}
-                  onValueChange={(value) =>
-                    setNewUser({ ...newUser, role: value as UserRole })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="viewer">User</SelectItem>
-                    <SelectItem value="viewer">Viewer</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreateUser}>Create User</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-full sm:w-32">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="banned">Banned</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Users Table */}
@@ -191,6 +208,12 @@ const UserManagement = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Role
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Joined
+                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
@@ -200,7 +223,10 @@ const UserManagement = () => {
               {filteredUsers.map((user) => (
                 <tr
                   key={user.id}
-                  className="hover:bg-muted/30 transition-colors"
+                  className={cn(
+                    "hover:bg-muted/30 transition-colors",
+                    user.banned && "bg-destructive/5",
+                  )}
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
@@ -233,20 +259,55 @@ const UserManagement = () => {
                       {user.role}
                     </Badge>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="sm">
-                        <Edit2 className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => handleDeactivate(user.id)}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {user.banned ? (
+                      <Badge variant="destructive" className="capitalize">
+                        <Ban className="w-3 h-3 mr-1" />
+                        Banned
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="bg-success/10 text-success border-success/20"
                       >
-                        <UserX className="w-4 h-4" />
-                      </Button>
-                    </div>
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Active
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <span className="text-sm text-muted-foreground">
+                      {user.createdAt
+                        ? new Date(user.createdAt).toLocaleDateString()
+                        : "N/A"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        user.banned
+                          ? "text-success hover:text-success"
+                          : "text-destructive hover:text-destructive",
+                      )}
+                      onClick={() => {
+                        setSelectedUser(user);
+                        setBanDialogOpen(true);
+                      }}
+                    >
+                      {user.banned ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Unban
+                        </>
+                      ) : (
+                        <>
+                          <Ban className="w-4 h-4 mr-2" />
+                          Ban
+                        </>
+                      )}
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -261,7 +322,69 @@ const UserManagement = () => {
           </div>
         )}
       </div>
+
+      {/* Summary */}
+      <div className="flex justify-between items-center text-sm text-muted-foreground">
+        <span>
+          Showing {filteredUsers.length} of {users.length} users
+        </span>
+        <span className="flex items-center gap-4">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 bg-success rounded-full" />
+            Active: {users.filter((u) => !u.banned).length}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 bg-destructive rounded-full" />
+            Banned: {users.filter((u) => u.banned).length}
+          </span>
+        </span>
+      </div>
+
+      {/* Ban Confirmation Dialog */}
+      <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              {selectedUser?.banned ? "Unban User" : "Ban User"}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedUser?.banned
+                ? `Are you sure you want to unban ${selectedUser?.name}? They will be able to access the platform again.`
+                : `Are you sure you want to ban ${selectedUser?.name}? They will lose access to the platform immediately.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBanDialogOpen(false);
+                setSelectedUser(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={selectedUser?.banned ? "default" : "destructive"}
+              onClick={handleBanUser}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : selectedUser?.banned ? (
+                "Unban User"
+              ) : (
+                "Ban User"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
+
 export default UserManagement;

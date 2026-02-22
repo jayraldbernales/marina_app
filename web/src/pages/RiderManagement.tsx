@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Vendor } from "@/types";
+import type { Rider } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -22,127 +22,133 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
-  Store,
-  Package,
+  Bike,
   Calendar,
-  TrendingUp,
   Eye,
   Ban,
   CheckCircle,
   AlertTriangle,
   Loader2,
   User,
-  MapPin,
+  Car,
+  Clock,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const VendorManagement = () => {
+// Local interface to avoid type issues
+interface RiderWithBan extends Rider {
+  riderBanned?: boolean;
+}
+
+const RiderManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [riders, setRiders] = useState<RiderWithBan[]>([]);
   const [loading, setLoading] = useState(true);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
+  const [selectedRider, setSelectedRider] = useState<RiderWithBan | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
 
-  // Fetch vendors with their ban status from vendor_profiles
-  const fetchVendors = async () => {
+  // Fetch riders with their ban status from rider_profiles
+  const fetchRiders = async () => {
     try {
       setLoading(true);
 
-      // Get all vendor profiles with their associated user profile data
-      const { data, error } = await supabase
-        .from("vendor_profiles")
+      // First get all rider profiles
+      const { data: riderData, error: riderError } = await supabase
+        .from("rider_profiles")
         .select(
           `
           user_id,
-          shop_name,
+          vehicle_type,
+          license_plate,
+          approval_status,
+          is_available,
           banned,
-          created_at,
-          profiles!vendor_profiles_user_id_fkey (
-            email,
-            full_name,
-            mobile_number
-          )
+          created_at
         `,
         )
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (riderError) throw riderError;
 
-      // Get product counts for each vendor
-      const vendorIds = data?.map((v) => v.user_id) || [];
-      let productCounts = new Map();
+      if (!riderData || riderData.length === 0) {
+        setRiders([]);
+        setLoading(false);
+        return;
+      }
 
-      if (vendorIds.length > 0) {
-        const { data: products } = await supabase
-          .from("products")
-          .select("vendor_user_id")
-          .in("vendor_user_id", vendorIds);
+      // Get user profile data separately
+      const userIds = riderData.map((r) => r.user_id);
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("user_id, email, full_name, mobile_number")
+        .in("user_id", userIds);
 
-        products?.forEach((p) => {
-          productCounts.set(
-            p.vendor_user_id,
-            (productCounts.get(p.vendor_user_id) || 0) + 1,
+      if (profileError) throw profileError;
+
+      // Create a map of profiles by user_id
+      const profileMap = new Map();
+      profileData?.forEach((profile) => {
+        profileMap.set(profile.user_id, profile);
+      });
+
+      // Get delivery counts for each rider
+      const deliveryCounts = new Map();
+
+      if (userIds.length > 0) {
+        const { data: deliveries } = await supabase
+          .from("deliveries")
+          .select("rider_user_id")
+          .in("rider_user_id", userIds)
+          .eq("status", "delivered");
+
+        deliveries?.forEach((d) => {
+          deliveryCounts.set(
+            d.rider_user_id,
+            (deliveryCounts.get(d.rider_user_id) || 0) + 1,
           );
         });
       }
 
-      // Get sales data for each vendor (only delivered orders)
-      const { data: sales } = await supabase
-        .from("orders")
-        .select("vendor_user_id, total_amount")
-        .eq("order_status", "delivered")
-        .in("vendor_user_id", vendorIds);
+      const mappedRiders: RiderWithBan[] = riderData.map((rider: any) => {
+        const profile = profileMap.get(rider.user_id) || {};
 
-      const salesMap = new Map();
-      sales?.forEach((order) => {
-        salesMap.set(
-          order.vendor_user_id,
-          (salesMap.get(order.vendor_user_id) || 0) +
-            Number(order.total_amount || 0),
-        );
+        // Determine status
+        let status: "active" | "pending" | "banned" = "pending";
+        if (rider.banned) {
+          status = "banned";
+        } else if (rider.approval_status === "approved") {
+          status = "active";
+        }
+
+        return {
+          id: rider.user_id,
+          name: profile?.full_name || "Unnamed Rider",
+          email: profile?.email || "",
+          mobileNumber: profile?.mobile_number,
+          status,
+          vehicleType: rider.vehicle_type || "Not specified",
+          licensePlate: rider.license_plate || "Not specified",
+          isAvailable: rider.is_available || false,
+          joinedDate: rider.created_at
+            ? new Date(rider.created_at).toLocaleDateString()
+            : "",
+          deliveryCount: deliveryCounts.get(rider.user_id) || 0,
+          totalEarnings: 0, // Set a default value
+          riderBanned: rider.banned,
+        };
       });
 
-      // Get business addresses for each vendor
-      const addressesMap = new Map();
-      if (vendorIds.length > 0) {
-        const { data: addresses } = await supabase
-          .from("addresses")
-          .select("user_id, full_address")
-          .in("user_id", vendorIds)
-          .eq("address_type", "business");
-
-        addresses?.forEach((addr) => {
-          addressesMap.set(addr.user_id, addr.full_address);
-        });
-      }
-
-      const mappedVendors: Vendor[] = (data || []).map((vendor: any) => ({
-        id: vendor.user_id,
-        name: vendor.shop_name || "Unnamed Shop",
-        email: vendor.profiles?.email || "",
-        mobileNumber: vendor.profiles?.mobile_number,
-        ownerName: vendor.profiles?.full_name,
-        status: vendor.banned ? "banned" : "active",
-        productCount: productCounts.get(vendor.user_id) || 0,
-        joinedDate: vendor.created_at
-          ? new Date(vendor.created_at).toLocaleDateString()
-          : "",
-        totalSales: salesMap.get(vendor.user_id) || 0,
-        shopBanned: vendor.banned,
-        businessAddress:
-          addressesMap.get(vendor.user_id) || "No business address set",
-      }));
-
-      setVendors(mappedVendors);
+      setRiders(mappedRiders);
     } catch (error: any) {
-      console.error("Error fetching vendors:", error);
+      console.error("Error fetching riders:", error);
       toast({
         title: "Error",
-        description: "Failed to load vendors",
+        description: "Failed to load riders",
         variant: "destructive",
       });
     } finally {
@@ -151,48 +157,50 @@ const VendorManagement = () => {
   };
 
   useEffect(() => {
-    fetchVendors();
+    fetchRiders();
   }, []);
 
-  const handleBanVendor = async () => {
-    if (!selectedVendor) return;
+  const handleBanRider = async () => {
+    if (!selectedRider) return;
 
     setIsUpdating(true);
     try {
-      const newBanStatus = !selectedVendor.shopBanned;
+      const newBanStatus = !selectedRider.riderBanned;
 
       const { error } = await supabase
-        .from("vendor_profiles")
+        .from("rider_profiles")
         .update({ banned: newBanStatus })
-        .eq("user_id", selectedVendor.id);
+        .eq("user_id", selectedRider.id);
 
       if (error) throw error;
 
       // Update local state
-      setVendors(
-        vendors.map((v) =>
-          v.id === selectedVendor.id
-            ? {
-                ...v,
-                status: newBanStatus ? "banned" : "active",
-                shopBanned: newBanStatus,
-              }
-            : v,
-        ),
+      setRiders(
+        riders.map((r) => {
+          if (r.id === selectedRider.id) {
+            const newStatus = newBanStatus ? "banned" : "active";
+            return {
+              ...r,
+              status: newStatus,
+              riderBanned: newBanStatus,
+            };
+          }
+          return r;
+        }),
       );
 
       toast({
-        title: newBanStatus ? "Shop Banned" : "Shop Unbanned",
-        description: `${selectedVendor.name} has been ${newBanStatus ? "banned" : "unbanned"} from selling.`,
+        title: newBanStatus ? "Rider Banned" : "Rider Unbanned",
+        description: `${selectedRider.name} has been ${newBanStatus ? "banned" : "unbanned"} from delivering.`,
       });
 
       setBanDialogOpen(false);
-      setSelectedVendor(null);
+      setSelectedRider(null);
     } catch (error: any) {
-      console.error("Error updating shop ban status:", error);
+      console.error("Error updating rider ban status:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update shop status",
+        description: error.message || "Failed to update rider status",
         variant: "destructive",
       });
     } finally {
@@ -200,26 +208,28 @@ const VendorManagement = () => {
     }
   };
 
-  const handleViewVendor = (vendor: Vendor) => {
-    setSelectedVendor(vendor);
+  const handleViewRider = (rider: RiderWithBan) => {
+    setSelectedRider(rider);
     setViewDialogOpen(true);
   };
 
-  const filteredVendors = vendors.filter((vendor) => {
+  const filteredRiders = riders.filter((rider) => {
     const matchesSearch =
-      vendor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      vendor.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      vendor.ownerName?.toLowerCase().includes(searchQuery.toLowerCase());
+      rider.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rider.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rider.vehicleType?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rider.licensePlate?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus =
-      statusFilter === "all" || vendor.status === statusFilter;
+      statusFilter === "all" || rider.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
   const stats = {
-    total: vendors.length,
-    active: vendors.filter((v) => v.status === "active").length,
-    banned: vendors.filter((v) => v.status === "banned").length,
-    totalProducts: vendors.reduce((acc, v) => acc + v.productCount, 0),
+    total: riders.length,
+    active: riders.filter((r) => r.status === "active").length,
+    pending: riders.filter((r) => r.status === "pending").length,
+    banned: riders.filter((r) => r.status === "banned").length,
+    available: riders.filter((r) => r.isAvailable).length,
   };
 
   if (loading) {
@@ -233,23 +243,34 @@ const VendorManagement = () => {
   return (
     <div className="space-y-6 animate-slide-in">
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Store className="w-6 h-6 text-primary" />
+            <Bike className="w-6 h-6 text-primary" />
           </div>
           <div>
             <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-            <p className="text-sm text-muted-foreground">Total Vendors</p>
+            <p className="text-sm text-muted-foreground">Total Riders</p>
           </div>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center">
-            <TrendingUp className="w-6 h-6 text-success" />
+            <CheckCircle className="w-6 h-6 text-success" />
           </div>
           <div>
             <p className="text-2xl font-bold text-foreground">{stats.active}</p>
-            <p className="text-sm text-muted-foreground">Active Vendors</p>
+            <p className="text-sm text-muted-foreground">Active</p>
+          </div>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
+            <Clock className="w-6 h-6 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-foreground">
+              {stats.pending}
+            </p>
+            <p className="text-sm text-muted-foreground">Pending</p>
           </div>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
@@ -258,18 +279,18 @@ const VendorManagement = () => {
           </div>
           <div>
             <p className="text-2xl font-bold text-foreground">{stats.banned}</p>
-            <p className="text-sm text-muted-foreground">Banned Vendors</p>
+            <p className="text-sm text-muted-foreground">Banned</p>
           </div>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-aqua-bright/20 flex items-center justify-center">
-            <Package className="w-6 h-6 text-ocean-medium" />
+            <Shield className="w-6 h-6 text-ocean-medium" />
           </div>
           <div>
             <p className="text-2xl font-bold text-foreground">
-              {stats.totalProducts}
+              {stats.available}
             </p>
-            <p className="text-sm text-muted-foreground">Total Products</p>
+            <p className="text-sm text-muted-foreground">Available Now</p>
           </div>
         </div>
       </div>
@@ -279,7 +300,7 @@ const VendorManagement = () => {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search vendors..."
+            placeholder="Search riders by name, email, vehicle..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -292,46 +313,58 @@ const VendorManagement = () => {
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="banned">Banned</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* Vendors Grid */}
+      {/* Riders Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredVendors.map((vendor) => (
+        {filteredRiders.map((rider) => (
           <div
-            key={vendor.id}
+            key={rider.id}
             className={cn(
               "bg-card rounded-xl border p-6 shadow-card hover:shadow-card-hover transition-all duration-300",
-              vendor.status === "banned"
+              rider.status === "banned"
                 ? "border-destructive/20 bg-destructive/5"
-                : "border-border",
+                : rider.status === "pending"
+                  ? "border-amber-200 bg-amber-50/50"
+                  : "border-border",
             )}
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Store className="w-6 h-6 text-primary" />
+                  <Bike className="w-6 h-6 text-primary" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-foreground">
-                    {vendor.name}
+                    {rider.name}
                   </h4>
-                  <p className="text-sm text-muted-foreground">
-                    {vendor.email}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{rider.email}</p>
                 </div>
               </div>
-              {vendor.status === "banned" ? (
+              {rider.status === "banned" ? (
                 <Badge variant="destructive" className="capitalize">
                   <Ban className="w-3 h-3 mr-1" />
                   Banned
                 </Badge>
+              ) : rider.status === "pending" ? (
+                <Badge
+                  variant="outline"
+                  className="bg-amber-100 text-amber-700 border-amber-200 capitalize"
+                >
+                  <Clock className="w-3 h-3 mr-1" />
+                  Pending
+                </Badge>
               ) : (
-                <Badge className="bg-success/10 text-success border-success/20 capitalize">
+                <Badge
+                  variant="outline"
+                  className="bg-green-100 text-green-700 border-green-200 capitalize"
+                >
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Active
+                  {rider.isAvailable ? "Available" : "Active"}
                 </Badge>
               )}
             </div>
@@ -339,20 +372,20 @@ const VendorManagement = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <Package className="w-4 h-4" />
-                  Products
+                  <Car className="w-4 h-4" />
+                  Vehicle
                 </span>
                 <span className="font-medium text-foreground">
-                  {vendor.productCount}
+                  {rider.vehicleType}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <TrendingUp className="w-4 h-4" />
-                  Total Sales
+                  <Shield className="w-4 h-4" />
+                  License
                 </span>
                 <span className="font-medium text-foreground">
-                  ₱{vendor.totalSales.toLocaleString()}
+                  {rider.licensePlate}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
@@ -361,7 +394,7 @@ const VendorManagement = () => {
                   Joined
                 </span>
                 <span className="font-medium text-foreground">
-                  {vendor.joinedDate || "N/A"}
+                  {rider.joinedDate || "N/A"}
                 </span>
               </div>
             </div>
@@ -372,24 +405,24 @@ const VendorManagement = () => {
                 size="sm"
                 className={cn(
                   "flex-1 gap-2",
-                  vendor.status === "banned"
-                    ? "text-success hover:text-success"
-                    : "text-primary hover:text-primary",
+                  rider.status === "banned"
+                    ? "text-green-600 hover:text-green-700"
+                    : "text-destructive hover:text-destructive",
                 )}
                 onClick={() => {
-                  setSelectedVendor(vendor);
+                  setSelectedRider(rider);
                   setBanDialogOpen(true);
                 }}
               >
-                {vendor.status === "banned" ? (
+                {rider.status === "banned" ? (
                   <>
                     <CheckCircle className="w-4 h-4" />
-                    Unban Shop
+                    Unban
                   </>
                 ) : (
                   <>
                     <Ban className="w-4 h-4" />
-                    Ban Shop
+                    Ban
                   </>
                 )}
               </Button>
@@ -397,7 +430,7 @@ const VendorManagement = () => {
                 variant="default"
                 size="sm"
                 className="flex-1 gap-2"
-                onClick={() => handleViewVendor(vendor)}
+                onClick={() => handleViewRider(rider)}
               >
                 <Eye className="w-4 h-4" />
                 View
@@ -407,39 +440,44 @@ const VendorManagement = () => {
         ))}
       </div>
 
-      {filteredVendors.length === 0 && (
+      {filteredRiders.length === 0 && (
         <div className="bg-card rounded-xl border border-border p-8 text-center">
-          <Store className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <Bike className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="text-muted-foreground">
-            No vendors found matching your criteria.
+            No riders found matching your criteria.
           </p>
         </div>
       )}
 
-      {/* View Vendor Details Modal - Improved width and compact */}
+      {/* View Rider Details Modal */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="sm:max-w-[500px] md:max-w-[550px] bg-white p-0 gap-0">
           {/* Header with subtle gradient */}
           <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-gray-900">
-                <Store className="w-5 h-5 text-primary" />
-                <span>Vendor Details</span>
-                {selectedVendor && (
+                <Bike className="w-5 h-5 text-primary" />
+                <span>Rider Details</span>
+                {selectedRider && (
                   <Badge
+                    variant="outline"
                     className={cn(
                       "ml-auto capitalize",
-                      selectedVendor.status === "active"
+                      selectedRider.status === "active"
                         ? "bg-green-100 text-green-700 border-green-200"
-                        : "bg-red-100 text-red-700 border-red-200",
+                        : selectedRider.status === "pending"
+                          ? "bg-amber-100 text-amber-700 border-amber-200"
+                          : "bg-red-100 text-red-700 border-red-200",
                     )}
                   >
-                    {selectedVendor.status === "active" ? (
+                    {selectedRider.status === "active" ? (
                       <CheckCircle className="w-3 h-3 mr-1" />
+                    ) : selectedRider.status === "pending" ? (
+                      <Clock className="w-3 h-3 mr-1" />
                     ) : (
                       <Ban className="w-3 h-3 mr-1" />
                     )}
-                    {selectedVendor.status}
+                    {selectedRider.status}
                   </Badge>
                 )}
               </DialogTitle>
@@ -447,85 +485,104 @@ const VendorManagement = () => {
           </div>
 
           {/* Content - Compact spacing */}
-          {selectedVendor && (
+          {selectedRider && (
             <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
-              {/* Quick Info Row - Compact */}
+              {/* Quick Info Row */}
               <div className="flex items-center gap-3 text-sm bg-primary/5 p-2 rounded-lg">
                 <div className="flex-1 text-center">
-                  <p className="text-xs text-gray-500">Shop Name</p>
-                  <p className="font-medium text-gray-900 truncate">
-                    {selectedVendor.name}
-                  </p>
+                  <p className="text-xs text-gray-500">Availability</p>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "mt-1",
+                      selectedRider.isAvailable
+                        ? "bg-green-100 text-green-700 border-green-200"
+                        : "bg-gray-100 text-gray-700 border-gray-200",
+                    )}
+                  >
+                    {selectedRider.isAvailable ? "Available" : "On Delivery"}
+                  </Badge>
                 </div>
                 <div className="w-px h-8 bg-gray-200" />
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-500">Joined</p>
                   <p className="font-medium text-gray-900">
-                    {selectedVendor.joinedDate}
+                    {selectedRider.joinedDate}
                   </p>
                 </div>
               </div>
 
-              {/* Owner Details - Compact Card */}
+              {/* Personal Details */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <h4 className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
                   <User className="w-3.5 h-3.5" />
-                  Owner Information
+                  Personal Information
                 </h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="col-span-2">
                     <p className="text-gray-500 text-xs">Full Name</p>
                     <p className="font-medium text-gray-900">
-                      {selectedVendor.ownerName || "N/A"}
+                      {selectedRider.name}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Email</p>
                     <p className="font-medium text-gray-900 text-xs truncate">
-                      {selectedVendor.email}
+                      {selectedRider.email}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Mobile</p>
                     <p className="font-medium text-gray-900 text-xs">
-                      {selectedVendor.mobileNumber || "N/A"}
+                      {selectedRider.mobileNumber || "N/A"}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Business Address - Compact */}
+              {/* Vehicle Details */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <h4 className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />
-                  Business Address
+                  <Car className="w-3.5 h-3.5" />
+                  Vehicle Information
                 </h4>
-                <p className="text-sm text-gray-700 break-words">
-                  {selectedVendor.businessAddress}
-                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-gray-500 text-xs">Vehicle Type</p>
+                    <p className="font-medium text-gray-900">
+                      {selectedRider.vehicleType}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">License Plate</p>
+                    <p className="font-medium text-gray-900">
+                      {selectedRider.licensePlate}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {/* Stats - Side by side layout */}
+              {/* Stats - Using Bike icon instead of TrendingUp */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-primary/5 rounded-lg p-3 flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Package className="w-4 h-4 text-primary" />
+                    <Bike className="w-4 h-4 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Products</p>
+                    <p className="text-xs text-gray-500">Deliveries</p>
                     <p className="text-lg font-bold text-gray-900">
-                      {selectedVendor.productCount}
+                      {selectedRider.deliveryCount}
                     </p>
                   </div>
                 </div>
-                <div className="bg-success/5 rounded-lg p-3 flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-success/10 flex items-center justify-center">
-                    <TrendingUp className="w-4 h-4 text-success" />
+                <div className="bg-green-50 rounded-lg p-3 flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                    <span className="text-lg font-bold text-green-600">₱</span>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Sales</p>
+                    <p className="text-xs text-gray-500">Earnings</p>
                     <p className="text-lg font-bold text-gray-900">
-                      ₱{selectedVendor.totalSales.toLocaleString()}
+                      {selectedRider.totalEarnings.toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -533,7 +590,7 @@ const VendorManagement = () => {
             </div>
           )}
 
-          {/* Footer - Simple */}
+          {/* Footer */}
           <DialogFooter className="px-6 py-3 bg-gray-50 border-t rounded-b-lg">
             <Button
               variant="outline"
@@ -545,18 +602,19 @@ const VendorManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Ban Confirmation Dialog - Keep existing styling */}
+
+      {/* Ban Confirmation Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-destructive" />
-              {selectedVendor?.status === "banned" ? "Unban Shop" : "Ban Shop"}
+              {selectedRider?.status === "banned" ? "Unban Rider" : "Ban Rider"}
             </DialogTitle>
             <DialogDescription>
-              {selectedVendor?.status === "banned"
-                ? `Are you sure you want to unban ${selectedVendor?.name}? They will be able to sell products again.`
-                : `Are you sure you want to ban ${selectedVendor?.name}? They will lose access to sell products.`}
+              {selectedRider?.status === "banned"
+                ? `Are you sure you want to unban ${selectedRider?.name}? They will be able to accept deliveries again.`
+                : `Are you sure you want to ban ${selectedRider?.name}? They will lose access to accept deliveries.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -564,16 +622,16 @@ const VendorManagement = () => {
               variant="outline"
               onClick={() => {
                 setBanDialogOpen(false);
-                setSelectedVendor(null);
+                setSelectedRider(null);
               }}
             >
               Cancel
             </Button>
             <Button
               variant={
-                selectedVendor?.status === "banned" ? "default" : "destructive"
+                selectedRider?.status === "banned" ? "default" : "destructive"
               }
-              onClick={handleBanVendor}
+              onClick={handleBanRider}
               disabled={isUpdating}
             >
               {isUpdating ? (
@@ -581,10 +639,10 @@ const VendorManagement = () => {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Updating...
                 </>
-              ) : selectedVendor?.status === "banned" ? (
-                "Unban Shop"
+              ) : selectedRider?.status === "banned" ? (
+                "Unban Rider"
               ) : (
-                "Ban Shop"
+                "Ban Rider"
               )}
             </Button>
           </DialogFooter>
@@ -594,4 +652,4 @@ const VendorManagement = () => {
   );
 };
 
-export default VendorManagement;
+export default RiderManagement;

@@ -167,7 +167,7 @@ export const riderDashboardStyles = StyleSheet.create({
   },
   deliveryItemFooter: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     alignItems: "center",
     paddingTop: 8,
     borderTopWidth: 1,
@@ -181,5 +181,13 @@ export const riderDashboardStyles = StyleSheet.create({
   deliveryItems: {
     fontSize: 13,
     color: COLORS.light.oceanMedium,
+  },
+  emptyDeliveries: {
+    padding: 32,
+    alignItems: "center",
+  },
+  emptyDeliveriesText: {
+    fontSize: 16,
+    color: "#999",
   },
 });

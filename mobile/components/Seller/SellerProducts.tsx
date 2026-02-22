@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -8,6 +14,7 @@ import {
   Image,
   Alert,
   RefreshControl,
+  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -15,9 +22,10 @@ import { COLORS } from "../../constants";
 import { sellerProductsStyles } from "./styles/sellerProductsStyles";
 import { supabase } from "../../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../../utils/freshness";
+import { fetchProductRating } from "../../utils/productRatings";
 
 // Types aligned with DB schema
-type StockFilter = "all" | "inStock" | "lowStock" | "outOfStock";
+type HarvestFilter = "all" | "today" | "yesterday" | "thisWeek" | "older";
 
 interface Product {
   id: string;
@@ -27,13 +35,27 @@ interface Product {
   thumbnail?: string | null;
   harvested_at: string;
   category?: string | null;
+  sold_quantity?: number;
+  rating?: number;
+  totalReviews?: number;
 }
 
 const SellerProducts = () => {
   const [products, setProducts] = useState<Product[]>([]);
-  const [filter, setFilter] = useState<StockFilter>("all");
+  const [filter, setFilter] = useState<HarvestFilter>("all");
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  const filterScrollViewRef = useRef<ScrollView>(null);
+
+  // Filter options
+  const filterOptions = [
+    { key: "all" as const, label: "All" },
+    { key: "today" as const, label: "Today" },
+    { key: "yesterday" as const, label: "Yesterday" },
+    { key: "thisWeek" as const, label: "This Week" },
+    { key: "older" as const, label: "Older" },
+  ];
 
   // Helpers
   const formatPrice = useCallback((price: number) => {
@@ -45,6 +67,37 @@ const SellerProducts = () => {
     if (stock <= 5) return { text: "Low Stock", color: "#ea580c" };
     return { text: "In Stock", color: COLORS.light.oceanMedium };
   }, []);
+
+  // Helper to check harvest date filter
+  const matchesHarvestFilter = useCallback(
+    (harvestDate: string, filterType: HarvestFilter): boolean => {
+      if (filterType === "all") return true;
+
+      const harvest = new Date(harvestDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const weekAgo = new Date(today);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+
+      switch (filterType) {
+        case "today":
+          return harvest >= today;
+        case "yesterday":
+          return harvest >= yesterday && harvest < today;
+        case "thisWeek":
+          return harvest >= weekAgo;
+        case "older":
+          return harvest < weekAgo;
+        default:
+          return true;
+      }
+    },
+    [],
+  );
 
   // Fetch products for current vendor
   const fetchProducts = useCallback(async () => {
@@ -80,12 +133,13 @@ const SellerProducts = () => {
           images, 
           is_active,
           category_id,
-          categories:category_id(category_name)
+          categories:category_id(category_name),
+          sold_quantity
         `,
         )
         .eq("vendor_user_id", user.id)
         .eq("is_active", true)
-        .order("product_name", { ascending: true });
+        .order("harvested_at", { ascending: false });
 
       if (error) {
         Alert.alert("Error", "Failed to load products. Please try again.");
@@ -101,6 +155,7 @@ const SellerProducts = () => {
         thumbnail: p.images?.[0] ?? null,
         harvested_at: p.harvested_at,
         category: p.categories?.category_name ?? null,
+        sold_quantity: Number(p.sold_quantity ?? 0),
       }));
 
       setProducts(mapped);
@@ -116,11 +171,41 @@ const SellerProducts = () => {
     }
   }, []);
 
+  // Fetch ratings for all products
+  const fetchRatingsForProducts = useCallback(async () => {
+    if (products.length === 0) return;
+
+    try {
+      const updatedProducts = [...products];
+
+      for (let i = 0; i < updatedProducts.length; i++) {
+        const product = updatedProducts[i];
+        const ratingData = await fetchProductRating(product.id);
+        updatedProducts[i] = {
+          ...product,
+          rating: ratingData.rating,
+          totalReviews: ratingData.totalReviews,
+        };
+      }
+
+      setProducts(updatedProducts);
+    } catch (error) {
+      console.error("Error fetching ratings:", error);
+    }
+  }, [products.length]);
+
   const searchParams = useLocalSearchParams();
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  // Fetch ratings after products are loaded
+  useEffect(() => {
+    if (products.length > 0 && !products[0]?.rating) {
+      fetchRatingsForProducts();
+    }
+  }, [products.length, fetchRatingsForProducts]);
 
   // Re-fetch when returning from add/edit actions (e.g. ?refresh=1)
   useEffect(() => {
@@ -137,17 +222,29 @@ const SellerProducts = () => {
     fetchProducts();
   }, [fetchProducts]);
 
-  // Filtered products according to stock state
+  // Filtered products according to harvest date
   const filteredProducts = useMemo(() => {
     if (filter === "all") return products;
-    return products.filter((product) => {
-      const status = getStockStatus(product.stock).text;
-      if (filter === "inStock") return status === "In Stock";
-      if (filter === "lowStock") return status === "Low Stock";
-      if (filter === "outOfStock") return status === "Out of Stock";
-      return true;
-    });
-  }, [filter, products, getStockStatus]);
+    return products.filter((product) =>
+      matchesHarvestFilter(product.harvested_at, filter),
+    );
+  }, [filter, products, matchesHarvestFilter]);
+
+  // Scroll to show selected filter
+  useEffect(() => {
+    if (filterScrollViewRef.current) {
+      const selectedIndex = filterOptions.findIndex(
+        (opt) => opt.key === filter,
+      );
+      if (selectedIndex !== -1) {
+        // Scroll to the selected filter (approximately)
+        filterScrollViewRef.current.scrollTo({
+          x: selectedIndex * 80, // Approximate width per tab
+          animated: true,
+        });
+      }
+    }
+  }, [filter]);
 
   // Navigation handlers
   const handleOpenProduct = useCallback((productId: string) => {
@@ -231,33 +328,39 @@ const SellerProducts = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Filter Tabs */}
-        <View style={sellerProductsStyles.tabsContainer}>
-          {[
-            { key: "all" as const, label: "All" },
-            { key: "inStock" as const, label: "In Stock" },
-            { key: "lowStock" as const, label: "Low Stock" },
-            { key: "outOfStock" as const, label: "Out of Stock" },
-          ].map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[
-                sellerProductsStyles.tab,
-                filter === tab.key && sellerProductsStyles.activeTab,
-              ]}
-              onPress={() => setFilter(tab.key)}
-              accessibilityLabel={`Filter by ${tab.label}`}
-            >
-              <Text
+        {/* Horizontally Scrollable Filter Tabs */}
+        <View>
+          <ScrollView
+            ref={filterScrollViewRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={
+              sellerProductsStyles.horizontalFilterContainer
+            }
+          >
+            {filterOptions.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
                 style={[
-                  sellerProductsStyles.tabText,
-                  filter === tab.key && sellerProductsStyles.activeTabText,
+                  sellerProductsStyles.horizontalTab,
+                  filter === tab.key &&
+                    sellerProductsStyles.activeHorizontalTab,
                 ]}
+                onPress={() => setFilter(tab.key)}
+                accessibilityLabel={`Filter by ${tab.label}`}
               >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    sellerProductsStyles.horizontalTabText,
+                    filter === tab.key &&
+                      sellerProductsStyles.activeHorizontalTabText,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
 
         {/* Products List */}
@@ -279,6 +382,15 @@ const SellerProducts = () => {
                 const isFairOrWorse =
                   freshness.status === FreshnessStatus.FAIR ||
                   freshness.status === FreshnessStatus.NOT_FRESH;
+
+                // Format harvest date for display
+                const harvestDate = new Date(
+                  product.harvested_at,
+                ).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                });
 
                 return (
                   <TouchableOpacity
@@ -346,7 +458,7 @@ const SellerProducts = () => {
                         </Text>
                       </View>
 
-                      {/* Category (if any) */}
+                      {/* Category and Sold Quantity */}
                       <View style={sellerProductsStyles.metaRow}>
                         {product.category ? (
                           <Text style={sellerProductsStyles.productCategory}>
@@ -357,9 +469,12 @@ const SellerProducts = () => {
                             No category
                           </Text>
                         )}
+                        <Text style={sellerProductsStyles.sold}>
+                          Sold: {product.sold_quantity || 0} kg
+                        </Text>
                       </View>
 
-                      {/* Stock Info */}
+                      {/* Stock Info and Rating */}
                       <View style={sellerProductsStyles.statsRow}>
                         <View style={sellerProductsStyles.stockContainer}>
                           <Text
@@ -369,6 +484,12 @@ const SellerProducts = () => {
                             ]}
                           >
                             {product.stock} stocks
+                          </Text>
+                        </View>
+                        <View style={sellerProductsStyles.ratingContainer}>
+                          <Ionicons name="star" size={14} color="#FFB800" />
+                          <Text style={sellerProductsStyles.ratingText}>
+                            {product.rating ? product.rating.toFixed(1) : "0.0"}
                           </Text>
                         </View>
                       </View>
@@ -418,7 +539,7 @@ const SellerProducts = () => {
               <Text style={sellerProductsStyles.emptyDescription}>
                 {filter === "all"
                   ? "Add your first product to get started."
-                  : `No ${filter} products found. Try a different filter.`}
+                  : `No products harvested ${filter} found. Try a different filter.`}
               </Text>
               {filter === "all" && (
                 <TouchableOpacity

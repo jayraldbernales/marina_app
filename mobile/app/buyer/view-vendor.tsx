@@ -36,6 +36,12 @@ type VendorProduct = {
   harvested_at: string | null;
 };
 
+type ReviewData = {
+  vendor_rating: number;
+  review_id: string;
+  created_at: string;
+};
+
 const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
 };
@@ -52,7 +58,10 @@ export default function ViewVendorScreen() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [vendorRating, setVendorRating] = useState(4.7); // Temporary rating
+  const [vendorStats, setVendorStats] = useState({
+    rating: 0,
+    totalReviews: 0,
+  });
   const PRODUCTS_PER_PAGE = 6;
 
   const loadVendorProfile = useCallback(async () => {
@@ -81,6 +90,38 @@ export default function ViewVendorScreen() {
       }
 
       setVendor(vendorData);
+
+      // Fetch vendor's ratings from reviews
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from("reviews")
+        .select("vendor_rating, review_id, created_at")
+        .eq("vendor_user_id", vendorUserId);
+
+      if (reviewsError) {
+        console.error("Error fetching reviews:", reviewsError);
+      }
+
+      const reviews = (reviewsData as ReviewData[]) || [];
+
+      // Calculate average rating - default to 0 if no reviews
+      let avgRating = 0;
+      let totalReviews = 0;
+
+      if (reviews.length > 0) {
+        totalReviews = reviews.length;
+        const sumRatings = reviews.reduce(
+          (sum, review) => sum + review.vendor_rating,
+          0,
+        );
+        avgRating = sumRatings / totalReviews;
+        // Round to 1 decimal place
+        avgRating = Math.round(avgRating * 10) / 10;
+      }
+
+      setVendorStats({
+        rating: avgRating,
+        totalReviews: totalReviews,
+      });
 
       // Fetch vendor's business address
       const { data: addressData, error: addressError } = await supabase
@@ -245,7 +286,6 @@ export default function ViewVendorScreen() {
     const imageUrl =
       item.images && item.images.length > 0 ? item.images[0] : null;
     const price = Number(item.price) || 0;
-    const productRating = 4.5 + Math.random() * 0.5; // Temporary random rating
 
     return (
       <TouchableOpacity
@@ -316,7 +356,7 @@ export default function ViewVendorScreen() {
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <MaterialCommunityIcons name="star" size={11} color="#FFD700" />
               <Text style={styles.productRating}>
-                {productRating.toFixed(1)}
+                {vendorStats.rating > 0 ? vendorStats.rating.toFixed(1) : "0.0"}
               </Text>
             </View>
           </View>
@@ -350,7 +390,11 @@ export default function ViewVendorScreen() {
             <View style={styles.vendorRatingContainer}>
               <MaterialCommunityIcons name="star" size={16} color="#FFD700" />
               <Text style={styles.vendorRatingText}>
-                {vendorRating.toFixed(1)} • Seller Rating
+                {vendorStats.rating > 0 ? vendorStats.rating.toFixed(1) : "0.0"}{" "}
+                •
+                {vendorStats.totalReviews > 0
+                  ? ` ${vendorStats.totalReviews} review${vendorStats.totalReviews === 1 ? "" : "s"}`
+                  : " No ratings yet"}
               </Text>
             </View>
 

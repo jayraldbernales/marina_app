@@ -528,8 +528,6 @@ class DispatchService {
 
   // Get rider assignment for an order - FIXED with type assertions
   async getRiderAssignment(orderId: string) {
-    console.log("Fetching rider assignment for order:", orderId);
-
     const { data, error } = await supabase
       .from("deliveries")
       .select(
@@ -554,8 +552,6 @@ class DispatchService {
       console.error("Error fetching rider assignment:", error);
       return null;
     }
-
-    console.log("Rider assignment data:", data);
 
     if (!data) {
       console.log("No rider assignment found for order:", orderId);

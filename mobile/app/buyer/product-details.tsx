@@ -1,3 +1,4 @@
+// app/buyer/product-details.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
@@ -24,6 +25,7 @@ import { computeFreshness } from "../../utils/freshness";
 import { formatHoursAgo } from "../../utils/time";
 import LoadingSpinner from "../../components/Loading";
 import { chatService } from "../../lib/chat";
+import { fetchProductRating } from "../../utils/productRatings";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -93,7 +95,10 @@ export default function BuyerProductDetail() {
   const [loading, setLoading] = useState(true);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [addingToCart, setAddingToCart] = useState(false);
-  const [rating, setRating] = useState<number | null>(null);
+  const [productRating, setProductRating] = useState<{
+    rating: number;
+    totalReviews: number;
+  }>({ rating: 0, totalReviews: 0 });
   const [soldCount, setSoldCount] = useState<number>(0);
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
@@ -172,8 +177,9 @@ export default function BuyerProductDetail() {
         }
       }
 
-      // Fetch product rating
-      fetchProductRating();
+      // Fetch product rating using shared utility
+      const ratingData = await fetchProductRating(productId);
+      setProductRating(ratingData);
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Unexpected error loading product.");
@@ -181,16 +187,6 @@ export default function BuyerProductDetail() {
       setLoading(false);
     }
   }, [productId]);
-
-  // Fetch product rating from database
-  const fetchProductRating = async () => {
-    try {
-      setRating(4.5);
-    } catch (error) {
-      console.error("Error fetching rating:", error);
-      setRating(null);
-    }
-  };
 
   useEffect(() => {
     loadProduct();
@@ -588,7 +584,9 @@ export default function BuyerProductDetail() {
                   <View style={styles.ratingContainer}>
                     <FontAwesome name="star" size={14} color="#FFD700" />
                     <Text style={styles.soldRatingText}>
-                      {rating ? rating.toFixed(1) : "N/A"}
+                      {productRating.rating > 0
+                        ? productRating.rating.toFixed(1)
+                        : "0.0"}
                     </Text>
                   </View>
                 </View>
@@ -952,6 +950,7 @@ export default function BuyerProductDetail() {
     </SafeAreaView>
   );
 }
+
 /* ---------------------- STYLES ---------------------- */
 const styles = StyleSheet.create({
   container: {
