@@ -23,6 +23,7 @@ import { sellerProductsStyles } from "./styles/sellerProductsStyles";
 import { supabase } from "../../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../../utils/freshness";
 import { fetchProductRating } from "../../utils/productRatings";
+import { ProductDiscount } from "../../utils/ProductDiscount";
 
 // Types aligned with DB schema
 type HarvestFilter = "all" | "today" | "yesterday" | "thisWeek" | "older";
@@ -31,6 +32,7 @@ interface Product {
   id: string;
   name: string;
   price: number;
+  discount_percent?: number;
   stock: number;
   thumbnail?: string | null;
   harvested_at: string;
@@ -127,6 +129,7 @@ const SellerProducts = () => {
           product_id, 
           product_name, 
           price, 
+          discount_percent,
           stock, 
           unit, 
           harvested_at, 
@@ -151,6 +154,7 @@ const SellerProducts = () => {
         id: p.product_id,
         name: p.product_name,
         price: Number(p.price ?? 0),
+        discount_percent: Number(p.discount_percent ?? 0),
         stock: Number(p.stock ?? 0),
         thumbnail: p.images?.[0] ?? null,
         harvested_at: p.harvested_at,
@@ -453,9 +457,12 @@ const SellerProducts = () => {
                         >
                           {product.name}
                         </Text>
-                        <Text style={sellerProductsStyles.productPrice}>
-                          {formatPrice(product.price)}
-                        </Text>
+                        <ProductDiscount
+                          price={product.price}
+                          discountPercent={product.discount_percent}
+                          showBadge={false}
+                          textSize="medium"
+                        />
                       </View>
 
                       {/* Category and Sold Quantity */}

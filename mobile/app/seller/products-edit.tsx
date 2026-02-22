@@ -53,6 +53,7 @@ export default function ProductEdit() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [stock, setStock] = useState("");
+  const [discount, setDiscount] = useState(""); // New state for discount
   const [images, setImages] = useState<string[]>([]);
   const [newImages, setNewImages] = useState<string[]>([]);
   const [removedImages, setRemovedImages] = useState<string[]>([]);
@@ -80,7 +81,7 @@ export default function ProductEdit() {
       const { data, error } = await supabase
         .from("products")
         .select(
-          "product_id, product_name, description, price, stock, unit, harvested_at, images, category_id, is_active",
+          "product_id, product_name, description, price, stock, unit, harvested_at, images, category_id, is_active, discount_percent",
         )
         .eq("product_id", productId)
         .single();
@@ -94,6 +95,7 @@ export default function ProductEdit() {
       setDescription(data.description || "");
       setPrice(String(data.price ?? ""));
       setStock(String(data.stock ?? ""));
+      setDiscount(String(data.discount_percent ?? "0")); // Load discount
       setImages(data.images || []);
       // Set harvest date and time from the timestampz field
       const harvestedAtDate = data.harvested_at
@@ -206,6 +208,12 @@ export default function ProductEdit() {
     if (Number.isNaN(priceNum) || Number.isNaN(stockNum))
       return Alert.alert("Validation", "Invalid numeric values.");
 
+    // Validate discount
+    const discountNum = Number(discount || 0);
+    if (discountNum < 0 || discountNum > 100) {
+      return Alert.alert("Validation", "Discount must be between 0 and 100%");
+    }
+
     try {
       setSaving(true);
       setUploading(true);
@@ -229,6 +237,7 @@ export default function ProductEdit() {
         unit: "kg",
         category_id: categoryId,
         images: finalImages,
+        discount_percent: discountNum, // Add discount to update
       };
 
       const { error } = await supabase
@@ -264,6 +273,7 @@ export default function ProductEdit() {
     description,
     price,
     stock,
+    discount,
     images,
     newImages,
     removedImages,
@@ -397,8 +407,16 @@ export default function ProductEdit() {
 
         {/* Basic Info */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Product Information</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.cardTitle}>Product Information</Text>
 
+            {Number(discount) > 0 && (
+              <View style={styles.discountBadge}>
+                <Ionicons name="pricetag" size={16} color="#fff" />
+                <Text style={styles.discountBadgeText}>{discount}% OFF</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Product Name *</Text>
             <TextInput
@@ -421,7 +439,7 @@ export default function ProductEdit() {
           </View>
 
           <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: 16 }]}>
               <Text style={styles.label}>Price (₱) *</Text>
               <TextInput
                 value={price}
@@ -431,8 +449,22 @@ export default function ProductEdit() {
                 placeholder="0.00"
               />
             </View>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.label}>Discount (%)</Text>
+              <View style={styles.discountInputWrapper}>
+                <TextInput
+                  value={discount}
+                  onChangeText={setDiscount}
+                  keyboardType="numeric"
+                  style={[styles.input, styles.discountInput]}
+                  placeholder="0"
+                  maxLength={3}
+                />
+                <Text style={styles.percentSign}>%</Text>
+              </View>
+            </View>
 
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 16 }]}>
               <Text style={styles.label}>Stock (kg) *</Text>
               <TextInput
                 value={stock}
@@ -442,6 +474,30 @@ export default function ProductEdit() {
                 placeholder="0"
               />
             </View>
+          </View>
+
+          {/* Discount Input */}
+          <View style={styles.inputGroup}>
+            {/* Live price preview */}
+            {price && Number(discount) > 0 && (
+              <View style={styles.pricePreview}>
+                <Text style={styles.pricePreviewLabel}>
+                  Final price after {discount}% discount:
+                </Text>
+                <View style={styles.priceRow}>
+                  <Text style={styles.originalPrice}>
+                    ₱{Number(price).toFixed(2)}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={16} color="#64748b" />
+                  <Text style={styles.discountedPrice}>
+                    ₱{(Number(price) * (1 - Number(discount) / 100)).toFixed(2)}
+                  </Text>
+                </View>
+                <Text style={styles.savingsText}>
+                  Save ₱{((Number(price) * Number(discount)) / 100).toFixed(2)}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Harvest Date & Time (READ ONLY) */}
@@ -825,6 +881,78 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  discountBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ef4444",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginBottom: 16,
+    gap: 4,
+  },
+
+  discountBadgeText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  discountInputWrapper: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  discountInput: {
+    flex: 1,
+    paddingRight: 40,
+  },
+  percentSign: {
+    position: "absolute",
+    right: 12,
+    fontSize: 16,
+    color: "#64748b",
+    fontWeight: "500",
+  },
+  pricePreview: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: "#f0fdf4",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+  },
+  pricePreviewLabel: {
+    fontSize: 12,
+    color: "#166534",
+    marginBottom: 6,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  originalPrice: {
+    fontSize: 14,
+    color: "#64748b",
+    textDecorationLine: "line-through",
+  },
+  discountedPrice: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  savingsText: {
+    fontSize: 12,
+    color: "#166534",
+    fontWeight: "500",
   },
   harvestDisplay: {
     flexDirection: "row",
