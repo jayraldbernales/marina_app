@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   StyleSheet,
-  Dimensions,
   ActivityIndicator,
   ScrollView,
 } from "react-native";
@@ -22,8 +21,6 @@ import { supabase } from "../../lib/supabase";
 import LoadingSpinner from "../../components/Loading";
 import { chatService } from "../../lib/chat";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
 type DeliveryHistory = {
   delivery_id: string;
   status: string;
@@ -31,8 +28,8 @@ type DeliveryHistory = {
   orders: {
     order_number: string;
     total_amount: number;
-    vendor_profiles: {
-      shop_name: string;
+    profiles: {
+      full_name: string;
     };
   };
 };
@@ -43,7 +40,7 @@ type ReviewData = {
   created_at: string;
 };
 
-export default function ViewRiderScreen() {
+export default function ViewRiderFromVendorScreen() {
   const params = useLocalSearchParams();
   const riderUserId = params?.rider_user_id as string;
 
@@ -90,12 +87,9 @@ export default function ViewRiderScreen() {
         return;
       }
 
-      console.log("Rider data:", riderData);
-      console.log("Profiles data:", riderData?.profiles); // This will show an array
-
       setRider(riderData);
 
-      // ✅ FIXED: Access the first element of the profiles array
+      // Access the first element of the profiles array
       const profileData = Array.isArray(riderData?.profiles)
         ? riderData?.profiles[0]
         : riderData?.profiles;
@@ -105,11 +99,55 @@ export default function ViewRiderScreen() {
         avatar_url: riderData?.avatar_url || null,
       });
 
-      // ... rest of your stats code
+      // ✅ Get delivery stats
+      const { count: totalCount } = await supabase
+        .from("deliveries")
+        .select("*", { count: "exact", head: true })
+        .eq("rider_user_id", riderUserId);
+
+      const { count: completedCount } = await supabase
+        .from("deliveries")
+        .select("*", { count: "exact", head: true })
+        .eq("rider_user_id", riderUserId)
+        .eq("status", "delivered");
+
+      // ✅ Fetch rider's ratings from reviews
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from("reviews")
+        .select("rider_rating, review_id, created_at")
+        .eq("rider_user_id", riderUserId);
+
+      if (reviewsError) {
+        console.error("Error fetching reviews:", reviewsError);
+      }
+
+      const reviews = (reviewsData as ReviewData[]) || [];
+
+      // Calculate average rating
+      let avgRating = 0;
+      let totalReviews = 0;
+
+      if (reviews.length > 0) {
+        totalReviews = reviews.length;
+        const sumRatings = reviews.reduce(
+          (sum, review) => sum + review.rider_rating,
+          0,
+        );
+        avgRating = sumRatings / totalReviews;
+        avgRating = Math.round(avgRating * 10) / 10;
+      }
+
+      setStats({
+        totalDeliveries: totalCount || 0,
+        completedDeliveries: completedCount || 0,
+        rating: avgRating,
+        totalReviews: totalReviews,
+      });
     } catch (err) {
       console.error("Error loading rider profile:", err);
     }
   }, [riderUserId]);
+
   const loadDeliveryHistory = useCallback(async () => {
     if (!riderUserId) return;
 
@@ -126,8 +164,8 @@ export default function ViewRiderScreen() {
         orders:order_id(
           order_number,
           total_amount,
-          vendor_profiles!orders_vendor_fkey(
-            shop_name
+          profiles!orders_user_fkey(
+            full_name
           )
         )
       `,
@@ -144,13 +182,11 @@ export default function ViewRiderScreen() {
 
       // Transform the data to match DeliveryHistory type
       const transformedData: DeliveryHistory[] = (data || [])
-        .filter((item) => item.orders) // Filter out items without orders
+        .filter((item) => item.orders)
         .map((item: any) => {
-          // Handle vendor_profiles which might be an array
-          const vendorProfiles = item.orders?.vendor_profiles;
-          const vendorProfile = Array.isArray(vendorProfiles)
-            ? vendorProfiles[0]
-            : vendorProfiles;
+          // Handle profiles which might be an array
+          const profiles = item.orders?.profiles;
+          const profile = Array.isArray(profiles) ? profiles[0] : profiles;
 
           return {
             delivery_id: item.delivery_id,
@@ -159,14 +195,13 @@ export default function ViewRiderScreen() {
             orders: {
               order_number: item.orders?.order_number || "N/A",
               total_amount: item.orders?.total_amount || 0,
-              vendor_profiles: {
-                shop_name: vendorProfile?.shop_name || "Unknown Vendor",
+              profiles: {
+                full_name: profile?.full_name || "Unknown Customer",
               },
             },
           };
         });
 
-      console.log("Transformed data:", transformedData); // Debug log
       setDeliveryHistory(transformedData);
     } catch (err) {
       console.error("Error loading delivery history:", err);
@@ -189,7 +224,7 @@ export default function ViewRiderScreen() {
 
   const handleChatWithRider = async () => {
     try {
-      // Get current user
+      // Get current user (vendor)
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -199,10 +234,9 @@ export default function ViewRiderScreen() {
         return;
       }
 
-      // Get or create conversation - using object parameter
       const { data: conversation, error } =
         await chatService.getOrCreateConversation({
-          buyerId: user.id,
+          vendorId: user.id,
           riderId: riderUserId,
         });
 
@@ -214,7 +248,7 @@ export default function ViewRiderScreen() {
 
       // Navigate to chat screen
       router.push({
-        pathname: "./chat",
+        pathname: "../buyer/chat",
         params: {
           conversationId: conversation.id,
           otherPartyName: riderProfile?.full_name || "Rider",
@@ -496,9 +530,9 @@ export default function ViewRiderScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.vendorName}>
-                    {delivery.orders?.vendor_profiles?.shop_name ||
-                      "Unknown Vendor"}
+                  <Text style={styles.customerName}>
+                    Customer:{" "}
+                    {delivery.orders?.profiles?.full_name || "Unknown"}
                   </Text>
                   <View style={styles.historyCardFooter}>
                     <Text style={styles.deliveryDate}>
@@ -529,6 +563,7 @@ export default function ViewRiderScreen() {
   );
 }
 
+// Styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -570,8 +605,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#999",
   },
-
-  // Rider Profile Section
   riderHeader: {
     backgroundColor: "#fff",
     marginBottom: 8,
@@ -789,7 +822,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textTransform: "capitalize",
   },
-  vendorName: {
+  customerName: {
     fontSize: 13,
     color: "#666",
     marginBottom: 6,

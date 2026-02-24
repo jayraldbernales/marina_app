@@ -123,7 +123,7 @@ export default function ProductEdit() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       quality: 0.8,
-      selectionLimit: 10 - (images.length + newImages.length),
+      selectionLimit: Math.max(0, 10 - (images.length + newImages.length)),
     });
     if (!result.canceled && result.assets?.length) {
       const uris = result.assets.map((a) => a.uri);

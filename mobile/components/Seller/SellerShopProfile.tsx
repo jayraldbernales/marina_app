@@ -108,7 +108,7 @@ const SellerShopProfile = () => {
       title: "Customer Reviews",
       subtitle: "View and respond to feedback",
       icon: "star-outline" as const,
-      onPress: () => console.log("Navigate to Reviews"),
+      onPress: () => router.push("/seller/customer-reviews"),
     },
   ];
 

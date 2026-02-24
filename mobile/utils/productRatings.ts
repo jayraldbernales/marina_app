@@ -2,12 +2,9 @@
 import { supabase } from "../lib/supabase";
 
 // Types
-interface OrderItem {
-  order_id: string;
-}
-
 interface ReviewData {
   product_rating: number;
+  product_id: string;
 }
 
 interface ProductRating {
@@ -18,7 +15,7 @@ interface ProductRating {
 // Cache for product ratings to avoid repeated fetches
 const productRatingCache: Record<string, ProductRating> = {};
 
-// Fetch product rating from reviews table
+// Fetch product rating from reviews table using product_id directly
 export const fetchProductRating = async (
   productId: string,
 ): Promise<ProductRating> => {
@@ -28,31 +25,11 @@ export const fetchProductRating = async (
   }
 
   try {
-    // First, find all order_items that contain this product
-    const { data: orderItems, error: orderItemsError } = await supabase
-      .from("order_items")
-      .select("order_id")
-      .eq("product_id", productId);
-
-    if (orderItemsError) {
-      console.error("Error fetching order items:", orderItemsError);
-      return { rating: 0, totalReviews: 0 };
-    }
-
-    if (!orderItems || orderItems.length === 0) {
-      const result = { rating: 0, totalReviews: 0 };
-      productRatingCache[productId] = result;
-      return result;
-    }
-
-    // Get unique order IDs
-    const orderIds = (orderItems as OrderItem[]).map((item) => item.order_id);
-
-    // Find reviews for these orders
+    // Direct query to reviews table using product_id
     const { data: reviews, error: reviewsError } = await supabase
       .from("reviews")
       .select("product_rating")
-      .in("order_id", orderIds);
+      .eq("product_id", productId);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
@@ -106,86 +83,56 @@ export const fetchMultipleProductRatings = async (
   }
 
   try {
-    // First, find all order_items for all uncached products
-    const { data: orderItems, error: orderItemsError } = await supabase
-      .from("order_items")
-      .select("order_id, product_id")
-      .in("product_id", uncachedIds);
-
-    if (orderItemsError) {
-      console.error("Error fetching order items:", orderItemsError);
-      return results;
-    }
-
-    if (!orderItems || orderItems.length === 0) {
-      // No orders for these products yet
-      uncachedIds.forEach((id) => {
-        const result = { rating: 0, totalReviews: 0 };
-        productRatingCache[id] = result;
-        results[id] = result;
-      });
-      return results;
-    }
-
-    // Group order IDs by product
-    const orderIdsByProduct: Record<string, string[]> = {};
-    const allOrderIds: string[] = [];
-
-    orderItems.forEach((item: any) => {
-      if (!orderIdsByProduct[item.product_id]) {
-        orderIdsByProduct[item.product_id] = [];
-      }
-      orderIdsByProduct[item.product_id].push(item.order_id);
-      allOrderIds.push(item.order_id);
-    });
-
-    // Get unique order IDs
-    const uniqueOrderIds = [...new Set(allOrderIds)];
-
-    // Fetch all reviews for these orders
+    // Direct query to reviews table using product_id with IN clause
     const { data: reviews, error: reviewsError } = await supabase
       .from("reviews")
-      .select("product_rating, order_id")
-      .in("order_id", uniqueOrderIds);
+      .select("product_rating, product_id")
+      .in("product_id", uncachedIds);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
       return results;
     }
 
-    // Group reviews by order_id
-    const reviewsByOrder: Record<string, ReviewData[]> = {};
-    (reviews || []).forEach((review: any) => {
-      if (!reviewsByOrder[review.order_id]) {
-        reviewsByOrder[review.order_id] = [];
-      }
-      reviewsByOrder[review.order_id].push(review);
+    // Group reviews by product_id and calculate averages
+    const reviewsByProduct: Record<string, number[]> = {};
+
+    // Initialize arrays for each product
+    uncachedIds.forEach((id) => {
+      reviewsByProduct[id] = [];
     });
 
-    // Calculate ratings for each product
+    // Group ratings by product
+    (reviews || []).forEach((review: any) => {
+      if (reviewsByProduct[review.product_id]) {
+        reviewsByProduct[review.product_id].push(review.product_rating);
+      }
+    });
+
+    // Calculate average for each product
     uncachedIds.forEach((productId) => {
-      const productOrderIds = orderIdsByProduct[productId] || [];
-      let totalRating = 0;
-      let reviewCount = 0;
+      const productRatings = reviewsByProduct[productId] || [];
 
-      productOrderIds.forEach((orderId) => {
-        const orderReviews = reviewsByOrder[orderId] || [];
-        orderReviews.forEach((review) => {
-          totalRating += review.product_rating;
-          reviewCount++;
-        });
-      });
+      if (productRatings.length === 0) {
+        const result = { rating: 0, totalReviews: 0 };
+        productRatingCache[productId] = result;
+        results[productId] = result;
+      } else {
+        const sumRatings = productRatings.reduce(
+          (sum, rating) => sum + rating,
+          0,
+        );
+        const avgRating =
+          Math.round((sumRatings / productRatings.length) * 10) / 10;
 
-      const result = {
-        rating:
-          reviewCount > 0
-            ? Math.round((totalRating / reviewCount) * 10) / 10
-            : 0,
-        totalReviews: reviewCount,
-      };
+        const result = {
+          rating: avgRating,
+          totalReviews: productRatings.length,
+        };
 
-      productRatingCache[productId] = result;
-      results[productId] = result;
+        productRatingCache[productId] = result;
+        results[productId] = result;
+      }
     });
 
     return results;

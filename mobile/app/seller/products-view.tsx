@@ -543,13 +543,9 @@ const styles = StyleSheet.create({
   editButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f0f9ff",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
     gap: 6,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
   },
   editButtonText: {
     color: COLORS.light.primary,

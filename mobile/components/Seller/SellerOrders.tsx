@@ -12,6 +12,7 @@ import {
   Alert,
   Modal,
   Linking,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
@@ -28,6 +29,7 @@ type OrderStatus =
   | "ready-to-ship"
   | "shipped"
   | "delivered"
+  | "failed"
   | "cancelled"
   | "rejected"
   | "finding_rider"
@@ -73,10 +75,10 @@ type DisplayOrder = {
   customerName?: string;
   specialInstructions?: string;
   riderAssignment?: RiderAssignment | null;
+  failureReason?: string;
 };
 
-// Replace your OrderDetailsModal component with this:
-
+// OrderDetailsModal component (keep as is from your original code)
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -164,6 +166,7 @@ const OrderDetailsModal = ({
       delivered: "#10b981",
       cancelled: "#6b7280",
       rejected: "#ef4444",
+      failed: "#ef4444",
       finding_rider: "#f97316",
       dispatch_failed: "#ef4444",
     };
@@ -177,6 +180,7 @@ const OrderDetailsModal = ({
       "ready-to-ship": "Ready to Ship",
       shipped: "Shipped",
       delivered: "Delivered",
+      failed: "Failed",
       cancelled: "Cancelled",
       rejected: "Rejected",
       finding_rider: "Finding Rider",
@@ -442,7 +446,53 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             )}
-
+            {/* ── Failure Reason (for failed orders) ── */}
+            {order.status === "failed" && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Failure Reason</Text>
+                <View
+                  style={{
+                    backgroundColor: "#fef2f2",
+                    borderRadius: 12,
+                    padding: 14,
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#dc2626",
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: "row", alignItems: "flex-start" }}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={20}
+                      color="#dc2626"
+                      style={{ marginRight: 10, marginTop: 2 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: "#991b1b",
+                          fontSize: 15,
+                          fontWeight: "600",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {order.failureReason || "No reason provided"}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#b91c1c",
+                          fontSize: 13,
+                          opacity: 0.9,
+                        }}
+                      >
+                        This delivery was not completed
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
             {/* ── Rider ── */}
             {order.riderAssignment && (
               <View style={S.modalSection}>
@@ -451,7 +501,7 @@ const OrderDetailsModal = ({
                   style={S.modalRiderCard}
                   onPress={() =>
                     router.push({
-                      pathname: "../buyer/view-rider",
+                      pathname: "../seller/view-rider",
                       params: { rider_user_id: order.riderAssignment?.id },
                     })
                   }
@@ -555,6 +605,7 @@ const OrderDetailsModal = ({
     </Modal>
   );
 };
+
 const SellerOrders = () => {
   const [activeTab, setActiveTab] = useState<OrderStatus | "finding_rider">(
     "pending",
@@ -565,6 +616,11 @@ const SellerOrders = () => {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+
+  // NEW: Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+
   const navigation = useNavigation();
   const user = useUserStore((s) => s.user);
 
@@ -574,6 +630,7 @@ const SellerOrders = () => {
     { key: "ready-to-ship", label: "Ready to Ship" },
     { key: "shipped", label: "Shipped" },
     { key: "delivered", label: "Delivered" },
+    { key: "failed", label: "Failed" },
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
@@ -581,6 +638,14 @@ const SellerOrders = () => {
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setModalVisible(true);
+  };
+
+  // NEW: Toggle search visibility
+  const toggleSearch = () => {
+    setIsSearchVisible(!isSearchVisible);
+    if (isSearchVisible) {
+      setSearchQuery("");
+    }
   };
 
   // Handle Find Rider (retry dispatch)
@@ -779,7 +844,9 @@ const SellerOrders = () => {
                           ? "Picked up"
                           : assignment.status === "ready_to_pickup"
                             ? "Ready to Pickup"
-                            : assignment.status,
+                            : assignment.status === "failed"
+                              ? "Failed"
+                              : assignment.status,
                     vehicle: assignment.vehicle,
                   },
                 }
@@ -833,6 +900,8 @@ const SellerOrders = () => {
         return "#10b981";
       case "cancelled":
         return "#6b7280";
+      case "failed":
+        return "#ef4444";
       case "rejected":
         return "#ef4444";
       case "finding_rider":
@@ -899,6 +968,18 @@ const SellerOrders = () => {
           }),
         );
 
+        // Fetch failure reason from deliveries table
+        let failureReason = undefined;
+        const { data: deliveryData } = await supabase
+          .from("deliveries")
+          .select("failure_reason")
+          .eq("order_id", order.order_id)
+          .maybeSingle();
+
+        if (deliveryData?.failure_reason) {
+          failureReason = deliveryData.failure_reason;
+        }
+
         displayOrders.push({
           id: order.order_id,
           orderNumber: order.order_number,
@@ -918,6 +999,7 @@ const SellerOrders = () => {
           customerName: order.profiles?.full_name,
           specialInstructions: order.note,
           riderAssignment: null,
+          failureReason,
         });
       }
 
@@ -930,6 +1012,7 @@ const SellerOrders = () => {
           order.status === "ready-to-ship" ||
           order.status === "shipped" ||
           order.status === "delivered" ||
+          order.status === "failed" ||
           order.status === "finding_rider"
         ) {
           await fetchRiderAssignment(order.id);
@@ -958,21 +1041,18 @@ const SellerOrders = () => {
           table: "deliveries",
         },
         async (payload) => {
-          // Safely get the delivery_id from new or old
           const deliveryId =
             (payload.new as any)?.delivery_id ||
             (payload.old as any)?.delivery_id;
 
           if (!deliveryId) return;
 
-          // Find which order this delivery belongs to
           const { data: order } = await supabase
             .from("orders")
             .select("order_id, vendor_user_id")
             .eq("delivery_id", deliveryId)
             .single();
 
-          // Only update if it's this vendor's order
           if (order?.vendor_user_id === user.id) {
             await fetchRiderAssignment(order.order_id);
           }
@@ -1123,7 +1203,6 @@ const SellerOrders = () => {
         ),
       );
 
-      // If moving to preparing, start dispatch
       if (newStatus === "preparing") {
         dispatchService
           .handleOrderAcceptance(orderId, user?.id!)
@@ -1132,7 +1211,6 @@ const SellerOrders = () => {
               console.log(
                 `✅ Dispatch started: ${result.riderCount} riders found`,
               );
-              // Refresh orders to show updated status
               fetchOrders();
             } else if (result.reason === "no_riders") {
               Alert.alert(
@@ -1140,7 +1218,7 @@ const SellerOrders = () => {
                 "No riders are currently available in your area. The order will be placed in 'finding rider' status.",
                 [{ text: "OK" }],
               );
-              fetchOrders(); // Refresh to show "finding_rider" status
+              fetchOrders();
             }
           })
           .catch((error) => {
@@ -1150,7 +1228,7 @@ const SellerOrders = () => {
               "There was an error finding a rider. Please try again or contact support.",
               [{ text: "OK" }],
             );
-            fetchOrders(); // Refresh to show error status
+            fetchOrders();
           });
       }
 
@@ -1189,6 +1267,57 @@ const SellerOrders = () => {
     ]);
   };
 
+  // Handle Cancel Order (for finding_rider, preparing, ready-to-ship)
+  const handleCancelOrder = (orderId: string) => {
+    Alert.alert(
+      "Cancel Order",
+      "Are you sure you want to cancel this order? This action cannot be undone and will restore stock.",
+      [
+        { text: "No", style: "cancel" },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setUpdatingOrderId(orderId);
+
+              const { error } = await supabase.rpc("vendor_cancel_order", {
+                p_order_id: orderId,
+                p_vendor_user_id: user?.id,
+              });
+
+              if (error) throw error;
+
+              setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                  order.id === orderId
+                    ? { ...order, status: "cancelled" as OrderStatus }
+                    : order,
+                ),
+              );
+
+              if (selectedOrder?.id === orderId) {
+                setSelectedOrder((prev) =>
+                  prev ? { ...prev, status: "cancelled" as OrderStatus } : null,
+                );
+              }
+
+              Alert.alert(
+                "Success",
+                "Order has been cancelled and stock restored",
+              );
+            } catch (error: any) {
+              console.error("Cancel order error:", error);
+              Alert.alert("Error", error.message || "Failed to cancel order");
+            } finally {
+              setUpdatingOrderId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // Handle Mark Ready to Ship
   const handleMarkReadyToShip = (orderId: string) => {
     Alert.alert(
@@ -1200,10 +1329,8 @@ const SellerOrders = () => {
           text: "Yes, Ready",
           onPress: async () => {
             try {
-              // First update order status
               await updateOrderStatus(orderId, "ready-to-ship");
 
-              // Then update delivery status to notify rider
               const { data: delivery } = await supabase
                 .from("deliveries")
                 .select("delivery_id")
@@ -1251,14 +1378,92 @@ const SellerOrders = () => {
     );
   };
 
-  const filteredOrders = orders.filter((o) => {
+  // Handle Process Payment
+  const handleProcessPayment = async (orderId: string) => {
+    Alert.alert(
+      "Process Payment",
+      "Have you received the cash payment for this order?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Payment Received",
+          onPress: async () => {
+            try {
+              setUpdatingOrderId(orderId);
+
+              const { error } = await supabase
+                .from("orders")
+                .update({
+                  payment_status: "paid",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("order_id", orderId)
+                .eq("vendor_user_id", user?.id);
+
+              if (error) throw error;
+
+              setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                  order.id === orderId
+                    ? { ...order, paymentStatus: "paid" as PaymentStatus }
+                    : order,
+                ),
+              );
+
+              if (selectedOrder?.id === orderId) {
+                setSelectedOrder((prev) =>
+                  prev
+                    ? { ...prev, paymentStatus: "paid" as PaymentStatus }
+                    : null,
+                );
+              }
+
+              Alert.alert("Success", "Payment has been processed successfully");
+            } catch (error: any) {
+              console.error("Process payment error:", error);
+              Alert.alert(
+                "Error",
+                error.message || "Failed to process payment",
+              );
+            } finally {
+              setUpdatingOrderId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // NEW: Filter orders based on search query
+  const filteredOrders = orders.filter((order) => {
+    // First filter by tab
+    let tabMatch = false;
     if (activeTab === "cancelled") {
-      return o.status === "cancelled" || o.status === "rejected";
+      tabMatch = order.status === "cancelled" || order.status === "rejected";
+    } else if (activeTab === "preparing") {
+      tabMatch =
+        order.status === "preparing" || order.status === "finding_rider";
+    } else {
+      tabMatch = order.status === activeTab;
     }
-    if (activeTab === "preparing") {
-      return o.status === "preparing" || o.status === "finding_rider";
-    }
-    return o.status === activeTab;
+
+    if (!tabMatch) return false;
+
+    // Then filter by search query if present
+    if (!searchQuery.trim()) return true;
+
+    const query = searchQuery.toLowerCase().trim();
+
+    return (
+      order.orderNumber.toLowerCase().includes(query) ||
+      order.customerName?.toLowerCase().includes(query) ||
+      order.items.some((item) => item.name.toLowerCase().includes(query)) ||
+      order.deliveryAddress?.toLowerCase().includes(query) ||
+      (order.paymentMethod &&
+        order.paymentMethod.toLowerCase().includes(query)) ||
+      (order.specialInstructions &&
+        order.specialInstructions.toLowerCase().includes(query))
+    );
   });
 
   const renderOrderCard = (order: DisplayOrder) => {
@@ -1292,10 +1497,12 @@ const SellerOrders = () => {
                   ? "Cancelled"
                   : order.status === "finding_rider"
                     ? "Finding Rider"
-                    : order.status === "dispatch_failed"
-                      ? "Dispatch Failed"
-                      : tabs.find((t) => t.key === order.status)?.label ||
-                        order.status}
+                    : order.status === "failed"
+                      ? "Failed"
+                      : order.status === "dispatch_failed"
+                        ? "Dispatch Failed"
+                        : tabs.find((t) => t.key === order.status)?.label ||
+                          order.status}
             </Text>
           </View>
         </View>
@@ -1394,61 +1601,139 @@ const SellerOrders = () => {
                 </TouchableOpacity>
               </>
             )}
+
             {order.status === "preparing" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleMarkReadyToShip(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Mark Ready to Ship
-                  </Text>
-                )}
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleMarkReadyToShip(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Mark Ready to Ship
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+            {order.status === "ready-to-ship" && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleMarkAsShipped(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Mark as Shipped
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
             {order.status === "finding_rider" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleFindRider(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleFindRider(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
                     <Text style={sellerOrderStyles.primaryButtonText}>
                       Find Rider
                     </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
-            {order.status === "ready-to-ship" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleMarkAsShipped(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Mark as Shipped
-                  </Text>
-                )}
-              </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
             {order.status === "shipped" && (
               <TouchableOpacity
@@ -1470,16 +1755,22 @@ const SellerOrders = () => {
             )}
             {order.status === "delivered" && (
               <>
-                <TouchableOpacity style={sellerOrderStyles.secondaryButton}>
-                  <Text style={sellerOrderStyles.secondaryButtonText}>
-                    View Invoice
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={sellerOrderStyles.primaryButton}>
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Process Payment
-                  </Text>
-                </TouchableOpacity>
+                {order.paymentMethod === "cod" &&
+                  order.paymentStatus !== "paid" && (
+                    <TouchableOpacity
+                      style={sellerOrderStyles.primaryButton}
+                      onPress={() => handleProcessPayment(order.id)}
+                      disabled={isUpdating}
+                    >
+                      {isUpdating ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={sellerOrderStyles.primaryButtonText}>
+                          Process Payment
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
               </>
             )}
           </View>
@@ -1525,7 +1816,7 @@ const SellerOrders = () => {
 
   return (
     <SafeAreaView style={sellerOrderStyles.container}>
-      {/* Header */}
+      {/* Header with Search Button */}
       <View style={sellerOrderStyles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1534,8 +1825,51 @@ const SellerOrders = () => {
           <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
         <Text style={sellerOrderStyles.headerTitle}>Orders</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={toggleSearch} style={{ padding: 8 }}>
+          <Ionicons
+            name={isSearchVisible ? "close" : "search"}
+            size={24}
+            color={COLORS.light.primary}
+          />
+        </TouchableOpacity>
       </View>
+
+      {/* Search Bar */}
+      {isSearchVisible && (
+        <View
+          style={{
+            backgroundColor: "#FFFFFF",
+            paddingHorizontal: 16,
+            paddingBottom: 8,
+          }}
+        >
+          <View style={sellerOrderStyles.searchContainer}>
+            <Ionicons
+              name="search"
+              size={20}
+              color="#666"
+              style={sellerOrderStyles.searchIcon}
+            />
+            <TextInput
+              style={sellerOrderStyles.searchInput}
+              placeholder="Search by order #, customer, product..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={true}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                style={sellerOrderStyles.clearButton}
+              >
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Tabs */}
       <ScrollView
@@ -1580,10 +1914,13 @@ const SellerOrders = () => {
           filteredOrders.map(renderOrderCard)
         ) : (
           <View style={sellerOrderStyles.emptyState}>
-            <Text style={sellerOrderStyles.emptyIcon}>📦</Text>
-            <Text style={sellerOrderStyles.emptyTitle}>No orders found</Text>
-            <Text style={sellerOrderStyles.emptyDescription}>
-              You don't have any orders in this category yet
+            <Text style={sellerOrderStyles.emptyIcon}>
+              {searchQuery.length > 0 ? "🔍" : "📦"}
+            </Text>
+            <Text style={sellerOrderStyles.emptyTitle}>
+              {searchQuery.length > 0
+                ? "No matching orders"
+                : "No orders found"}
             </Text>
           </View>
         )}

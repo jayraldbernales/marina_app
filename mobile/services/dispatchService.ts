@@ -527,7 +527,13 @@ class DispatchService {
   }
 
   // Get rider assignment for an order - FIXED with type assertions
-  async getRiderAssignment(orderId: string) {
+  async getRiderAssignment(orderId: string): Promise<{
+    id: string;
+    name: string;
+    avatar: string | null;
+    status: string;
+    vehicle: string | null;
+  } | null> {
     const { data, error } = await supabase
       .from("deliveries")
       .select(
@@ -535,9 +541,9 @@ class DispatchService {
       rider_user_id,
       status,
       assigned_at,
-      rider_profiles!inner(
+      rider_profiles(
         vehicle_type,
-        profiles!inner(
+        profiles(
           full_name,
           avatar_url
         )
@@ -545,34 +551,22 @@ class DispatchService {
     `,
       )
       .eq("order_id", orderId)
-      .not("rider_user_id", "is", null)
       .maybeSingle();
 
-    if (error) {
-      console.error("Error fetching rider assignment:", error);
-      return null;
-    }
+    if (error || !data || !data.rider_user_id) return null;
 
-    if (!data) {
-      console.log("No rider assignment found for order:", orderId);
-      return null;
-    }
-
-    // Safe access with type assertions
     const riderProfiles = (data as any).rider_profiles;
     const riderProfile = Array.isArray(riderProfiles)
       ? riderProfiles[0]
       : riderProfiles;
-
-    // Safe access to profiles
     const profiles = riderProfile?.profiles;
     const profileData = Array.isArray(profiles) ? profiles[0] : profiles;
 
     return {
-      id: data.rider_user_id,
+      id: data.rider_user_id as string,
       name: profileData?.full_name || "Rider",
       avatar: profileData?.avatar_url || null,
-      status: data.status,
+      status: (data as any).status as string,
       vehicle: riderProfile?.vehicle_type || null,
     };
   }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  StyleSheet,
 } from "react-native";
 import {
   Ionicons,
@@ -24,21 +25,24 @@ import { useNavigation, router, useFocusEffect } from "expo-router";
 import { cartScreenStyles } from "../components/styles/cartScreenStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
-// Navigation types (top-level)
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "@/constants";
+
 type RootStackParamList = {
   OrderTracking: undefined;
   BuyerDashboard: undefined;
 };
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-// Define for type safety/reuse
+
 type CartItem = {
   cartItemId: string;
   cartId: string;
   productId: string;
   name: string;
   price: number;
+  originalPrice: number;
+  discountedPrice: number;
+  discountPercent: number;
   quantity: number;
   vendor: string;
   image: string | null;
@@ -46,6 +50,11 @@ type CartItem = {
   vendorUserId: string;
   unit: string;
   stock: number;
+};
+
+type VendorFee = {
+  fee: number;
+  distance: number | null;
 };
 
 const CartScreen = () => {
@@ -57,27 +66,194 @@ const CartScreen = () => {
   const [hasHomeAddress, setHasHomeAddress] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+
+  // Delivery fee state
+  const [deliveryFees, setDeliveryFees] = useState<Record<string, VendorFee>>(
+    {},
+  );
+  const [calculatingFees, setCalculatingFees] = useState(false);
+  const [buyerAddressCoords, setBuyerAddressCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  // Ref to track if fees have been calculated for current selection
+  const calculatedForSelection = useRef<string>("");
+
   const navigation = useNavigation<NavigationProp>();
   const user = useUserStore((state) => state.user);
 
-  // Fetch cart items from database
+  // Calculate approximate distance (fallback)
+  const calculateApproximateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Calculate delivery fee for a vendor using RoutePH
+  const calculateVendorDeliveryFee = async (
+    vendorUserId: string,
+    vendorLat: number,
+    vendorLng: number,
+    buyerLat: number,
+    buyerLng: number,
+  ) => {
+    try {
+      const response = await fetch(
+        `https://routeph.com/api/osrm/v1/driving/${vendorLng},${vendorLat};${buyerLng},${buyerLat}?overview=false`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+      );
+
+      const data = await response.json();
+
+      if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+        const distanceKm = data.routes[0].distance / 1000;
+        let fee = distanceKm * 15;
+        fee = Math.max(15, Math.min(fee, 300));
+
+        return {
+          fee: Math.round(fee),
+          distance: parseFloat(distanceKm.toFixed(2)),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error(`RoutePH error for vendor ${vendorUserId}:`, error);
+
+      const distanceKm = calculateApproximateDistance(
+        vendorLat,
+        vendorLng,
+        buyerLat,
+        buyerLng,
+      );
+      let fee = distanceKm * 15;
+      fee = Math.max(15, Math.min(fee, 300));
+
+      return {
+        fee: Math.round(fee),
+        distance: parseFloat(distanceKm.toFixed(2)),
+      };
+    }
+  };
+
+  const selectedItems = cartItems.filter((item) => item.selected);
+
+  const getVendorGroups = () => {
+    const itemsByVendor: Record<string, CartItem[]> = {};
+    selectedItems.forEach((item) => {
+      if (!itemsByVendor[item.vendorUserId]) {
+        itemsByVendor[item.vendorUserId] = [];
+      }
+      itemsByVendor[item.vendorUserId].push(item);
+    });
+    return itemsByVendor;
+  };
+
+  const calculateSelectedVendorFees = useCallback(async () => {
+    // Guard against running if already calculating
+    if (calculatingFees) return;
+
+    if (!buyerAddressCoords || selectedItems.length === 0) return;
+
+    setCalculatingFees(true);
+    const itemsByVendor = getVendorGroups();
+    const newFees: Record<string, VendorFee> = {};
+
+    try {
+      for (const [vendorUserId, items] of Object.entries(itemsByVendor)) {
+        const { data: vendorAddr } = await supabase
+          .from("addresses")
+          .select("latitude, longitude")
+          .eq("user_id", vendorUserId)
+          .eq("address_type", "business")
+          .maybeSingle();
+
+        if (vendorAddr?.latitude && vendorAddr?.longitude) {
+          const result = await calculateVendorDeliveryFee(
+            vendorUserId,
+            vendorAddr.latitude,
+            vendorAddr.longitude,
+            buyerAddressCoords.latitude,
+            buyerAddressCoords.longitude,
+          );
+
+          if (result) {
+            newFees[vendorUserId] = result;
+          } else {
+            newFees[vendorUserId] = { fee: 50, distance: null };
+          }
+        } else {
+          newFees[vendorUserId] = { fee: 50, distance: null };
+        }
+      }
+
+      setDeliveryFees(newFees);
+    } catch (error) {
+      console.error("Error calculating fees:", error);
+    } finally {
+      setCalculatingFees(false);
+    }
+  }, [buyerAddressCoords, selectedItems]);
+
+  // Fixed useEffect with infinite loop prevention
+  useEffect(() => {
+    const selectedIds = selectedItems
+      .map((item) => item.cartItemId)
+      .sort()
+      .join(",");
+    const hasValidData = selectedItems.length > 0 && buyerAddressCoords;
+
+    // Only calculate if:
+    // 1. We have valid data AND
+    // 2. We haven't calculated for this exact selection AND
+    // 3. We're not already calculating
+    if (
+      hasValidData &&
+      calculatedForSelection.current !== selectedIds &&
+      !calculatingFees
+    ) {
+      calculatedForSelection.current = selectedIds;
+      calculateSelectedVendorFees();
+    } else if (!hasValidData && Object.keys(deliveryFees).length > 0) {
+      // Clear fees if no items selected
+      setDeliveryFees({});
+      calculatedForSelection.current = "";
+    }
+  }, [selectedItems, buyerAddressCoords]);
+
+  // Fetch cart items
   const fetchCartItems = async () => {
     try {
       setLoading(true);
-      if (!user?.id) {
-        return;
-      }
-      // Get carts for this user
+      if (!user?.id) return;
+
       const { data: cartsData, error: cartsError } = await supabase
         .from("carts")
         .select("cart_id")
         .eq("user_id", user.id);
+
       if (cartsError) throw cartsError;
       if (!cartsData || cartsData.length === 0) {
         setCartItems([]);
         return;
       }
-      // Get cart items with product details
+
       const cartIds = cartsData.map((c) => c.cart_id);
       const { data: itemsData, error: itemsError } = await supabase
         .from("cart_items")
@@ -90,6 +266,7 @@ const CartScreen = () => {
           products (
             product_name,
             price,
+            discount_percent,
             images,
             unit,
             stock,
@@ -101,24 +278,39 @@ const CartScreen = () => {
         `,
         )
         .in("cart_id", cartIds);
+
       if (itemsError) throw itemsError;
-      // Transform data to match CartItem type
+
       const transformedItems: CartItem[] = (itemsData || []).map(
-        (item: any) => ({
-          cartItemId: item.cart_item_id,
-          cartId: item.cart_id,
-          productId: item.product_id,
-          name: item.products?.product_name || "Unknown Product",
-          price: parseFloat(item.products?.price || 0),
-          quantity: item.quantity,
-          vendor: item.products?.vendor_profiles?.shop_name || "Unknown Vendor",
-          image: item.products?.images?.[0] || null,
-          selected: false,
-          vendorUserId: item.products?.vendor_user_id,
-          unit: item.products?.unit || "kg",
-          stock: item.products?.stock || 0,
-        }),
+        (item: any) => {
+          const originalPrice = parseFloat(item.products?.price || 0);
+          const discountPercent = item.products?.discount_percent || 0;
+          const discountedPrice =
+            discountPercent > 0
+              ? originalPrice * (1 - discountPercent / 100)
+              : originalPrice;
+
+          return {
+            cartItemId: item.cart_item_id,
+            cartId: item.cart_id,
+            productId: item.product_id,
+            name: item.products?.product_name || "Unknown Product",
+            price: discountedPrice,
+            originalPrice: originalPrice,
+            discountedPrice: discountedPrice,
+            discountPercent: discountPercent,
+            quantity: item.quantity,
+            vendor:
+              item.products?.vendor_profiles?.shop_name || "Unknown Vendor",
+            image: item.products?.images?.[0] || null,
+            selected: false,
+            vendorUserId: item.products?.vendor_user_id,
+            unit: item.products?.unit || "kg",
+            stock: item.products?.stock || 0,
+          };
+        },
       );
+
       setCartItems(transformedItems);
     } catch (error: any) {
       Alert.alert("Error", `Failed to fetch cart items: ${error.message}`);
@@ -127,13 +319,14 @@ const CartScreen = () => {
     }
   };
 
-  // Load cart on component mount and when focused
+  // Load cart on mount
   useFocusEffect(
     useCallback(() => {
       fetchCartItems();
     }, [user?.id]),
   );
 
+  // Fetch home address with coordinates
   useFocusEffect(
     useCallback(() => {
       const fetchHomeAddress = async () => {
@@ -141,47 +334,44 @@ const CartScreen = () => {
         try {
           const { data, error } = await supabase
             .from("addresses")
-            .select("full_address, address_type")
+            .select("full_address, address_type, latitude, longitude")
             .eq("user_id", user.id)
             .eq("is_default", true)
             .in("address_type", ["home", "work"])
             .maybeSingle();
+
           if (error) {
             console.error("Error fetching address:", error);
             setDeliveryAddress("");
             setHasHomeAddress(false);
             return;
           }
+
           if (data) {
             setDeliveryAddress(data.full_address || "Address not specified");
             setHasHomeAddress(true);
+            if (data.latitude && data.longitude) {
+              setBuyerAddressCoords({
+                latitude: data.latitude,
+                longitude: data.longitude,
+              });
+            }
           } else {
             setDeliveryAddress("");
             setHasHomeAddress(false);
+            setBuyerAddressCoords(null);
           }
         } catch (error) {
           console.error("Unexpected error:", error);
           setDeliveryAddress("");
           setHasHomeAddress(false);
+          setBuyerAddressCoords(null);
         }
       };
+
       fetchHomeAddress();
     }, [user?.id]),
   );
-
-  const selectedItems = cartItems.filter((item) => item.selected);
-
-  // Group selected items by vendor to calculate delivery fees
-  const getVendorGroups = () => {
-    const itemsByVendor: Record<string, CartItem[]> = {};
-    selectedItems.forEach((item) => {
-      if (!itemsByVendor[item.vendorUserId]) {
-        itemsByVendor[item.vendorUserId] = [];
-      }
-      itemsByVendor[item.vendorUserId].push(item);
-    });
-    return itemsByVendor;
-  };
 
   const vendorGroups = getVendorGroups();
   const vendorCount = Object.keys(vendorGroups).length;
@@ -190,11 +380,21 @@ const CartScreen = () => {
     (sum, item) => sum + item.price * item.quantity,
     0,
   );
-  const deliveryFeePerVendor = 50;
-  const totalDeliveryFee = vendorCount * deliveryFeePerVendor;
+
+  const totalDeliveryFee = Object.values(deliveryFees).reduce(
+    (sum, fee) => sum + fee.fee,
+    0,
+  );
+
   const total = subtotal + totalDeliveryFee;
 
-  // Toggle item selection
+  const vendorFeesList = Object.entries(deliveryFees).map(
+    ([vendorUserId, fee]) => ({
+      vendorUserId,
+      ...fee,
+    }),
+  );
+
   const toggleSelectItem = (cartItemId: string) => {
     setCartItems(
       cartItems.map((item) =>
@@ -205,7 +405,6 @@ const CartScreen = () => {
     );
   };
 
-  // Select all items
   const selectAllItems = () => {
     const allSelected = cartItems.every((item) => item.selected);
     setCartItems(
@@ -213,7 +412,6 @@ const CartScreen = () => {
     );
   };
 
-  // Bulk delete selected items
   const handleBulkDelete = () => {
     const selectedCount = selectedItems.length;
     if (selectedCount === 0) return;
@@ -257,12 +455,10 @@ const CartScreen = () => {
     }
   };
 
-  // Update quantity in database
   const updateQuantity = async (cartItemId: string, newQuantity: number) => {
     try {
-      if (newQuantity < 0) return; // Prevent negative quantities
+      if (newQuantity < 0) return;
 
-      // Check stock availability
       const item = cartItems.find((i) => i.cartItemId === cartItemId);
       if (item && newQuantity > item.stock) {
         Alert.alert(
@@ -276,7 +472,9 @@ const CartScreen = () => {
         .from("cart_items")
         .update({ quantity: newQuantity })
         .eq("cart_item_id", cartItemId);
+
       if (error) throw error;
+
       setCartItems(
         cartItems.map((item) =>
           item.cartItemId === cartItemId
@@ -312,7 +510,6 @@ const CartScreen = () => {
       return;
     }
 
-    // Check stock availability for all selected items
     const outOfStock = selectedItems.filter(
       (item) => item.quantity > item.stock,
     );
@@ -330,7 +527,6 @@ const CartScreen = () => {
   const handleConfirmOrder = async () => {
     setShowPreview(false);
     try {
-      // Get the user's default address ID
       const { data: addressData, error: addressError } = await supabase
         .from("addresses")
         .select("address_id")
@@ -347,12 +543,9 @@ const CartScreen = () => {
         return;
       }
 
-      // For COD - create orders immediately
       if (paymentMethod === "cod") {
-        // Group items by vendor
         const itemsByVendor = getVendorGroups();
 
-        // Create orders for each vendor
         const orderPromises = Object.entries(itemsByVendor).map(
           async ([vendorUserId, items]) => {
             const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
@@ -360,7 +553,7 @@ const CartScreen = () => {
               (sum, item) => sum + item.price * item.quantity,
               0,
             );
-            const vendorDeliveryFee = deliveryFeePerVendor;
+            const vendorDeliveryFee = deliveryFees[vendorUserId]?.fee || 50;
             const orderTotal = orderSubtotal + vendorDeliveryFee;
 
             const { data: orderId, error: rpcError } = await supabase.rpc(
@@ -377,9 +570,12 @@ const CartScreen = () => {
                 p_note: specialInstructions || null,
                 p_payment_proof_url: null,
                 p_gcash_reference: null,
+                p_item_data: items.map((item) => ({
+                  cartItemId: item.cartItemId,
+                  discountedPrice: item.price,
+                })),
               },
             );
-
             if (rpcError) throw rpcError;
             return { orderNumber, vendorDeliveryFee, orderTotal };
           },
@@ -393,7 +589,6 @@ const CartScreen = () => {
         );
         const finalTotal = subtotal + totalDeliveryFee;
 
-        // Refresh cart and delete checked out items
         await fetchCartItems();
         const cartIdsToDelete = [
           ...new Set(selectedItems.map((item) => item.cartId)),
@@ -413,13 +608,9 @@ const CartScreen = () => {
             { text: "Continue Shopping", onPress: () => router.push("/") },
           ],
         );
-      }
-      // For GCash - DON'T CREATE ORDERS, just prepare payment data
-      else {
-        // Group items by vendor and prepare payment data
+      } else {
         const itemsByVendor = getVendorGroups();
 
-        // Get vendor GCash details for each vendor
         const vendorPromises = Object.keys(itemsByVendor).map(
           async (vendorUserId) => {
             const { data: vendorData } = await supabase
@@ -440,12 +631,17 @@ const CartScreen = () => {
               gcashNumber: vendorData?.gcash_number,
               gcashName: vendorData?.gcash_name,
               subtotal: vendorSubtotal,
-              deliveryFee: deliveryFeePerVendor,
-              total: vendorSubtotal + deliveryFeePerVendor,
+              deliveryFee: deliveryFees[vendorUserId]?.fee || 50,
+              distance: deliveryFees[vendorUserId]?.distance,
+              total: vendorSubtotal + (deliveryFees[vendorUserId]?.fee || 50),
               items: items.map((item) => ({
                 cartItemId: item.cartItemId,
+                productId: item.productId,
                 name: item.name,
                 price: item.price,
+                originalPrice: item.originalPrice,
+                discountedPrice: item.discountedPrice,
+                discountPercent: item.discountPercent,
                 quantity: item.quantity,
                 unit: item.unit,
               })),
@@ -455,7 +651,6 @@ const CartScreen = () => {
 
         const vendorPayments = await Promise.all(vendorPromises);
 
-        // Navigate to multi-vendor payment screen WITHOUT creating orders
         router.push({
           pathname: "../buyer/payment-multiple",
           params: {
@@ -479,12 +674,31 @@ const CartScreen = () => {
     router.push("/account-information");
   };
 
-  // Order Preview Modal
+  const renderPrice = (item: CartItem) => {
+    if (item.discountPercent > 0) {
+      return (
+        <View style={styles.priceContainer}>
+          <Text style={styles.discountedPrice}>
+            ₱{item.price.toLocaleString()}
+          </Text>
+          <Text style={styles.originalPrice}>
+            ₱{item.originalPrice.toLocaleString()}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <Text style={styles.regularPrice}>₱{item.price.toLocaleString()}</Text>
+    );
+  };
+
   const OrderPreviewModal = () => {
-    // Calculate delivery fees by vendor
     const itemsByVendor = getVendorGroups();
     const vendorCount = Object.keys(itemsByVendor).length;
-    const totalDeliveryFee = vendorCount * deliveryFeePerVendor;
+    const totalDeliveryFee = Object.values(deliveryFees).reduce(
+      (sum, fee) => sum + fee.fee,
+      0,
+    );
 
     return (
       <Modal
@@ -505,7 +719,6 @@ const CartScreen = () => {
               </TouchableOpacity>
             </View>
             <ScrollView style={cartScreenStyles.modalContent}>
-              {/* Order Details */}
               <View style={cartScreenStyles.section}>
                 <Text style={cartScreenStyles.sectionHeader}>
                   Order Details ({selectedItems.length} item
@@ -533,16 +746,31 @@ const CartScreen = () => {
                       <Text style={cartScreenStyles.productVendor}>
                         {item.vendor}
                       </Text>
-                      <Text style={cartScreenStyles.productPrice}>
-                        ₱{item.price.toLocaleString()} × {item.quantity}{" "}
-                        {item.unit}
-                      </Text>
+                      <View style={styles.priceRow}>
+                        {item.discountPercent > 0 ? (
+                          <>
+                            <Text style={styles.modalDiscountedPrice}>
+                              ₱{item.price.toLocaleString()}
+                            </Text>
+                            <Text style={styles.modalOriginalPrice}>
+                              ₱{item.originalPrice.toLocaleString()}
+                            </Text>
+                          </>
+                        ) : (
+                          <Text style={styles.modalRegularPrice}>
+                            ₱{item.price.toLocaleString()}
+                          </Text>
+                        )}
+                        <Text style={styles.modalUnitText}>
+                          {" "}
+                          × {item.quantity} {item.unit}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 ))}
               </View>
 
-              {/* Delivery Information */}
               <View style={cartScreenStyles.section}>
                 <Text style={cartScreenStyles.sectionHeader}>
                   Delivery Information
@@ -562,13 +790,14 @@ const CartScreen = () => {
                 <View style={cartScreenStyles.infoRow}>
                   <Feather name="shopping-bag" size={16} color="#666" />
                   <Text style={cartScreenStyles.infoText}>
-                    {vendorCount} vendor{vendorCount !== 1 ? "s" : ""} (₱
-                    {deliveryFeePerVendor} delivery fee per vendor)
+                    {vendorCount} vendor{vendorCount !== 1 ? "s" : ""}
+                    {!calculatingFees &&
+                      ` (₱${totalDeliveryFee} total delivery fee)`}
+                    {calculatingFees && " (calculating fees...)"}
                   </Text>
                 </View>
               </View>
 
-              {/* Payment Method */}
               <View style={cartScreenStyles.section}>
                 <Text style={cartScreenStyles.sectionHeader}>
                   Payment Method
@@ -590,7 +819,6 @@ const CartScreen = () => {
                 </View>
               </View>
 
-              {/* Special Instructions */}
               {specialInstructions ? (
                 <View style={cartScreenStyles.section}>
                   <Text style={cartScreenStyles.sectionHeader}>
@@ -602,7 +830,6 @@ const CartScreen = () => {
                 </View>
               ) : null}
 
-              {/* Order Summary */}
               <View style={cartScreenStyles.section}>
                 <Text style={cartScreenStyles.sectionHeader}>
                   Order Summary
@@ -618,10 +845,39 @@ const CartScreen = () => {
                     Delivery Fee ({vendorCount} vendor
                     {vendorCount !== 1 ? "s" : ""})
                   </Text>
-                  <Text style={cartScreenStyles.summaryValue}>
-                    ₱{totalDeliveryFee}
-                  </Text>
+                  {calculatingFees ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.primary}
+                    />
+                  ) : (
+                    <Text style={cartScreenStyles.summaryValue}>
+                      ₱{totalDeliveryFee}
+                    </Text>
+                  )}
                 </View>
+                {!calculatingFees && vendorFeesList.length > 0 && (
+                  <View style={{ marginTop: 4, marginBottom: 8 }}>
+                    {vendorFeesList.map((vendor, index) => (
+                      <View
+                        key={vendor.vendorUserId}
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          paddingHorizontal: 8,
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, color: "#666" }}>
+                          Vendor {index + 1}{" "}
+                          {vendor.distance ? `(${vendor.distance} km)` : ""}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: "#666" }}>
+                          ₱{vendor.fee}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 <View style={cartScreenStyles.totalRow}>
                   <Text style={cartScreenStyles.totalLabel}>Total Amount</Text>
                   <Text style={cartScreenStyles.totalValue}>
@@ -630,7 +886,6 @@ const CartScreen = () => {
                 </View>
               </View>
 
-              {/* Terms and Conditions */}
               <View style={cartScreenStyles.termsContainer}>
                 <Text style={cartScreenStyles.termsText}>
                   By placing this order, you agree to our Terms of Service and
@@ -640,7 +895,6 @@ const CartScreen = () => {
               </View>
             </ScrollView>
 
-            {/* Action Buttons */}
             <View style={cartScreenStyles.modalActions}>
               <TouchableOpacity
                 style={cartScreenStyles.editButton}
@@ -693,7 +947,6 @@ const CartScreen = () => {
             <TouchableOpacity
               onPress={handleBackToDashboard}
               style={cartScreenStyles.headerBackBtn}
-              accessibilityLabel="Back to dashboard"
             >
               <Ionicons
                 name="arrow-back"
@@ -712,7 +965,6 @@ const CartScreen = () => {
             <TouchableOpacity
               style={cartScreenStyles.startShoppingBtn}
               onPress={handleBackToDashboard}
-              accessibilityLabel="Start shopping"
             >
               <Text style={cartScreenStyles.primaryButtonText}>
                 Start Shopping
@@ -734,7 +986,6 @@ const CartScreen = () => {
           <TouchableOpacity
             onPress={handleBackToDashboard}
             style={cartScreenStyles.headerBackBtn}
-            accessibilityLabel="Back to dashboard"
           >
             <Ionicons
               name="arrow-back"
@@ -748,7 +999,6 @@ const CartScreen = () => {
           </Text>
         </View>
         <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
-          {/* Select All and Bulk Delete Row */}
           <View
             style={{
               flexDirection: "row",
@@ -792,7 +1042,6 @@ const CartScreen = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Bulk Delete Button - Only shows when items are selected */}
             {selectedItems.length > 0 && (
               <TouchableOpacity
                 style={{
@@ -832,17 +1081,16 @@ const CartScreen = () => {
             )}
           </View>
 
-          {/* Cart Items */}
           {cartItems.map((item) => (
             <CartItemComponent
               key={item.cartItemId}
               item={item}
               onToggleSelect={toggleSelectItem}
               onUpdateQuantity={updateQuantity}
+              renderPrice={renderPrice}
             />
           ))}
 
-          {/* Delivery Address */}
           <View style={cartScreenStyles.sectionCard}>
             <View
               style={{
@@ -903,7 +1151,6 @@ const CartScreen = () => {
                     cartScreenStyles.input,
                     { color: "#005f73", fontStyle: "italic" },
                   ]}
-                  accessibilityLabel="Delivery address"
                 >
                   No home delivery address set
                 </Text>
@@ -914,24 +1161,20 @@ const CartScreen = () => {
                   cartScreenStyles.input,
                   !deliveryAddress && { color: "#005f73" },
                 ]}
-                accessibilityLabel="Delivery address"
               >
                 {deliveryAddress || "No delivery address set"}
               </Text>
             )}
           </View>
 
-          {/* Payment Method */}
           <View style={cartScreenStyles.sectionCard}>
             <Text style={cartScreenStyles.sectionTitle}>Payment Option</Text>
-            {/* Cash on Delivery */}
             <TouchableOpacity
               style={[
                 cartScreenStyles.paymentBtn,
                 paymentMethod === "cod" && cartScreenStyles.paymentBtnActive,
               ]}
               onPress={() => setPaymentMethod("cod")}
-              accessibilityLabel="Select Cash on Delivery"
             >
               <FontAwesome5
                 name="wallet"
@@ -948,14 +1191,12 @@ const CartScreen = () => {
                 </Text>
               </View>
             </TouchableOpacity>
-            {/* GCash */}
             <TouchableOpacity
               style={[
                 cartScreenStyles.paymentBtn,
                 paymentMethod === "gcash" && cartScreenStyles.paymentBtnActive,
               ]}
               onPress={() => setPaymentMethod("gcash")}
-              accessibilityLabel="Select GCash"
             >
               <FontAwesome5
                 name="mobile-alt"
@@ -972,7 +1213,6 @@ const CartScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Special Instructions */}
           <View style={cartScreenStyles.sectionCard}>
             <View
               style={{
@@ -1001,11 +1241,9 @@ const CartScreen = () => {
               numberOfLines={4}
               value={specialInstructions}
               onChangeText={setSpecialInstructions}
-              accessibilityLabel="Special instructions for order"
             />
           </View>
 
-          {/* Order Summary */}
           <View style={[cartScreenStyles.sectionCard, { marginBottom: 40 }]}>
             <Text style={cartScreenStyles.sectionTitle}>Order Summary</Text>
             <View style={cartScreenStyles.summaryRow}>
@@ -1017,12 +1255,38 @@ const CartScreen = () => {
             <View style={cartScreenStyles.summaryRow}>
               <Text style={cartScreenStyles.summaryLabel}>
                 Delivery Fee ({vendorCount} vendor{vendorCount !== 1 ? "s" : ""}
-                )
+                ){calculatingFees && " (calculating...)"}
               </Text>
-              <Text style={cartScreenStyles.summaryValue}>
-                ₱{totalDeliveryFee}
-              </Text>
+              {calculatingFees ? (
+                <ActivityIndicator size="small" color={COLORS.light.primary} />
+              ) : (
+                <Text style={cartScreenStyles.summaryValue}>
+                  ₱{totalDeliveryFee}
+                </Text>
+              )}
             </View>
+            {!calculatingFees && vendorFeesList.length > 0 && (
+              <View style={{ marginTop: 4, marginBottom: 8 }}>
+                {vendorFeesList.map((vendor, index) => (
+                  <View
+                    key={vendor.vendorUserId}
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      paddingHorizontal: 8,
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, color: "#666" }}>
+                      Vendor {index + 1}{" "}
+                      {vendor.distance ? `(${vendor.distance} km)` : ""}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: "#666" }}>
+                      ₱{vendor.fee}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
             <View style={cartScreenStyles.summaryDivider} />
             <View style={cartScreenStyles.summaryRow}>
               <Text
@@ -1039,49 +1303,51 @@ const CartScreen = () => {
           </View>
         </ScrollView>
 
-        {/* Checkout Button */}
         <View style={cartScreenStyles.checkoutBar}>
           <TouchableOpacity
             style={[
               cartScreenStyles.checkoutBtn,
-              (selectedItems.length === 0 || !hasHomeAddress) && {
+              (selectedItems.length === 0 ||
+                !hasHomeAddress ||
+                calculatingFees) && {
                 opacity: 0.5,
               },
             ]}
             onPress={handleCheckoutPreview}
-            disabled={selectedItems.length === 0 || !hasHomeAddress}
-            accessibilityLabel="Proceed to checkout"
+            disabled={
+              selectedItems.length === 0 || !hasHomeAddress || calculatingFees
+            }
           >
             <Text style={cartScreenStyles.checkoutBtnText}>
-              Place Order - ₱{total.toLocaleString()}
+              {calculatingFees
+                ? "Calculating delivery..."
+                : `Place Order - ₱${total.toLocaleString()}`}
             </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* Order Preview Modal */}
       <OrderPreviewModal />
     </SafeAreaView>
   );
 };
 
-// Extracted component for better modularity and readability
 const CartItemComponent = ({
   item,
   onToggleSelect,
   onUpdateQuantity,
+  renderPrice,
 }: {
   item: CartItem;
   onToggleSelect: (id: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
+  renderPrice: (item: CartItem) => React.ReactElement;
 }) => {
   return (
     <View style={cartScreenStyles.cartCard}>
-      {/* Checkbox */}
       <TouchableOpacity
         onPress={() => onToggleSelect(item.cartItemId)}
         style={{ marginRight: 12, justifyContent: "center" }}
-        accessibilityLabel={`Toggle ${item.name} selection`}
       >
         <MaterialCommunityIcons
           name={item.selected ? "checkbox-marked" : "checkbox-blank-outline"}
@@ -1089,7 +1355,6 @@ const CartItemComponent = ({
           color={item.selected ? COLORS.light.primary : COLORS.light.primary}
         />
       </TouchableOpacity>
-      {/* Product Image */}
       {item.image ? (
         <Image
           source={{ uri: item.image }}
@@ -1109,22 +1374,17 @@ const CartItemComponent = ({
           <Feather name="image" size={24} color="#999" />
         </View>
       )}
-      {/* Product Details */}
       <View style={{ flex: 1 }}>
         <Text style={cartScreenStyles.cartName}>{item.name}</Text>
         <Text style={cartScreenStyles.cartVendor}>{item.vendor}</Text>
-        <Text style={cartScreenStyles.cartPrice}>
-          ₱{item.price.toLocaleString()} per {item.unit}
-        </Text>
+        {renderPrice(item)}
       </View>
-      {/* Quantity Controls */}
       <View
         style={{
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        {/* Quantity Controls */}
         <View
           style={{
             flexDirection: "row",
@@ -1136,7 +1396,6 @@ const CartItemComponent = ({
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}
             style={cartScreenStyles.qtyBtn}
             disabled={item.quantity <= 1}
-            accessibilityLabel="Decrease quantity"
           >
             <Feather
               name="minus"
@@ -1149,7 +1408,6 @@ const CartItemComponent = ({
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
             style={cartScreenStyles.qtyBtn}
             disabled={item.quantity >= item.stock}
-            accessibilityLabel="Increase quantity"
           >
             <Feather
               name="plus"
@@ -1165,5 +1423,56 @@ const CartItemComponent = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  priceContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 4,
+  },
+  discountedPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: "#999",
+    textDecorationLine: "line-through",
+  },
+  regularPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+    marginTop: 4,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  modalDiscountedPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+  },
+  modalOriginalPrice: {
+    fontSize: 12,
+    color: "#999",
+    textDecorationLine: "line-through",
+  },
+  modalRegularPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+  },
+  modalUnitText: {
+    fontSize: 14,
+    color: "#666",
+  },
+});
 
 export default CartScreen;

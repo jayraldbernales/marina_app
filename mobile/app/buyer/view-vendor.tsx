@@ -34,6 +34,7 @@ type VendorProduct = {
   unit: string;
   images: string[] | null;
   harvested_at: string | null;
+  discount_percent?: number | null;
 };
 
 type ReviewData = {
@@ -42,8 +43,21 @@ type ReviewData = {
   created_at: string;
 };
 
+type ProductRating = {
+  rating: number;
+  totalReviews: number;
+};
+
 const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
+};
+
+const calculateDiscountedPrice = (
+  price: number,
+  discountPercent: number | null | undefined,
+) => {
+  if (!discountPercent || discountPercent <= 0) return price;
+  return price * (1 - discountPercent / 100);
 };
 
 export default function ViewVendorScreen() {
@@ -62,7 +76,60 @@ export default function ViewVendorScreen() {
     rating: 0,
     totalReviews: 0,
   });
+  // Add state for product ratings
+  const [productRatings, setProductRatings] = useState<
+    Record<string, ProductRating>
+  >({});
+
   const PRODUCTS_PER_PAGE = 6;
+
+  // New function to fetch product ratings
+  const fetchProductRatings = useCallback(async (productIds: string[]) => {
+    if (!productIds.length) return;
+
+    try {
+      const { data: reviews, error } = await supabase
+        .from("reviews")
+        .select("product_id, product_rating")
+        .in("product_id", productIds);
+
+      if (error) {
+        console.error("Error fetching product ratings:", error);
+        return;
+      }
+
+      // Group ratings by product_id and calculate averages
+      const ratingsMap: Record<string, ProductRating> = {};
+
+      // Initialize all products with 0 rating
+      productIds.forEach((id) => {
+        ratingsMap[id] = { rating: 0, totalReviews: 0 };
+      });
+
+      // Group reviews by product
+      const reviewsByProduct: Record<string, number[]> = {};
+      reviews?.forEach((review) => {
+        if (!reviewsByProduct[review.product_id]) {
+          reviewsByProduct[review.product_id] = [];
+        }
+        reviewsByProduct[review.product_id].push(review.product_rating);
+      });
+
+      // Calculate averages
+      Object.entries(reviewsByProduct).forEach(([productId, ratings]) => {
+        const sum = ratings.reduce((acc, curr) => acc + curr, 0);
+        const avg = Math.round((sum / ratings.length) * 10) / 10;
+        ratingsMap[productId] = {
+          rating: avg,
+          totalReviews: ratings.length,
+        };
+      });
+
+      setProductRatings((prev) => ({ ...prev, ...ratingsMap }));
+    } catch (error) {
+      console.error("Error in fetchProductRatings:", error);
+    }
+  }, []);
 
   const loadVendorProfile = useCallback(async () => {
     if (!vendorUserId) return;
@@ -151,7 +218,7 @@ export default function ViewVendorScreen() {
         const from = (pageNum - 1) * PRODUCTS_PER_PAGE;
         const to = from + PRODUCTS_PER_PAGE - 1;
 
-        // Fetch products for this vendor - removed sold_quantity
+        // Fetch products for this vendor
         const {
           data: productsData,
           error: productsError,
@@ -160,14 +227,15 @@ export default function ViewVendorScreen() {
           .from("products")
           .select(
             `
-          product_id,
-          product_name,
-          price,
-          stock,
-          unit,
-          images,
-          harvested_at
-        `,
+            product_id,
+            product_name,
+            price,
+            stock,
+            unit,
+            images,
+            harvested_at,
+            discount_percent
+          `,
             { count: "exact" },
           )
           .eq("vendor_user_id", vendorUserId)
@@ -183,11 +251,17 @@ export default function ViewVendorScreen() {
 
         setTotalProducts(count || 0);
 
+        const newProducts = productsData || [];
+
         if (reset) {
-          setProducts(productsData || []);
+          setProducts(newProducts);
         } else {
-          setProducts((prev) => [...prev, ...(productsData || [])]);
+          setProducts((prev) => [...prev, ...newProducts]);
         }
+
+        // Fetch ratings for these products
+        const productIds = newProducts.map((p) => p.product_id);
+        await fetchProductRatings(productIds);
 
         setHasMore(productsData?.length === PRODUCTS_PER_PAGE);
       } catch (err) {
@@ -197,7 +271,7 @@ export default function ViewVendorScreen() {
         setLoading(false);
       }
     },
-    [vendorUserId],
+    [vendorUserId, fetchProductRatings],
   );
 
   const loadMoreProducts = () => {
@@ -238,7 +312,7 @@ export default function ViewVendorScreen() {
         return;
       }
 
-      // Get or create conversation - now using object parameter
+      // Get or create conversation
       const { data: conversation, error } =
         await chatService.getOrCreateConversation({
           buyerId: user.id,
@@ -285,7 +359,19 @@ export default function ViewVendorScreen() {
     const freshness = computeFreshness(item.harvested_at);
     const imageUrl =
       item.images && item.images.length > 0 ? item.images[0] : null;
-    const price = Number(item.price) || 0;
+    const originalPrice = Number(item.price) || 0;
+    const discountPercent = item.discount_percent || 0;
+    const discountedPrice = calculateDiscountedPrice(
+      originalPrice,
+      discountPercent,
+    );
+    const hasDiscount = discountPercent > 0 && discountedPrice < originalPrice;
+
+    // Get product-specific rating
+    const productRating = productRatings[item.product_id] || {
+      rating: 0,
+      totalReviews: 0,
+    };
 
     return (
       <TouchableOpacity
@@ -314,6 +400,15 @@ export default function ViewVendorScreen() {
               <Ionicons name="image" size={28} color="#9ca3af" />
             </View>
           )}
+
+          {/* Discount Badge */}
+          {hasDiscount && (
+            <View style={styles.discountBadge}>
+              <Text style={styles.discountText}>-{discountPercent}%</Text>
+            </View>
+          )}
+
+          {/* Freshness Overlay */}
           <View
             style={[
               styles.freshnessOverlay,
@@ -338,7 +433,17 @@ export default function ViewVendorScreen() {
             </Text>
 
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={styles.productPrice}>{formatPrice(price)}</Text>
+              {hasDiscount ? (
+                <>
+                  <Text style={styles.discountedPrice}>
+                    {formatPrice(discountedPrice)}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.productPrice}>
+                  {formatPrice(originalPrice)}
+                </Text>
+              )}
               <Text style={styles.productUnit}>/{item.unit}</Text>
             </View>
           </View>
@@ -356,8 +461,15 @@ export default function ViewVendorScreen() {
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <MaterialCommunityIcons name="star" size={11} color="#FFD700" />
               <Text style={styles.productRating}>
-                {vendorStats.rating > 0 ? vendorStats.rating.toFixed(1) : "0.0"}
+                {productRating.rating > 0
+                  ? productRating.rating.toFixed(1)
+                  : "0.0"}
               </Text>
+              {productRating.totalReviews > 0 && (
+                <Text style={styles.reviewCount}>
+                  ({productRating.totalReviews})
+                </Text>
+              )}
             </View>
           </View>
         </View>
@@ -768,7 +880,7 @@ const styles = StyleSheet.create({
     color: "#757575",
   },
 
-  // Products Grid - EXACTLY matching BuyerDashboard style
+  // Products Grid
   productList: {
     paddingBottom: 16,
   },
@@ -810,10 +922,25 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
+  discountBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "#FF6B6B",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  discountText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
   productName: {
     fontWeight: "bold",
     color: COLORS.light.primary,
-    fontSize: 18,
+    fontSize: 14,
     flex: 1,
     marginRight: 8,
   },
@@ -821,6 +948,12 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.light.coral,
     fontSize: 14,
+  },
+  discountedPrice: {
+    fontWeight: "bold",
+    color: COLORS.light.coral,
+    fontSize: 14,
+    marginRight: 4,
   },
   productUnit: {
     fontSize: 12,
@@ -835,10 +968,13 @@ const styles = StyleSheet.create({
   productRating: {
     fontSize: 11,
     color: "#333",
-    marginLeft: 4,
-    marginRight: 8,
+    marginLeft: 2,
   },
-
+  reviewCount: {
+    fontSize: 10,
+    color: "#999",
+    marginLeft: 2,
+  },
   emptyProducts: {
     alignItems: "center",
     justifyContent: "center",

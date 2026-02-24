@@ -74,16 +74,15 @@ export const ProductDiscount: React.FC<ProductDiscountProps> = ({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.priceRow}>
-        {/* Original price with strikethrough */}
-        <Text style={[styles.originalPrice, getTextSizeStyle(textSize)]}>
+        <Text style={[styles.originalPrice, getTextSizeStyle(badgeSize)]}>
           ₱
           {price.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
           })}
         </Text>
 
-        {/* Discounted price */}
+        {/* Discounted price - WITH decimals */}
         <Text style={[styles.discountedPrice, getTextSizeStyle(textSize)]}>
           ₱{discountedPrice.toFixed(2)}
         </Text>
@@ -118,11 +117,12 @@ export const calculateDiscountedPrice = (
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingRight: 28,
   },
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
   },
   priceContainer: {
     flexDirection: "row",

@@ -207,6 +207,7 @@ const GcashPaymentScreen = () => {
         const { error } = await supabase
           .from("orders")
           .update({
+            payment_method: "gcash",
             payment_proof_url: screenshotUrl,
             gcash_reference: gcashReference,
             payment_status: "pending_verification",
@@ -402,18 +403,6 @@ const GcashPaymentScreen = () => {
               </View>
             )}
           </TouchableOpacity>
-        </View>
-
-        {/* Verification Note */}
-        <View style={styles.noteBox}>
-          <Ionicons
-            name="time-outline"
-            size={18}
-            color={COLORS.light.primary}
-          />
-          <Text style={styles.noteText}>
-            Vendor verifies payment (15-30 mins)
-          </Text>
         </View>
 
         {/* Submit Button */}

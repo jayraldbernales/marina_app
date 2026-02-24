@@ -14,7 +14,6 @@ import {
   Image,
   Alert,
   RefreshControl,
-  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";

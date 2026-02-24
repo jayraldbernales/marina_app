@@ -200,4 +200,25 @@ export const buyerDashboardStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold" as "bold",
   },
+  discountBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "#FF6B6B",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  discountText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  discountedPrice: {
+    fontWeight: "bold",
+    color: COLORS.light.coral,
+    fontSize: 14,
+    marginRight: 4,
+  },
 });

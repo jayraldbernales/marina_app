@@ -21,7 +21,10 @@ import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleto
 import { supabase } from "../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../utils/freshness";
 import { RealtimeChannel } from "@supabase/supabase-js";
-import { fetchMultipleProductRatings } from "../utils/productRatings";
+import {
+  fetchMultipleProductRatings,
+  clearProductRatingCache,
+} from "../utils/productRatings";
 
 // -------------------- TYPES --------------------
 
@@ -41,6 +44,7 @@ interface Product {
   category?: string | null;
   rating: number; // Product rating from reviews table
   totalReviews: number; // Total number of reviews for this product
+  discount_percent?: number | null; // Added discount_percent field
 }
 
 interface RawProductRow {
@@ -52,6 +56,7 @@ interface RawProductRow {
   harvested_at: string;
   images: string[] | null;
   vendor_user_id: string;
+  discount_percent?: number | null; // Added discount_percent field
   categories: { category_name: string } | { category_name: string }[] | null;
   vendor_profiles:
     | Array<{
@@ -106,6 +111,14 @@ const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
 };
 
+const calculateDiscountedPrice = (
+  price: number,
+  discountPercent: number | null | undefined,
+) => {
+  if (!discountPercent || discountPercent <= 0) return price;
+  return price * (1 - discountPercent / 100);
+};
+
 // Freshness filter labels
 const FRESHNESS_FILTERS: Array<{
   label: string;
@@ -118,9 +131,13 @@ const FRESHNESS_FILTERS: Array<{
     value: FreshnessStatus.ULTRA_FRESH,
     color: "#10b981",
   },
-  { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
-  { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
-  { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+  {
+    label: "Yesterday's Catch",
+    value: FreshnessStatus.FRESH,
+    color: "#06b6d4",
+  },
+  { label: "2 Days Ago", value: FreshnessStatus.GOOD, color: "#f59e0b" },
+  { label: "3 Days Ago", value: FreshnessStatus.FAIR, color: "#d97706" },
 ];
 
 // -------------------- COMPONENT --------------------
@@ -335,6 +352,7 @@ const BuyerDashboard = () => {
           harvested_at,
           images,
           vendor_user_id,
+          discount_percent,
           categories:category_id(category_name),
           vendor_profiles!vendor_user_id(
             user_id,
@@ -412,6 +430,7 @@ const BuyerDashboard = () => {
           category: categoryName,
           rating: productRating.rating,
           totalReviews: productRating.totalReviews,
+          discount_percent: item.discount_percent,
         };
       });
 
@@ -568,13 +587,16 @@ const BuyerDashboard = () => {
     cleanupSubscriptions,
   ]);
 
-  // Refresh unread count when screen comes into focus
+  //  useFocusEffect to clear cache and refresh data
   useFocusEffect(
     useCallback(() => {
       if (currentUserId) {
         fetchUnreadMessagesCount(currentUserId);
       }
-    }, [currentUserId, fetchUnreadMessagesCount]),
+
+      clearProductRatingCache();
+      loadData();
+    }, [currentUserId, fetchUnreadMessagesCount, loadData]),
   );
 
   // Initial load
@@ -946,6 +968,14 @@ const BuyerDashboard = () => {
             >
               {filteredProducts.map((product) => {
                 const freshness = computeFreshness(product.harvested_at);
+                const originalPrice = product.price;
+                const discountPercent = product.discount_percent || 0;
+                const discountedPrice = calculateDiscountedPrice(
+                  originalPrice,
+                  discountPercent,
+                );
+                const hasDiscount =
+                  discountPercent > 0 && discountedPrice < originalPrice;
 
                 return (
                   <TouchableOpacity
@@ -981,6 +1011,17 @@ const BuyerDashboard = () => {
                           <Ionicons name="image" size={28} color="#9ca3af" />
                         </View>
                       )}
+
+                      {/* Discount Badge */}
+                      {hasDiscount && (
+                        <View style={buyerDashboardStyles.discountBadge}>
+                          <Text style={buyerDashboardStyles.discountText}>
+                            -{discountPercent}%
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Freshness Overlay */}
                       <View
                         style={[
                           buyerDashboardStyles.freshnessOverlay,
@@ -1014,9 +1055,19 @@ const BuyerDashboard = () => {
                         <View
                           style={{ flexDirection: "row", alignItems: "center" }}
                         >
-                          <Text style={buyerDashboardStyles.productPrice}>
-                            {formatPrice(product.price)}
-                          </Text>
+                          {hasDiscount ? (
+                            <>
+                              <Text
+                                style={buyerDashboardStyles.discountedPrice}
+                              >
+                                {formatPrice(discountedPrice)}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={buyerDashboardStyles.productPrice}>
+                              {formatPrice(originalPrice)}
+                            </Text>
+                          )}
                           <Text style={buyerDashboardStyles.productUnit}>
                             /{product.unit}
                           </Text>

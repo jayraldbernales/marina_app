@@ -28,7 +28,6 @@ import {
 import { locationService } from "@/services/locationService";
 import { dispatchService } from "@/services/dispatchService";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
 
 // Map database status to UI tabs
 const statusToTab = (status: DatabaseDeliveryStatus): UITabStatus => {
@@ -623,6 +622,11 @@ const RiderDelivery = () => {
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [selectedReceiptDelivery, setSelectedReceiptDelivery] =
     useState<Delivery | null>(null);
+  const [failModalVisible, setFailModalVisible] = useState(false);
+  const [failDeliveryData, setFailDeliveryData] = useState<{
+    delivery: Delivery | null;
+    reason: string;
+  }>({ delivery: null, reason: "" });
 
   const navigation = useNavigation();
 
@@ -1071,25 +1075,25 @@ const RiderDelivery = () => {
               </>
             )}
 
-            {/* STAGE 4: Picked up - En route to customer */}
+            {/* STAGE 4: Picked up - En route to customer - REPLACED Contact Customer with Report Issue */}
             {delivery.status === "picked_up" && (
               <>
                 <TouchableOpacity
-                  style={RiderDeliveryStyles.secondaryButton}
+                  style={RiderDeliveryStyles.reportButton}
                   onPress={() => {
-                    if (
-                      delivery.customer_phone &&
-                      delivery.customer_phone !== "No phone"
-                    ) {
-                      makePhoneCall(delivery.customer_phone);
-                    } else {
-                      Alert.alert("Error", "No customer phone available");
-                    }
+                    setFailDeliveryData({ delivery, reason: "" });
+                    setFailModalVisible(true);
                   }}
                   disabled={isUploading}
                 >
-                  <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                    Contact Customer
+                  <Ionicons
+                    name="warning-outline"
+                    size={16}
+                    color="#ef4444"
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={RiderDeliveryStyles.reportButtonText}>
+                    Report Issue
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1118,25 +1122,6 @@ const RiderDelivery = () => {
               >
                 <Text style={RiderDeliveryStyles.secondaryButtonText}>
                   Receipt
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Failed deliveries */}
-            {delivery.status === "failed" && (
-              <TouchableOpacity style={RiderDeliveryStyles.primaryButton}>
-                <Text style={RiderDeliveryStyles.primaryButtonText}>
-                  Report
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Cancelled/Rejected deliveries */}
-            {(delivery.status === "cancelled" ||
-              delivery.status === "rejected") && (
-              <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
-                <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                  Details
                 </Text>
               </TouchableOpacity>
             )}
@@ -1292,6 +1277,119 @@ const RiderDelivery = () => {
         delivery={selectedReceiptDelivery}
         riderId={riderId}
       />
+
+      {/* Fail Delivery Modal */}
+      <Modal
+        visible={failModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFailModalVisible(false)}
+      >
+        <View style={S.modalOverlay}>
+          <View style={[S.modalContent, { maxHeight: "50%" }]}>
+            <View style={S.modalHeader}>
+              <Text style={S.modalTitle}>Report Issue</Text>
+              <TouchableOpacity
+                style={S.modalCloseButton}
+                onPress={() => setFailModalVisible(false)}
+              >
+                <Ionicons name="close" size={16} color="#555" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={S.modalBody}>
+              <Text style={RiderDeliveryStyles.failInstruction}>
+                Please select a reason for reporting this delivery issue:
+              </Text>
+
+              {[
+                "Customer not available",
+                "Wrong address",
+                "Customer refused delivery",
+                "Unable to locate address",
+                "Delivery area unsafe",
+                "Vehicle issue",
+                "Other",
+              ].map((reason) => (
+                <TouchableOpacity
+                  key={reason}
+                  style={[
+                    RiderDeliveryStyles.failReasonOption,
+                    failDeliveryData.reason === reason &&
+                      RiderDeliveryStyles.failReasonSelected,
+                  ]}
+                  onPress={() =>
+                    setFailDeliveryData((prev) => ({ ...prev, reason }))
+                  }
+                >
+                  <Text
+                    style={[
+                      RiderDeliveryStyles.failReasonText,
+                      failDeliveryData.reason === reason &&
+                        RiderDeliveryStyles.failReasonTextSelected,
+                    ]}
+                  >
+                    {reason}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              <View style={RiderDeliveryStyles.failActionButtons}>
+                <TouchableOpacity
+                  style={RiderDeliveryStyles.failCancelButton}
+                  onPress={() => setFailModalVisible(false)}
+                >
+                  <Text style={RiderDeliveryStyles.failCancelButtonText}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    RiderDeliveryStyles.failConfirmButton,
+                    (!failDeliveryData.reason || uploadingId) &&
+                      RiderDeliveryStyles.disabledButton,
+                  ]}
+                  onPress={async () => {
+                    if (!failDeliveryData.delivery || !failDeliveryData.reason)
+                      return;
+
+                    setUploadingId(failDeliveryData.delivery.id);
+                    try {
+                      await deliveryService.failDelivery(
+                        failDeliveryData.delivery.id,
+                        failDeliveryData.delivery.order_id,
+                        riderId!,
+                        failDeliveryData.reason,
+                      );
+
+                      Alert.alert("Success", "Issue reported successfully");
+                      setFailModalVisible(false);
+                      setFailDeliveryData({ delivery: null, reason: "" });
+                      loadDeliveries();
+                    } catch (error: any) {
+                      Alert.alert(
+                        "Error",
+                        error.message || "Failed to report issue",
+                      );
+                    } finally {
+                      setUploadingId(null);
+                    }
+                  }}
+                  disabled={!failDeliveryData.reason || !!uploadingId}
+                >
+                  {uploadingId === failDeliveryData.delivery?.id ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={RiderDeliveryStyles.failConfirmButtonText}>
+                      Confirm
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

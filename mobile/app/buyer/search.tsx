@@ -1,5 +1,5 @@
 // app/buyer/search.tsx - Search results screen for buyers
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,8 +8,6 @@ import {
   TextInput,
   SafeAreaView,
   Image,
-  ActivityIndicator,
-  Alert,
   RefreshControl,
   Modal,
   ScrollView,
@@ -40,6 +38,7 @@ interface Product {
   category?: string | null;
   type: "product";
   freshness_status: FreshnessStatus;
+  discount_percent?: number | null; // Added discount_percent
 }
 
 interface Vendor {
@@ -98,22 +97,28 @@ const FRESHNESS_FILTERS: Array<{
   value: FreshnessFilter;
   color: string;
 }> = [
-  { label: "All Freshness", value: "all", color: "#10b981" },
+  { label: "All Catch Date", value: "all", color: "#10b981" },
   {
     label: "Today's Catch",
     value: FreshnessStatus.ULTRA_FRESH,
     color: "#10b981",
   },
-  { label: "Fresh (Iced)", value: FreshnessStatus.FRESH, color: "#06b6d4" },
-  { label: "Still Fresh", value: FreshnessStatus.GOOD, color: "#f59e0b" },
-  { label: "Use Soon", value: FreshnessStatus.FAIR, color: "#d97706" },
+  {
+    label: "Yesterday's Catch",
+    value: FreshnessStatus.FRESH,
+    color: "#06b6d4",
+  },
+  { label: "2 Days Ago", value: FreshnessStatus.GOOD, color: "#f59e0b" },
+  { label: "3 Days Ago", value: FreshnessStatus.FAIR, color: "#d97706" },
 ];
 
-// Filter out products that are not fresh (exclude FAIR and OLD)
+// Filter out products that are not fresh (exclude OLD/NOT_FRESH)
 const ALLOWED_FRESHNESS = [
+  FreshnessStatus.PRE_ORDER,
   FreshnessStatus.ULTRA_FRESH,
   FreshnessStatus.FRESH,
   FreshnessStatus.GOOD,
+  FreshnessStatus.FAIR, // Added FAIR to allowed freshness
 ];
 
 const PRICE_RANGES: PriceRange[] = [
@@ -128,6 +133,14 @@ const PRICE_RANGES: PriceRange[] = [
 
 const formatPrice = (price: number) => {
   return `₱${Number(price).toLocaleString()}`;
+};
+
+const calculateDiscountedPrice = (
+  price: number,
+  discountPercent: number | null | undefined,
+) => {
+  if (!discountPercent || discountPercent <= 0) return price;
+  return price * (1 - discountPercent / 100);
 };
 
 const getFreshnessScore = (harvestedAt: string): number => {
@@ -270,6 +283,7 @@ const BuyerSearch = () => {
             harvested_at,
             images,
             vendor_user_id,
+            discount_percent,
             categories:category_id(category_name),
             vendor_profiles!vendor_user_id(
               user_id,
@@ -340,9 +354,10 @@ const BuyerSearch = () => {
             category: categoryName,
             type: "product" as const,
             freshness_status: freshness.status,
+            discount_percent: item.discount_percent,
           };
         })
-        // Filter out products that are not fresh
+        // Filter out products that are not fresh (exclude OLD/NOT_FRESH)
         .filter((product: Product) =>
           ALLOWED_FRESHNESS.includes(product.freshness_status),
         );
@@ -635,6 +650,13 @@ const BuyerSearch = () => {
   // Render product item
   const renderProductItem = ({ item }: { item: Product }) => {
     const freshness = computeFreshness(item.harvested_at);
+    const originalPrice = item.price;
+    const discountPercent = item.discount_percent || 0;
+    const discountedPrice = calculateDiscountedPrice(
+      originalPrice,
+      discountPercent,
+    );
+    const hasDiscount = discountPercent > 0 && discountedPrice < originalPrice;
 
     return (
       <TouchableOpacity
@@ -656,6 +678,7 @@ const BuyerSearch = () => {
             borderRadius: 8,
             overflow: "hidden",
             marginRight: 12,
+            position: "relative",
           }}
         >
           {item.thumbnail ? (
@@ -677,6 +700,32 @@ const BuyerSearch = () => {
               <Ionicons name="image" size={28} color="#9ca3af" />
             </View>
           )}
+
+          {/* Discount Badge */}
+          {hasDiscount && (
+            <View
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                backgroundColor: "#FF6B6B",
+                paddingHorizontal: 4,
+                paddingVertical: 2,
+                borderRadius: 4,
+                zIndex: 1,
+              }}
+            >
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: 8,
+                  fontWeight: "bold",
+                }}
+              >
+                -{discountPercent}%
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={{ flex: 1 }}>
@@ -693,6 +742,7 @@ const BuyerSearch = () => {
                 fontWeight: "600",
                 color: "#333",
                 flex: 1,
+                marginRight: 8,
               }}
               numberOfLines={1}
             >
@@ -704,7 +754,6 @@ const BuyerSearch = () => {
                 paddingHorizontal: 8,
                 paddingVertical: 2,
                 borderRadius: 12,
-                marginLeft: 8,
               }}
             >
               <Text style={{ fontSize: 10, color: "#fff", fontWeight: "500" }}>
@@ -735,15 +784,40 @@ const BuyerSearch = () => {
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "700",
-                  color: COLORS.light.primary,
-                }}
-              >
-                {formatPrice(item.price)}
-              </Text>
+              {hasDiscount ? (
+                <>
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "700",
+                      color: COLORS.light.primary,
+                      marginRight: 4,
+                    }}
+                  >
+                    {formatPrice(discountedPrice)}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#999",
+                      textDecorationLine: "line-through",
+                      marginRight: 2,
+                    }}
+                  >
+                    {formatPrice(originalPrice)}
+                  </Text>
+                </>
+              ) : (
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "700",
+                    color: COLORS.light.primary,
+                  }}
+                >
+                  {formatPrice(originalPrice)}
+                </Text>
+              )}
               <Text style={{ fontSize: 12, color: "#666", marginLeft: 2 }}>
                 /{item.unit}
               </Text>
@@ -751,7 +825,7 @@ const BuyerSearch = () => {
             <Text
               style={{
                 fontSize: 11,
-                color: item.stock > 10 ? "#10b981" : "#f59e0b",
+                color: COLORS.light.oceanDeep,
               }}
             >
               {item.stock > 0 ? `${item.stock} left` : "Out of stock"}

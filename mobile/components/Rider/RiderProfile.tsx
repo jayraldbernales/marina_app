@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,14 +6,83 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
 import { COLORS } from "../../constants";
 import { riderProfileStyles } from "./styles/riderProfileStyles";
+import { supabase } from "@/lib/supabase";
+import { useUserStore } from "@/store/userStore";
+
+type RiderProfileData = {
+  user_id: string;
+  avatar_url: string | null;
+  vehicle_type: string | null;
+  approval_status: string;
+  is_available: boolean;
+  full_name: string;
+  email: string;
+};
 
 const RiderProfile = () => {
+  const [profile, setProfile] = useState<RiderProfileData | null>(null);
+  const [loading, setLoading] = useState(true);
   const navigation = useNavigation();
+  const user = useUserStore((state) => state.user);
+
+  useEffect(() => {
+    fetchRiderProfile();
+  }, [user?.id]);
+
+  const fetchRiderProfile = async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoading(true);
+
+      // Fetch rider profile and user profile data
+      const { data: riderData, error: riderError } = await supabase
+        .from("rider_profiles")
+        .select(
+          `
+          user_id,
+          avatar_url,
+          vehicle_type,
+          approval_status,
+          is_available
+        `,
+        )
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (riderError) throw riderError;
+
+      // Fetch user profile data (full name)
+      const { data: userData, error: userError } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (userError) throw userError;
+
+      // ✅ FIXED: Ensure all required fields are present
+      setProfile({
+        user_id: riderData?.user_id || user.id,
+        avatar_url: riderData?.avatar_url || null,
+        vehicle_type: riderData?.vehicle_type || null,
+        approval_status: riderData?.approval_status || "pending",
+        is_available: riderData?.is_available || false,
+        full_name: userData?.full_name || "Rider",
+        email: userData?.email || "",
+      });
+    } catch (error) {
+      console.error("Error fetching rider profile:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   /** Rider–related menu items */
   const riderMenus = [
@@ -22,7 +91,7 @@ const RiderProfile = () => {
       title: "Edit Profile",
       subtitle: "Update your rider information",
       icon: "person-circle-outline" as const,
-      onPress: () => console.log("Navigate to Edit Profile"),
+      onPress: () => router.push("/rider/edit-profile"),
     },
     {
       id: 2,
@@ -36,14 +105,7 @@ const RiderProfile = () => {
       title: "Customer Reviews",
       subtitle: "View and respond to feedback",
       icon: "star-outline" as const,
-      onPress: () => console.log("Navigate to Reviews"),
-    },
-    {
-      id: 4,
-      title: "Availability",
-      subtitle: "Set your active delivery status",
-      icon: "checkmark-circle-outline" as const,
-      onPress: () => console.log("Navigate to Availability Settings"),
+      onPress: () => router.push("/rider/customer-reviews"),
     },
   ];
 
@@ -98,6 +160,33 @@ const RiderProfile = () => {
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
+        <View style={riderProfileStyles.container}>
+          <View style={riderProfileStyles.headerBar}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={riderProfileStyles.headerBackBtn}
+            >
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color={COLORS.light.primary}
+              />
+            </TouchableOpacity>
+            <Text style={riderProfileStyles.headerTitle}>Rider Profile</Text>
+          </View>
+          <View
+            style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+          >
+            <ActivityIndicator size="large" color={COLORS.light.primary} />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.light.primary }}>
       <View style={riderProfileStyles.container}>
@@ -125,14 +214,37 @@ const RiderProfile = () => {
           <View style={riderProfileStyles.header}>
             <View style={riderProfileStyles.profileSection}>
               <View style={riderProfileStyles.imageContainer}>
-                <Image
-                  source={{ uri: "https://i.pravatar.cc/150?img=12" }}
-                  style={riderProfileStyles.profileImage}
-                />
+                {profile?.avatar_url ? (
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={riderProfileStyles.profileImage}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      riderProfileStyles.profileImage,
+                      {
+                        backgroundColor: "#e0f2ed",
+                        justifyContent: "center",
+                        alignItems: "center",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 32,
+                        fontWeight: "bold",
+                        color: COLORS.light.primary,
+                      }}
+                    >
+                      {profile?.full_name?.charAt(0) || "R"}
+                    </Text>
+                  </View>
+                )}
 
                 <TouchableOpacity
                   style={riderProfileStyles.editImageButton}
-                  onPress={() => console.log("Edit Rider Photo")}
+                  onPress={() => router.push("/rider/edit-profile")}
                 >
                   <Ionicons
                     name="camera"
@@ -144,16 +256,20 @@ const RiderProfile = () => {
 
               <View style={riderProfileStyles.userDetails}>
                 <Text style={riderProfileStyles.userName}>
-                  Rider Juan Dela Cruz
+                  {profile?.full_name || "Rider"}
                 </Text>
                 <Text style={riderProfileStyles.userEmail}>
-                  Active Delivery Partner
+                  {profile?.vehicle_type
+                    ? `${profile.vehicle_type} • ${profile.is_available ? "Available" : "Offline"}`
+                    : profile?.is_available
+                      ? "Available"
+                      : "Offline"}
                 </Text>
 
                 <View style={riderProfileStyles.actionButtons}>
                   <TouchableOpacity
                     style={riderProfileStyles.primaryButton}
-                    onPress={() => console.log("Edit Profile")}
+                    onPress={() => router.push("/rider/edit-profile")}
                   >
                     <Ionicons
                       name="pencil"

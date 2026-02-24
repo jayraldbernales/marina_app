@@ -765,4 +765,25 @@ export const sellerOrderStyles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 8,
   },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginVertical: 8,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#333",
+    paddingVertical: 8,
+  },
+  clearButton: {
+    padding: 4,
+  },
 });

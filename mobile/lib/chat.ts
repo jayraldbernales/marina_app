@@ -33,10 +33,10 @@ export interface Conversation {
     avatar_url: string | null;
   } | null;
   rider?: {
+    avatar_url: string | null;
     vehicle_type: string | null;
     profiles: {
       full_name: string;
-      avatar_url: string | null;
     } | null;
   } | null;
 }
@@ -127,53 +127,55 @@ export const chatService = {
       .from("conversations")
       .select(
         `
-        *,
-        buyer:profiles!buyer_id(
-          full_name,
-          avatar_url
-        ),
-        vendor:vendor_profiles!vendor_id(
-          shop_name,
-          avatar_url
-        ),
-        rider:rider_profiles!rider_id(
-          vehicle_type,
-          profiles!rider_profiles_user_id_fkey(
-            full_name,
-            avatar_url
-          )
+      *,
+      buyer:profiles!buyer_id(
+        full_name,
+        avatar_url
+      ),
+      vendor:vendor_profiles!vendor_id(
+        shop_name,
+        avatar_url
+      ),
+      rider:rider_profiles!rider_id(
+        avatar_url,
+        vehicle_type,
+        user_id,
+        profiles!inner(
+          full_name
         )
-      `,
       )
-      .eq("vendor_id", vendorId) // Only fetch vendor conversations
-      .order("last_message_time", { ascending: false }); // Sort by last message time
+    `,
+      )
+      .eq("vendor_id", vendorId)
+      .order("last_message_time", { ascending: false });
 
     return { data, error };
   },
 
+  // Get all conversations for a buyer
   // Get all conversations for a buyer
   async getBuyerConversations(buyerId: string) {
     const { data, error } = await supabase
       .from("conversations")
       .select(
         `
-        *,
-        buyer:profiles!buyer_id(
-          full_name,
-          avatar_url
-        ),
-        vendor:vendor_profiles!vendor_id(
-          shop_name,
-          avatar_url
-        ),
-        rider:rider_profiles!rider_id(
-          vehicle_type,
-          profiles!rider_profiles_user_id_fkey(
-            full_name,
-            avatar_url
-          )
+      *,
+      buyer:profiles!buyer_id(
+        full_name,
+        avatar_url
+      ),
+      vendor:vendor_profiles!vendor_id(
+        shop_name,
+        avatar_url
+      ),
+      rider:rider_profiles!rider_id(
+        avatar_url,
+        vehicle_type,
+        profiles!rider_profiles_user_id_fkey(
+          full_name
         )
-      `,
+      )
+    `,
       )
       .eq("buyer_id", buyerId)
       .order("last_message_time", { ascending: false });

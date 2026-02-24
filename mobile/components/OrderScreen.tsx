@@ -30,6 +30,7 @@ type OrderStatus =
   | "ready-to-ship"
   | "shipped"
   | "delivered"
+  | "failed"
   | "cancelled"
   | "rejected";
 
@@ -76,8 +77,8 @@ interface DisplayOrder {
   deliveryAddress: string;
   vendorShopName?: string;
   vendorId?: string;
-  // NEW: Add rider assignment
   riderAssignment?: RiderAssignment | null;
+  failureReason?: string;
 }
 
 const fetchRiderAssignment = async (
@@ -89,10 +90,8 @@ const fetchRiderAssignment = async (
       .from("deliveries")
       .select("rider_user_id, status")
       .eq("order_id", orderId)
-      .not("rider_user_id", "is", null)
       .maybeSingle();
-
-    if (deliveryError || !delivery) {
+    if (deliveryError || !delivery || !delivery.rider_user_id) {
       return null;
     }
 
@@ -129,9 +128,11 @@ const fetchRiderAssignment = async (
             ? "Picked up"
             : delivery.status === "ready_to_pickup"
               ? "Ready to Pickup"
-              : delivery.status === "delivered"
-                ? "Delivered"
-                : delivery.status,
+              : delivery.status === "failed"
+                ? "Failed"
+                : delivery.status === "delivered"
+                  ? "Delivered"
+                  : delivery.status,
       vehicle: riderProfile?.vehicle_type || null,
     };
   } catch (error) {
@@ -197,6 +198,7 @@ const OrderDetailsModal = ({
       "ready-to-ship": "#8b5cf6",
       shipped: "#10b981",
       delivered: "#10b981",
+      failed: "#ef4444",
       cancelled: "#6b7280",
       rejected: "#ef4444",
     };
@@ -210,6 +212,7 @@ const OrderDetailsModal = ({
       "ready-to-ship": "Ready to Ship",
       shipped: "Shipped",
       delivered: "Completed",
+      failed: "Failed",
       cancelled: "Cancelled",
       rejected: "Rejected",
     };
@@ -410,7 +413,52 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             )}
-
+            {order.status === "failed" && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Failure Reason</Text>
+                <View
+                  style={{
+                    backgroundColor: "#fef2f2",
+                    borderRadius: 12,
+                    padding: 14,
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#dc2626",
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: "row", alignItems: "flex-start" }}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={20}
+                      color="#dc2626"
+                      style={{ marginRight: 10, marginTop: 2 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: "#991b1b",
+                          fontSize: 15,
+                          fontWeight: "600",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {order.failureReason || "No reason provided"}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#b91c1c",
+                          fontSize: 13,
+                          opacity: 0.9,
+                        }}
+                      >
+                        This delivery was not completed
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
             {/* ── Rider ── */}
             {order.riderAssignment && (
               <View style={S.modalSection}>
@@ -548,6 +596,7 @@ const OrdersScreen = () => {
     { key: "to-ship", label: "To Ship" },
     { key: "to-receive", label: "To Receive" },
     { key: "completed", label: "Completed" },
+    { key: "failed", label: "Failed" },
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
@@ -563,6 +612,8 @@ const OrdersScreen = () => {
         return "to-receive";
       case "delivered":
         return "completed";
+      case "failed":
+        return "failed";
       case "cancelled":
       case "rejected":
         return "cancelled";
@@ -781,32 +832,30 @@ const OrdersScreen = () => {
   };
 
   const filteredOrders = orders.filter((order) => {
-    const uiTab = getUITabFromDBStatus(order.status);
+    const normalizedStatus = order.status.toLowerCase();
+    const uiTab = getUITabFromDBStatus(normalizedStatus as OrderStatus);
+
     if (activeTab === "cancelled") {
-      if (order.status !== "cancelled" && order.status !== "rejected") {
-        return false;
-      }
+      return (
+        normalizedStatus === "cancelled" || normalizedStatus === "rejected"
+      );
     } else if (uiTab !== activeTab) {
       return false;
     }
 
-    if (searchQuery.trim() === "") {
-      return true;
-    }
+    if (!searchQuery.trim()) return true;
 
     const query = searchQuery.toLowerCase().trim();
 
-    if (order.orderNumber.toLowerCase().includes(query)) return true;
-    if (order.items.some((item) => item.name.toLowerCase().includes(query)))
-      return true;
-    if (order.items.some((item) => item.vendor.toLowerCase().includes(query)))
-      return true;
-    if (order.orderDate.toLowerCase().includes(query)) return true;
-    if (order.paymentMethod.toLowerCase().includes(query)) return true;
-    if (order.deliveryAddress.toLowerCase().includes(query)) return true;
-    if (order.note && order.note.toLowerCase().includes(query)) return true;
-
-    return false;
+    return (
+      order.orderNumber.toLowerCase().includes(query) ||
+      order.items.some((item) => item.name.toLowerCase().includes(query)) ||
+      order.items.some((item) => item.vendor.toLowerCase().includes(query)) ||
+      order.orderDate.toLowerCase().includes(query) ||
+      order.paymentMethod.toLowerCase().includes(query) ||
+      order.deliveryAddress.toLowerCase().includes(query) ||
+      (order.note && order.note.toLowerCase().includes(query))
+    );
   });
 
   const getStatusColor = (status: OrderStatus) => {
@@ -823,6 +872,8 @@ const OrdersScreen = () => {
         return "#10b981";
       case "cancelled":
         return "#6b7280";
+      case "failed":
+        return "#ef4444";
       case "rejected":
         return "#ef4444";
       default:
@@ -842,6 +893,8 @@ const OrdersScreen = () => {
         return "Shipped";
       case "delivered":
         return "Completed";
+      case "failed":
+        return "Failed";
       case "cancelled":
         return "Cancelled";
       case "rejected":
@@ -851,24 +904,28 @@ const OrdersScreen = () => {
     }
   };
 
-  const handlePayNow = async (
-    orderId: string,
-    paymentMethod: string,
-    paymentStatus: string,
-  ) => {
-    if (paymentStatus === "pending_verification") {
-      Alert.alert(
-        "Payment Pending Verification",
-        "Your payment is currently being verified. Please wait for confirmation.",
-      );
-      return;
-    }
+  const handlePayNow = (order: DisplayOrder) => {
+    // Calculate total quantity across all items
+    const totalQuantity = order.items.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
 
-    if (paymentMethod === "cod") {
-      Alert.alert("Payment", "This would redirect to payment gateway");
-    } else {
-      Alert.alert("Payment Method", "Online payments will be processed here.");
-    }
+    router.push({
+      pathname: "../buyer/payment",
+      params: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        productId: order.items[0]?.productId, // For single vendor orders
+        vendorUserId: order.vendorId,
+        quantity: totalQuantity.toString(),
+        subtotal: (order.totalAmount - order.deliveryFee).toString(),
+        deliveryFee: order.deliveryFee.toString(),
+        total: order.totalAmount.toString(),
+        specialInstructions: order.note || "",
+        addressId: "", // You'll need to add addressId to your DisplayOrder type
+      },
+    });
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -1098,13 +1155,7 @@ const OrdersScreen = () => {
                 {showPayNow && (
                   <TouchableOpacity
                     style={orderStyles.primaryButton}
-                    onPress={() =>
-                      handlePayNow(
-                        order.id,
-                        order.paymentMethod,
-                        order.paymentStatus,
-                      )
-                    }
+                    onPress={() => handlePayNow(order)}
                   >
                     <Text style={orderStyles.primaryButtonText}>Pay Now</Text>
                   </TouchableOpacity>
@@ -1180,6 +1231,31 @@ const OrdersScreen = () => {
                   }}
                 >
                   <Text style={orderStyles.secondaryButtonText}>Buy Again</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={orderStyles.primaryButton}
+                  onPress={() => handleRateOrder(order)}
+                >
+                  <Text style={orderStyles.primaryButtonText}>
+                    Rate & Review
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {order.status === "failed" && (
+              <>
+                <TouchableOpacity
+                  style={orderStyles.secondaryButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: "../buyer/view-vendor",
+                      params: { vendor_user_id: order.vendorId },
+                    });
+                  }}
+                >
+                  <Text style={orderStyles.secondaryButtonText}>
+                    Contact Vendor
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={orderStyles.primaryButton}
