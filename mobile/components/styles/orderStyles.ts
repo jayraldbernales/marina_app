@@ -25,6 +25,7 @@ export const orderStyles = StyleSheet.create({
   tabsContainer: {
     backgroundColor: COLORS.common.white,
     maxHeight: 60,
+    flexShrink: 0,
   },
   tabsContent: {
     paddingHorizontal: 16,

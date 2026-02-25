@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  FlatList,
   Image,
   TouchableOpacity,
   SafeAreaView,
@@ -627,6 +628,8 @@ const RiderDelivery = () => {
     delivery: Delivery | null;
     reason: string;
   }>({ delivery: null, reason: "" });
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
   const navigation = useNavigation();
 
@@ -731,10 +734,10 @@ const RiderDelivery = () => {
     await loadDeliveries();
   };
 
-  // Handle accepting a delivery offer
   const handleAcceptDelivery = async (deliveryId: string) => {
     if (!riderId) return;
 
+    setAcceptingId(deliveryId);
     try {
       // Clear timeout first
       await dispatchService.clearDeliveryTimeout(deliveryId);
@@ -749,6 +752,8 @@ const RiderDelivery = () => {
     } catch (error: any) {
       console.error("Error accepting delivery:", error);
       Alert.alert("Error", error.message || "Failed to accept delivery");
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -765,6 +770,7 @@ const RiderDelivery = () => {
           text: "Reject",
           style: "destructive",
           onPress: async () => {
+            setRejectingId(deliveryId);
             try {
               // Clear timeout first
               await dispatchService.clearDeliveryTimeout(deliveryId);
@@ -775,6 +781,8 @@ const RiderDelivery = () => {
             } catch (error) {
               console.error("Error rejecting delivery:", error);
               Alert.alert("Error", "Failed to reject delivery");
+            } finally {
+              setRejectingId(null);
             }
           },
         },
@@ -1014,20 +1022,55 @@ const RiderDelivery = () => {
                 <TouchableOpacity
                   style={RiderDeliveryStyles.secondaryButton}
                   onPress={() => handleRejectDelivery(delivery.id)}
-                  disabled={isUploading}
+                  disabled={
+                    acceptingId === delivery.id || rejectingId === delivery.id
+                  }
                 >
-                  <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                    Reject
-                  </Text>
+                  {rejectingId === delivery.id ? (
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <ActivityIndicator
+                        size="small"
+                        color="#666"
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                        Rejecting...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                      Reject Order
+                    </Text>
+                  )}
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={RiderDeliveryStyles.primaryButton}
                   onPress={() => handleAcceptDelivery(delivery.id)}
-                  disabled={isUploading}
+                  disabled={
+                    acceptingId === delivery.id || rejectingId === delivery.id
+                  }
                 >
-                  <Text style={RiderDeliveryStyles.primaryButtonText}>
-                    Accept
-                  </Text>
+                  {acceptingId === delivery.id ? (
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <ActivityIndicator
+                        size="small"
+                        color="#fff"
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={RiderDeliveryStyles.primaryButtonText}>
+                        Accepting...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={RiderDeliveryStyles.primaryButtonText}>
+                      Accept Order
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </>
             )}
@@ -1234,7 +1277,10 @@ const RiderDelivery = () => {
       </ScrollView>
 
       {/* Deliveries List */}
-      <ScrollView
+      <FlatList
+        data={filteredDeliveries}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => renderDeliveryCard(item)}
         style={RiderDeliveryStyles.ordersContainer}
         refreshControl={
           <RefreshControl
@@ -1243,10 +1289,7 @@ const RiderDelivery = () => {
             colors={[COLORS.light.primary]}
           />
         }
-      >
-        {filteredDeliveries.length > 0 ? (
-          filteredDeliveries.map(renderDeliveryCard)
-        ) : (
+        ListEmptyComponent={
           <View style={RiderDeliveryStyles.emptyState}>
             <Text style={RiderDeliveryStyles.emptyIcon}>📦</Text>
             <Text style={RiderDeliveryStyles.emptyTitle}>
@@ -1256,8 +1299,8 @@ const RiderDelivery = () => {
               You don't have any deliveries in this category yet
             </Text>
           </View>
-        )}
-      </ScrollView>
+        }
+      />
 
       {/* Delivery Details Modal (View-Only) */}
       <DeliveryDetailsModal

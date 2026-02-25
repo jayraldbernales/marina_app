@@ -1012,15 +1012,6 @@ const BuyerDashboard = () => {
                         </View>
                       )}
 
-                      {/* Discount Badge */}
-                      {hasDiscount && (
-                        <View style={buyerDashboardStyles.discountBadge}>
-                          <Text style={buyerDashboardStyles.discountText}>
-                            -{discountPercent}%
-                          </Text>
-                        </View>
-                      )}
-
                       {/* Freshness Overlay */}
                       <View
                         style={[
@@ -1089,7 +1080,14 @@ const BuyerDashboard = () => {
                         >
                           {product.vendor.shop_name}
                         </Text>
-
+                        {/* Discount Badge */}
+                        {hasDiscount && (
+                          <View style={buyerDashboardStyles.discountBadge}>
+                            <Text style={buyerDashboardStyles.discountText}>
+                              -{discountPercent}%
+                            </Text>
+                          </View>
+                        )}
                         {/* Rating section - Using actual product rating from reviews table */}
                         <View
                           style={{ flexDirection: "row", alignItems: "center" }}

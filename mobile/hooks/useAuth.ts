@@ -1,7 +1,9 @@
+// hooks/useAuth.ts
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
 import { supabase } from "../lib/supabase";
-import { useCallback } from "react";
+import { useCallback, useState, useEffect } from "react";
+import { Session, User } from "@supabase/supabase-js";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -24,6 +26,30 @@ function makeRedirectUri() {
 }
 
 export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -32,7 +58,7 @@ export function useAuth() {
       });
       return { data, error } as AuthResult;
     },
-    []
+    [],
   );
 
   const signUp = useCallback(
@@ -40,7 +66,7 @@ export function useAuth() {
       email: string,
       password: string,
       options?: { fullName?: string; redirectTo?: string },
-      retries = 2
+      retries = 2,
     ) => {
       const redirectTo = options?.redirectTo ?? makeRedirectUri();
 
@@ -86,7 +112,7 @@ export function useAuth() {
 
       return { error: lastError } as AuthResult;
     },
-    []
+    [],
   );
 
   const signInWithOAuth = useCallback(async (provider: string) => {
@@ -104,7 +130,7 @@ export function useAuth() {
 
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
-        redirectTo
+        redirectTo,
       );
 
       if (result.type === "success" && result.url) {
@@ -147,5 +173,19 @@ export function useAuth() {
     }
   }, []);
 
-  return { signInWithPassword, signUp, signInWithOAuth, makeRedirectUri };
+  const signOut = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+    return { error };
+  }, []);
+
+  return {
+    user,
+    session,
+    loading,
+    signInWithPassword,
+    signUp,
+    signInWithOAuth,
+    signOut,
+    makeRedirectUri,
+  };
 }

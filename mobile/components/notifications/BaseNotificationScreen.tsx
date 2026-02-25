@@ -1,140 +1,115 @@
-import React, { useState } from "react";
+// components/notifications/BaseNotificationScreen.tsx
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
+  RefreshControl,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { COLORS } from "@/constants";
-import { notificationStyles } from "../components/styles/notificationStyles";
+import { notificationStyles } from "../styles/notificationStyles";
+import { useNotificationContext } from "@/contexts/NotificationContext";
 
-type NotificationType = "order" | "promo" | "vendor" | "review";
-
-interface Notification {
-  id: number;
-  type: NotificationType;
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-}
-
-const notifications: Notification[] = [
-  {
-    id: 1,
-    type: "order",
-    title: "Order Delivered",
-    message: "Your order of Bangus (2kg) has been delivered",
-    time: "5 min ago",
-    read: false,
-  },
-  {
-    id: 2,
-    type: "promo",
-    title: "Early Bird Special Active",
-    message: "Get 20% off on all orders before 10 AM today!",
-    time: "1 hour ago",
-    read: false,
-  },
-  {
-    id: 3,
-    type: "order",
-    title: "Order Out for Delivery",
-    message: "Your Mayamaya order is on its way",
-    time: "2 hours ago",
-    read: true,
-  },
-  {
-    id: 4,
-    type: "vendor",
-    title: "New Catch Alert",
-    message: "Maria's Catch just added fresh Lapu-Lapu to their inventory",
-    time: "3 hours ago",
-    read: true,
-  },
-  {
-    id: 5,
-    type: "order",
-    title: "Order Confirmed",
-    message: "Your order #12345 has been confirmed by Ocean Harvest",
-    time: "5 hours ago",
-    read: true,
-  },
-  {
-    id: 6,
-    type: "promo",
-    title: "Free Delivery Available",
-    message: "Your cart qualifies for free delivery. Order now!",
-    time: "1 day ago",
-    read: true,
-  },
-  {
-    id: 7,
-    type: "review",
-    title: "Rate Your Recent Order",
-    message: "How was your experience with Deep Sea Catch?",
-    time: "2 days ago",
-    read: true,
-  },
-];
-
-const getIconInfo = (type: NotificationType) => {
-  switch (type) {
-    case "order":
-      return {
-        icon: "receipt",
-        iconType: "ionicons" as const,
-        iconColor: COLORS.light.oceanMedium,
-      };
-    case "promo":
-      return {
-        icon: "pricetag",
-        iconType: "ionicons" as const,
-        iconColor: COLORS.light.coral,
-      };
-    case "vendor":
-      return {
-        icon: "fish",
-        iconType: "material" as const,
-        iconColor: COLORS.light.primary,
-      };
-    case "review":
-      return {
-        icon: "star",
-        iconType: "ionicons" as const,
-        iconColor: COLORS.common.yellow,
-      };
-    default:
-      return {
-        icon: "notifications-outline",
-        iconType: "ionicons" as const,
-        iconColor: COLORS.light.primary,
-      };
-  }
+export type TabConfig = {
+  key: string;
+  label: string;
 };
 
-const NotificationScreen = () => {
-  const [filter, setFilter] = useState<"all" | NotificationType>("all");
-  const [notificationList, setNotificationList] =
-    useState<Notification[]>(notifications);
-  const unreadCount = notificationList.filter((n) => !n.read).length;
-  const filteredNotifications =
-    filter === "all"
-      ? notificationList
-      : notificationList.filter((n) => n.type === filter);
+export type IconConfig = {
+  icon: string;
+  iconType: "ionicons" | "material";
+  iconColor: string;
+};
 
-  const handleNotificationPress = (id: number) => {
-    setNotificationList((prev) =>
-      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)),
-    );
+interface BaseNotificationScreenProps {
+  userType: "buyer" | "vendor" | "rider";
+  getIconInfo: (type: string) => IconConfig;
+  filterTabs: TabConfig[];
+  emptyStateMessage: string;
+}
+
+const formatTime = (timestamp: string) => {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+
+  return date.toLocaleDateString();
+};
+
+const BaseNotificationScreen: React.FC<BaseNotificationScreenProps> = ({
+  userType,
+  getIconInfo,
+  filterTabs,
+  emptyStateMessage,
+}) => {
+  const [filter, setFilter] = useState<string>("all");
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Use a ref to track if we've already refreshed during this focus session
+  const hasRefreshedRef = useRef(false);
+
+  const { notifications, markAsRead, loading, refreshNotifications } =
+    useNotificationContext();
+
+  // Refresh notifications when screen comes into focus - but only once
+  useFocusEffect(
+    useCallback(() => {
+      // Only refresh if we haven't refreshed yet for this focus session
+      if (!hasRefreshedRef.current) {
+        console.log(`📱 ${userType} notification screen focused - refreshing`);
+        refreshNotifications();
+        hasRefreshedRef.current = true;
+      }
+
+      // Reset the ref when screen loses focus
+      return () => {
+        hasRefreshedRef.current = false;
+      };
+    }, [userType, refreshNotifications]), // Dependencies are stable now
+  );
+
+  // Pull to refresh handler
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshNotifications();
+    setRefreshing(false);
   };
 
-  const handleMarkAllRead = () => {
-    setNotificationList((prev) =>
-      prev.map((notif) => ({ ...notif, read: true })),
-    );
+  // Filter notifications by user type
+  const userTypeNotifications = notifications.filter(
+    (n) => n.user_type === userType,
+  );
+
+  const filteredNotifications =
+    filter === "all"
+      ? userTypeNotifications
+      : userTypeNotifications.filter((n) => n.type === filter);
+
+  // Calculate unread count for this user type
+  const unreadCountForType = userTypeNotifications.filter(
+    (n) => !n.is_read,
+  ).length;
+
+  const handleMarkAllAsRead = async () => {
+    const unreadIds = userTypeNotifications
+      .filter((n) => !n.is_read)
+      .map((n) => n.notification_id);
+
+    for (const id of unreadIds) {
+      await markAsRead(id);
+    }
   };
 
   return (
@@ -146,12 +121,13 @@ const NotificationScreen = () => {
             <View>
               <Text style={notificationStyles.headerTitle}>Notifications</Text>
               <Text style={notificationStyles.headerSubtitle}>
-                {unreadCount} unread notification{unreadCount !== 1 ? "s" : ""}
+                {unreadCountForType} unread notification
+                {unreadCountForType !== 1 ? "s" : ""}
               </Text>
             </View>
-            {unreadCount > 0 && (
+            {unreadCountForType > 0 && (
               <TouchableOpacity
-                onPress={handleMarkAllRead}
+                onPress={handleMarkAllAsRead}
                 style={notificationStyles.markAllReadButton}
               >
                 <Text style={notificationStyles.markAllReadText}>
@@ -160,19 +136,14 @@ const NotificationScreen = () => {
               </TouchableOpacity>
             )}
           </View>
+
           {/* Filter Tabs */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={notificationStyles.filterTabsContent}
           >
-            {[
-              { key: "all" as const, label: "All" },
-              { key: "order" as const, label: "Orders" },
-              { key: "promo" as const, label: "Promos" },
-              { key: "vendor" as const, label: "Vendors" },
-              { key: "review" as const, label: "Reviews" },
-            ].map((tab) => (
+            {filterTabs.map((tab) => (
               <TouchableOpacity
                 key={tab.key}
                 onPress={() => setFilter(tab.key)}
@@ -197,12 +168,27 @@ const NotificationScreen = () => {
             ))}
           </ScrollView>
         </View>
+
         {/* Notifications List */}
         <ScrollView
           style={notificationStyles.scrollView}
           contentContainerStyle={notificationStyles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[COLORS.light.primary]}
+              tintColor={COLORS.light.primary}
+            />
+          }
         >
-          {filteredNotifications.length === 0 ? (
+          {loading && !refreshing ? (
+            <View style={notificationStyles.emptyState}>
+              <Text style={notificationStyles.emptyText}>
+                Loading notifications...
+              </Text>
+            </View>
+          ) : filteredNotifications.length === 0 ? (
             <View style={notificationStyles.emptyState}>
               <Ionicons
                 name="notifications-off-outline"
@@ -210,7 +196,7 @@ const NotificationScreen = () => {
                 color="#ccc"
               />
               <Text style={notificationStyles.emptyText}>
-                No notifications yet
+                {emptyStateMessage}
               </Text>
             </View>
           ) : (
@@ -218,11 +204,11 @@ const NotificationScreen = () => {
               const { icon, iconType, iconColor } = getIconInfo(notif.type);
               return (
                 <TouchableOpacity
-                  key={notif.id}
-                  onPress={() => handleNotificationPress(notif.id)}
+                  key={notif.notification_id}
+                  onPress={() => markAsRead(notif.notification_id)}
                   style={[
                     notificationStyles.notificationCard,
-                    notif.read
+                    notif.is_read
                       ? notificationStyles.notificationRead
                       : notificationStyles.notificationUnread,
                   ]}
@@ -231,7 +217,7 @@ const NotificationScreen = () => {
                   <View
                     style={[
                       notificationStyles.iconContainer,
-                      { backgroundColor: `${iconColor}` },
+                      { backgroundColor: iconColor },
                     ]}
                   >
                     {iconType === "material" ? (
@@ -244,6 +230,7 @@ const NotificationScreen = () => {
                       <Ionicons name={icon as any} size={24} color="white" />
                     )}
                   </View>
+
                   {/* Content */}
                   <View style={notificationStyles.content}>
                     <Text style={notificationStyles.titleText}>
@@ -253,11 +240,12 @@ const NotificationScreen = () => {
                       {notif.message}
                     </Text>
                     <Text style={notificationStyles.timeText}>
-                      {notif.time}
+                      {formatTime(notif.created_at)}
                     </Text>
                   </View>
+
                   {/* Unread Indicator */}
-                  {!notif.read && (
+                  {!notif.is_read && (
                     <View style={notificationStyles.unreadIndicator} />
                   )}
                 </TouchableOpacity>
@@ -270,4 +258,4 @@ const NotificationScreen = () => {
   );
 };
 
-export default NotificationScreen;
+export default BaseNotificationScreen;

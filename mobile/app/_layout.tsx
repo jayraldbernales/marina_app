@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useUserStore } from "../store/userStore";
 import { COLORS } from "../constants";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // Add this import
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NotificationProvider } from "../contexts/NotificationContext"; // ADD THIS
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -15,7 +16,7 @@ export default function Layout() {
   const segments = useSegments();
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasSeenWelcome, setHasSeenWelcome] = useState(false); // Add this state
+  const [hasSeenWelcome, setHasSeenWelcome] = useState(false);
   const { user, setUser } = useUserStore();
 
   // Initialize auth session and welcome flag on app launch
@@ -94,7 +95,7 @@ export default function Layout() {
     } else if (user && isAuthScreen && currentSegment !== "index") {
       router.replace("/(tabs)");
     }
-  }, [user, isReady, segments, hasSeenWelcome]); // Add hasSeenWelcome to dependencies
+  }, [user, isReady, segments, hasSeenWelcome]);
 
   // Show loading screen during auth initialization
   if (isLoading) {
@@ -118,29 +119,38 @@ export default function Layout() {
         <Toast topOffset={60} />
       </View>
 
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="signup" />
-          <Stack.Screen name="terms" options={{ headerShown: true }} />
-          <Stack.Screen name="privacy" options={{ headerShown: true }} />
+      {/* WRAP YOUR STACK WITH NOTIFICATION PROVIDER */}
+      <NotificationProvider>
+        <View style={{ flex: 1 }}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="login" />
+            <Stack.Screen name="signup" />
+            <Stack.Screen name="terms" options={{ headerShown: true }} />
+            <Stack.Screen name="privacy" options={{ headerShown: true }} />
 
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="(seller-tabs)" />
-          <Stack.Screen name="(rider-tabs)" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="(seller-tabs)" />
+            <Stack.Screen name="(rider-tabs)" />
 
-          <Stack.Screen name="registration" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="registration"
+              options={{ headerShown: false }}
+            />
 
-          <Stack.Screen
-            name="forgot-password"
-            options={{ headerShown: true }}
-          />
-          <Stack.Screen name="reset-password" options={{ headerShown: true }} />
+            <Stack.Screen
+              name="forgot-password"
+              options={{ headerShown: true }}
+            />
+            <Stack.Screen
+              name="reset-password"
+              options={{ headerShown: true }}
+            />
 
-          <Stack.Screen name="+not-found" options={{ headerShown: false }} />
-        </Stack>
-      </View>
+            <Stack.Screen name="+not-found" options={{ headerShown: false }} />
+          </Stack>
+        </View>
+      </NotificationProvider>
     </>
   );
 }

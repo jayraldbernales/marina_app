@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
+  FlatList,
   ScrollView,
   Image,
   TouchableOpacity,
@@ -941,23 +942,41 @@ const SellerOrders = () => {
         return;
       }
 
-      const displayOrders: DisplayOrder[] = [];
+      // Batch-fetch order items for all orders
+      const orderIds = (ordersData as any[]).map((o) => o.order_id);
+      const { data: itemsAll, error: itemsAllError } = await supabase
+        .from("order_items")
+        .select(
+          `*, products:products(product_id, product_name, images, harvested_at), order_id`,
+        )
+        .in("order_id", orderIds);
 
-      for (const order of ordersData as any) {
-        const { data: itemsData, error: itemsError } = await supabase
-          .from("order_items")
-          .select(
-            `*, products:products(product_id, product_name, images, harvested_at)`,
-          )
-          .eq("order_id", order.order_id);
+      if (itemsAllError) {
+        console.error("Error fetching order items:", itemsAllError);
+      }
 
-        if (itemsError) {
-          console.error("Error fetching order items:", itemsError);
-          continue;
-        }
+      // Batch-fetch delivery info (for failure reasons and rider ids)
+      const { data: deliveriesAll } = await supabase
+        .from("deliveries")
+        .select("order_id, failure_reason, rider_user_id, status")
+        .in("order_id", orderIds);
 
-        const displayItems: OrderItem[] = (itemsData || []).map(
-          (item: any) => ({
+      const itemsByOrder: Record<string, any[]> = {};
+      (itemsAll || []).forEach((it: any) => {
+        const oid = it.order_id;
+        if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+        itemsByOrder[oid].push(it);
+      });
+
+      const deliveriesByOrder: Record<string, any> = {};
+      (deliveriesAll || []).forEach((d: any) => {
+        if (d?.order_id) deliveriesByOrder[d.order_id] = d;
+      });
+
+      const displayOrders: DisplayOrder[] = (ordersData as any[]).map(
+        (order) => {
+          const itemsData = itemsByOrder[order.order_id] || [];
+          const displayItems: OrderItem[] = itemsData.map((item: any) => ({
             id: item.order_item_id,
             productId: item.product_id,
             name: item.products?.product_name || "Unknown",
@@ -965,59 +984,61 @@ const SellerOrders = () => {
             quantity: item.quantity,
             image: item.products?.images?.[0] || null,
             harvested_at: item.products?.harvested_at,
-          }),
-        );
+          }));
 
-        // Fetch failure reason from deliveries table
-        let failureReason = undefined;
-        const { data: deliveryData } = await supabase
-          .from("deliveries")
-          .select("failure_reason")
-          .eq("order_id", order.order_id)
-          .maybeSingle();
+          const deliveryInfo = deliveriesByOrder[order.order_id];
+          const failureReason = deliveryInfo?.failure_reason;
 
-        if (deliveryData?.failure_reason) {
-          failureReason = deliveryData.failure_reason;
-        }
-
-        displayOrders.push({
-          id: order.order_id,
-          orderNumber: order.order_number,
-          items: displayItems,
-          status: order.order_status as OrderStatus,
-          totalAmount: parseFloat(order.total_amount) || 0,
-          orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          }),
-          paymentMethod: order.payment_method,
-          paymentStatus: order.payment_status,
-          paymentProofUrl: order.payment_proof_url,
-          gcashReference: order.gcash_reference,
-          deliveryAddress: order.addresses?.full_address,
-          customerName: order.profiles?.full_name,
-          specialInstructions: order.note,
-          riderAssignment: null,
-          failureReason,
-        });
-      }
+          return {
+            id: order.order_id,
+            orderNumber: order.order_number,
+            items: displayItems,
+            status: order.order_status as OrderStatus,
+            totalAmount: parseFloat(order.total_amount) || 0,
+            orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }),
+            paymentMethod: order.payment_method,
+            paymentStatus: order.payment_status,
+            paymentProofUrl: order.payment_proof_url,
+            gcashReference: order.gcash_reference,
+            deliveryAddress: order.addresses?.full_address,
+            customerName: order.profiles?.full_name,
+            specialInstructions: order.note,
+            riderAssignment: null,
+            failureReason,
+          };
+        },
+      );
 
       setOrders(displayOrders);
 
-      // Fetch rider assignments for orders that might have riders
-      for (const order of displayOrders) {
-        if (
-          order.status === "preparing" ||
-          order.status === "ready-to-ship" ||
-          order.status === "shipped" ||
-          order.status === "delivered" ||
-          order.status === "failed" ||
-          order.status === "finding_rider"
-        ) {
-          await fetchRiderAssignment(order.id);
+      // Parallelize rider assignment fetching for relevant orders
+      const riderPromises = displayOrders.map((order) => {
+        const needs = [
+          "preparing",
+          "ready-to-ship",
+          "shipped",
+          "delivered",
+          "failed",
+          "finding_rider",
+        ].includes(order.status as string);
+        return needs ? fetchRiderAssignment(order.id) : Promise.resolve(null);
+      });
+
+      const riderResults = await Promise.all(riderPromises);
+      riderResults.forEach((assignment, idx) => {
+        if (assignment) {
+          setOrders((prev) => {
+            const copy = [...prev];
+            const i = copy.findIndex((o) => o.id === displayOrders[idx].id);
+            if (i >= 0) copy[i] = { ...copy[i], riderAssignment: assignment };
+            return copy;
+          });
         }
-      }
+      });
     } catch (error) {
       console.error("Unexpected error fetching vendor orders:", error);
       Alert.alert("Error", "An unexpected error occurred");
@@ -1434,37 +1455,46 @@ const SellerOrders = () => {
     );
   };
 
-  // NEW: Filter orders based on search query
-  const filteredOrders = orders.filter((order) => {
-    // First filter by tab
-    let tabMatch = false;
-    if (activeTab === "cancelled") {
-      tabMatch = order.status === "cancelled" || order.status === "rejected";
-    } else if (activeTab === "preparing") {
-      tabMatch =
-        order.status === "preparing" || order.status === "finding_rider";
-    } else {
-      tabMatch = order.status === activeTab;
-    }
+  // NEW: Filter orders based on search query (memoized)
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      // First filter by tab
+      let tabMatch = false;
+      if (activeTab === "cancelled") {
+        tabMatch = order.status === "cancelled" || order.status === "rejected";
+      } else if (activeTab === "preparing") {
+        tabMatch =
+          order.status === "preparing" || order.status === "finding_rider";
+      } else {
+        tabMatch = order.status === activeTab;
+      }
 
-    if (!tabMatch) return false;
+      if (!tabMatch) return false;
 
-    // Then filter by search query if present
-    if (!searchQuery.trim()) return true;
+      // Then filter by search query if present
+      if (!searchQuery.trim()) return true;
 
-    const query = searchQuery.toLowerCase().trim();
+      const query = searchQuery.toLowerCase().trim();
 
-    return (
-      order.orderNumber.toLowerCase().includes(query) ||
-      order.customerName?.toLowerCase().includes(query) ||
-      order.items.some((item) => item.name.toLowerCase().includes(query)) ||
-      order.deliveryAddress?.toLowerCase().includes(query) ||
-      (order.paymentMethod &&
-        order.paymentMethod.toLowerCase().includes(query)) ||
-      (order.specialInstructions &&
-        order.specialInstructions.toLowerCase().includes(query))
-    );
-  });
+      return (
+        order.orderNumber.toLowerCase().includes(query) ||
+        order.customerName?.toLowerCase().includes(query) ||
+        order.items.some((item) => item.name.toLowerCase().includes(query)) ||
+        order.deliveryAddress?.toLowerCase().includes(query) ||
+        (order.paymentMethod &&
+          order.paymentMethod.toLowerCase().includes(query)) ||
+        (order.specialInstructions &&
+          order.specialInstructions.toLowerCase().includes(query))
+      );
+    });
+  }, [orders, activeTab, searchQuery]);
+
+  const renderListItem = useCallback(
+    ({ item }: { item: DisplayOrder }) => {
+      return renderOrderCard(item);
+    },
+    [updatingOrderId, selectedOrder],
+  );
 
   const renderOrderCard = (order: DisplayOrder) => {
     const isUpdating = updatingOrderId === order.id;
@@ -1900,19 +1930,15 @@ const SellerOrders = () => {
       </ScrollView>
 
       {/* Orders List */}
-      <ScrollView
-        style={sellerOrderStyles.ordersContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[COLORS.light.primary]}
-          />
-        }
-      >
-        {filteredOrders.length > 0 ? (
-          filteredOrders.map(renderOrderCard)
-        ) : (
+      <FlatList
+        data={filteredOrders}
+        keyExtractor={(item) => item.id}
+        renderItem={renderListItem}
+        contentContainerStyle={sellerOrderStyles.ordersContainer}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        initialNumToRender={6}
+        ListEmptyComponent={() => (
           <View style={sellerOrderStyles.emptyState}>
             <Text style={sellerOrderStyles.emptyIcon}>
               {searchQuery.length > 0 ? "🔍" : "📦"}
@@ -1924,7 +1950,7 @@ const SellerOrders = () => {
             </Text>
           </View>
         )}
-      </ScrollView>
+      />
 
       {/* Order Details Modal */}
       <OrderDetailsModal
