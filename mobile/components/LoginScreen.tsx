@@ -47,10 +47,8 @@ export const LoginScreen = () => {
   } = usePressAndFocusAnimations();
 
   const handleLogin = async () => {
-    // Prevent multiple clicks if already logging in
     if (isLoggingIn) return;
 
-    // Basic validation
     if (!email.trim() || !password.trim()) {
       showError("Please enter both email and password");
       return;
@@ -59,21 +57,20 @@ export const LoginScreen = () => {
     setIsLoggingIn(true);
 
     try {
-      const { data, error } = await signInWithPassword(email, password);
+      const result = await signInWithPassword(email, password);
 
-      if (error) {
-        showError((error as any)?.message || "Error signing in");
+      if ("error" in result && result.error) {
+        showError(result.error.message || "Error signing in");
         return;
       }
 
-      const user = (data as any)?.user;
-      if (!user) {
+      if ("data" in result && result.data?.user) {
+        // Successful login
+        // Auth state listener will handle navigation
+        console.log("User logged in:", result.data.user.email);
+      } else {
         showError("Could not retrieve user after login.");
-        return;
       }
-
-      // Auth state listener in root layout will handle navigation
-      // No need to manually set user or navigate
     } catch (err: any) {
       console.error(err);
       showError("Something went wrong while signing in");
@@ -84,19 +81,22 @@ export const LoginScreen = () => {
 
   const handleFacebookLogin = async () => {
     if (isFacebookLoggingIn) return;
-
     setIsFacebookLoggingIn(true);
 
     try {
-      const { data, error } = await signInWithOAuth("facebook");
-      if (error) {
-        console.error("Facebook login error:", error);
-        showError((error as any)?.message || "Error retrieving session");
+      const result = await signInWithOAuth("facebook");
+
+      if ("error" in result && result.error) {
+        console.error("Facebook login error:", result.error);
+        showError(result.error.message || "Error retrieving session");
         return;
       }
 
-      // Auth state listener in root layout will handle navigation
-      // No need to manually set user or navigate
+      if ("data" in result && result.data?.session?.user) {
+        console.log("Facebook login success:", result.data.session.user.email);
+      } else {
+        showError("Could not retrieve user after login.");
+      }
     } catch (err: any) {
       console.error("Facebook login error:", err);
       showError("Error retrieving session: " + (err?.message || String(err)));
@@ -104,7 +104,6 @@ export const LoginScreen = () => {
       setIsFacebookLoggingIn(false);
     }
   };
-
   const navigateToForgotPassword = () => {
     router.push("/forgot-password");
   };

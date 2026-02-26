@@ -21,19 +21,6 @@ import { supabase } from "../../lib/supabase";
 import LoadingSpinner from "../../components/Loading";
 import { chatService } from "../../lib/chat";
 
-type DeliveryHistory = {
-  delivery_id: string;
-  status: string;
-  created_at: string;
-  orders: {
-    order_number: string;
-    total_amount: number;
-    profiles: {
-      full_name: string;
-    };
-  };
-};
-
 type ReviewData = {
   rider_rating: number;
   review_id: string;
@@ -46,9 +33,7 @@ export default function ViewRiderFromVendorScreen() {
 
   const [rider, setRider] = useState<any | null>(null);
   const [riderProfile, setRiderProfile] = useState<any | null>(null);
-  const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [stats, setStats] = useState({
     totalDeliveries: 0,
     completedDeliveries: 0,
@@ -99,7 +84,7 @@ export default function ViewRiderFromVendorScreen() {
         avatar_url: riderData?.avatar_url || null,
       });
 
-      // ✅ Get delivery stats
+      // Get delivery stats
       const { count: totalCount } = await supabase
         .from("deliveries")
         .select("*", { count: "exact", head: true })
@@ -111,7 +96,7 @@ export default function ViewRiderFromVendorScreen() {
         .eq("rider_user_id", riderUserId)
         .eq("status", "delivered");
 
-      // ✅ Fetch rider's ratings from reviews
+      // Fetch rider's ratings from reviews
       const { data: reviewsData, error: reviewsError } = await supabase
         .from("reviews")
         .select("rider_rating, review_id, created_at")
@@ -148,73 +133,10 @@ export default function ViewRiderFromVendorScreen() {
     }
   }, [riderUserId]);
 
-  const loadDeliveryHistory = useCallback(async () => {
-    if (!riderUserId) return;
-
-    try {
-      setLoadingHistory(true);
-
-      const { data, error } = await supabase
-        .from("deliveries")
-        .select(
-          `
-        delivery_id,
-        status,
-        created_at,
-        orders:order_id(
-          order_number,
-          total_amount,
-          profiles!orders_user_fkey(
-            full_name
-          )
-        )
-      `,
-        )
-        .eq("rider_user_id", riderUserId)
-        .in("status", ["delivered", "failed", "cancelled"])
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (error) {
-        console.error("Error fetching delivery history:", error);
-        return;
-      }
-
-      // Transform the data to match DeliveryHistory type
-      const transformedData: DeliveryHistory[] = (data || [])
-        .filter((item) => item.orders)
-        .map((item: any) => {
-          // Handle profiles which might be an array
-          const profiles = item.orders?.profiles;
-          const profile = Array.isArray(profiles) ? profiles[0] : profiles;
-
-          return {
-            delivery_id: item.delivery_id,
-            status: item.status,
-            created_at: item.created_at,
-            orders: {
-              order_number: item.orders?.order_number || "N/A",
-              total_amount: item.orders?.total_amount || 0,
-              profiles: {
-                full_name: profile?.full_name || "Unknown Customer",
-              },
-            },
-          };
-        });
-
-      setDeliveryHistory(transformedData);
-    } catch (err) {
-      console.error("Error loading delivery history:", err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [riderUserId]);
-
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true);
       await loadRiderProfile();
-      await loadDeliveryHistory();
       setLoading(false);
     };
     loadInitialData();
@@ -273,32 +195,6 @@ export default function ViewRiderFromVendorScreen() {
       });
     } catch {
       return "N/A";
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return "N/A";
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "delivered":
-        return "#10b981";
-      case "failed":
-        return "#ef4444";
-      case "cancelled":
-        return "#6b7280";
-      default:
-        return "#f59e0b";
     }
   };
 
@@ -500,62 +396,6 @@ export default function ViewRiderFromVendorScreen() {
                 </View>
               </View>
             )}
-
-            {/* Recent Deliveries */}
-            <View style={styles.historyHeader}>
-              <Text style={styles.historyTitle}>Recent Deliveries</Text>
-            </View>
-
-            {loadingHistory ? (
-              <ActivityIndicator
-                size="small"
-                color={COLORS.light.primary}
-                style={styles.loadingHistory}
-              />
-            ) : deliveryHistory.length > 0 ? (
-              deliveryHistory.map((delivery) => (
-                <View key={delivery.delivery_id} style={styles.historyCard}>
-                  <View style={styles.historyCardHeader}>
-                    <Text style={styles.orderNumber}>
-                      {delivery.orders?.order_number || "N/A"}
-                    </Text>
-                    <View
-                      style={[
-                        styles.historyStatusBadge,
-                        { backgroundColor: getStatusColor(delivery.status) },
-                      ]}
-                    >
-                      <Text style={styles.historyStatusText}>
-                        {delivery.status}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.customerName}>
-                    Customer:{" "}
-                    {delivery.orders?.profiles?.full_name || "Unknown"}
-                  </Text>
-                  <View style={styles.historyCardFooter}>
-                    <Text style={styles.deliveryDate}>
-                      {formatDate(delivery.created_at)}
-                    </Text>
-                    <Text style={styles.deliveryAmount}>
-                      ₱{delivery.orders?.total_amount?.toLocaleString() || "0"}
-                    </Text>
-                  </View>
-                </View>
-              ))
-            ) : (
-              <View style={styles.emptyHistory}>
-                <MaterialCommunityIcons
-                  name="truck-delivery-outline"
-                  size={40}
-                  color="#cbd5e1"
-                />
-                <Text style={styles.emptyHistoryText}>
-                  No delivery history yet
-                </Text>
-              </View>
-            )}
           </View>
         </ScrollView>
       </View>
@@ -563,7 +403,6 @@ export default function ViewRiderFromVendorScreen() {
   );
 }
 
-// Styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -775,81 +614,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 2,
-  },
-  historyHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#f8f9fa",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e8e8e8",
-  },
-  historyTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#212121",
-  },
-  loadingHistory: {
-    padding: 20,
-  },
-  historyCard: {
-    backgroundColor: "#fff",
-    padding: 12,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  historyCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  orderNumber: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#212121",
-  },
-  historyStatusBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  historyStatusText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  customerName: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 6,
-  },
-  historyCardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  deliveryDate: {
-    fontSize: 12,
-    color: "#999",
-  },
-  deliveryAmount: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.light.coral,
-  },
-  emptyHistory: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 16,
-  },
-  emptyHistoryText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#999",
   },
 });

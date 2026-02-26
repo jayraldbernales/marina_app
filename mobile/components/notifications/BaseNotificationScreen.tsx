@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router"; // ADD THIS
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { COLORS } from "@/constants";
 import { notificationStyles } from "../styles/notificationStyles";
@@ -48,14 +49,72 @@ const formatTime = (timestamp: string) => {
   return date.toLocaleDateString();
 };
 
+// Navigation helper function based on user type
+const getNavigationRoute = (userType: string, notification: any) => {
+  const metadata = notification.metadata || {};
+
+  switch (userType) {
+    case "buyer":
+      switch (notification.type) {
+        case "order":
+          return `/(tabs)/orders`;
+        case "delivery":
+          return `/(tabs)/orders`;
+        case "message":
+          return `/buyer/conversation`;
+        case "review":
+          return `/(tabs)/orders`;
+        case "promo":
+          return `/(tabs)/orders`;
+        case "vendor":
+          return `/(tabs)/orders`;
+        default:
+          return null;
+      }
+
+    case "vendor":
+      switch (notification.type) {
+        case "order":
+          return `/(seller-tabs)/orders`;
+        case "payment":
+          return `/(seller-tabs)/orders`;
+        case "message":
+          return `/seller/conversation`;
+        case "review":
+          return `/(seller-tabs)/orders`;
+        default:
+          return null;
+      }
+
+    case "rider":
+      switch (notification.type) {
+        case "delivery":
+          return `/(rider-tabs)/deliveries`;
+        case "payment":
+          return `/(rider-tabs)/deliveries`;
+        case "message":
+          return `/rider/conversation`;
+        case "schedule":
+          return `/(rider-tabs)/deliveries`;
+        default:
+          return null;
+      }
+
+    default:
+      return null;
+  }
+};
+
 const BaseNotificationScreen: React.FC<BaseNotificationScreenProps> = ({
   userType,
   getIconInfo,
   filterTabs,
   emptyStateMessage,
 }) => {
+  const router = useRouter(); // ADD THIS
   const [filter, setFilter] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null); // ADD THIS
 
   // Use a ref to track if we've already refreshed during this focus session
   const hasRefreshedRef = useRef(false);
@@ -109,6 +168,32 @@ const BaseNotificationScreen: React.FC<BaseNotificationScreenProps> = ({
 
     for (const id of unreadIds) {
       await markAsRead(id);
+    }
+  };
+
+  const handleNotificationPress = async (notification: any) => {
+    const notificationId = notification.notification_id;
+
+    // Prevent double-pressing
+    if (processingId === notificationId) return;
+
+    setProcessingId(notificationId);
+
+    try {
+      // First mark as read
+      await markAsRead(notificationId);
+
+      // Get navigation route
+      const route = getNavigationRoute(userType, notification);
+
+      // Navigate if route exists
+      if (route) {
+        router.push(route as any); // Simple fix with type assertion
+      }
+    } catch (error) {
+      console.error("Error handling notification:", error);
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -202,15 +287,19 @@ const BaseNotificationScreen: React.FC<BaseNotificationScreenProps> = ({
           ) : (
             filteredNotifications.map((notif) => {
               const { icon, iconType, iconColor } = getIconInfo(notif.type);
+              const isProcessing = processingId === notif.notification_id;
+
               return (
                 <TouchableOpacity
                   key={notif.notification_id}
-                  onPress={() => markAsRead(notif.notification_id)}
+                  onPress={() => handleNotificationPress(notif)}
+                  disabled={isProcessing}
                   style={[
                     notificationStyles.notificationCard,
                     notif.is_read
                       ? notificationStyles.notificationRead
                       : notificationStyles.notificationUnread,
+                    isProcessing && { opacity: 0.7 },
                   ]}
                 >
                   {/* Icon */}

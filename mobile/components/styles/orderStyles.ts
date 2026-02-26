@@ -176,7 +176,6 @@ export const orderStyles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 160,
   },
   emptyIcon: {
     fontSize: 60,

@@ -31,14 +31,12 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -50,13 +48,42 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ✅ Centralized ban check (used everywhere)
+  const checkIfBanned = async (userId: string) => {
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("banned")
+      .eq("user_id", userId)
+      .single();
+
+    if (error) {
+      await supabase.auth.signOut();
+      return { error };
+    }
+
+    if (profile?.banned) {
+      await supabase.auth.signOut();
+      return { error: new Error("Your account has been banned.") };
+    }
+
+    return { success: true };
+  };
+
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      return { data, error } as AuthResult;
+
+      if (error) return { error };
+      if (!data?.user) return { error: new Error("Authentication failed.") };
+
+      // 🔎 Check ban
+      const banCheck = await checkIfBanned(data.user.id);
+      if ((banCheck as any)?.error) return banCheck;
+
+      return { data };
     },
     [],
   );
@@ -86,8 +113,8 @@ export function useAuth() {
 
           if (error) {
             lastError = error;
-            // Retry on transient errors
             const errStr = (error.message || "").toLowerCase();
+
             if (
               attempt < retries &&
               (errStr.includes("timeout") ||
@@ -99,10 +126,29 @@ export function useAuth() {
               continue;
             }
 
-            return { error } as AuthResult;
+            return { error };
           }
 
-          return { data } as AuthResult;
+          // 🔍 Check if user already exists (no error but user is null)
+          if (!data?.user && data?.session === null) {
+            // This usually means the user already exists
+            return {
+              error: new Error(
+                "This email is already registered. Please sign in instead.",
+              ),
+            };
+          }
+
+          // Check if user already has an identity (another way to check)
+          if (data?.user?.identities?.length === 0) {
+            return {
+              error: new Error(
+                "This email is already registered. Please sign in instead.",
+              ),
+            };
+          }
+
+          return { data };
         } catch (err) {
           lastError = err;
           attempt++;
@@ -110,11 +156,10 @@ export function useAuth() {
         }
       }
 
-      return { error: lastError } as AuthResult;
+      return { error: lastError };
     },
     [],
   );
-
   const signInWithOAuth = useCallback(async (provider: string) => {
     try {
       const redirectTo = makeRedirectUri();
@@ -142,28 +187,42 @@ export function useAuth() {
         const accessToken = params.get("access_token");
         const refreshToken = params.get("refresh_token");
 
+        let sessionData: any = null;
+        let sessionError: any = null;
+
         if (accessToken) {
-          const { data: sessionData, error: sessionError } =
-            await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken ?? undefined,
-            } as any);
+          const response = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken ?? undefined,
+          } as any);
 
-          if (sessionError) return { error: sessionError };
-          return { data: sessionData };
+          sessionData = response.data;
+          sessionError = response.error;
+        } else {
+          // Code flow
+          let urlWithCode = returnedUrl;
+          if (urlWithCode.includes("?") && !urlWithCode.includes("#")) {
+            const [base, query] = urlWithCode.split("?");
+            urlWithCode = `${base}#${query}`;
+          }
+
+          const response =
+            await supabase.auth.exchangeCodeForSession(urlWithCode);
+
+          sessionData = response.data;
+          sessionError = response.error;
         }
-
-        // If not tokens, assume code flow and exchange
-        let urlWithCode = returnedUrl;
-        if (urlWithCode.includes("?") && !urlWithCode.includes("#")) {
-          const [base, query] = urlWithCode.split("?");
-          urlWithCode = `${base}#${query}`;
-        }
-
-        const { data: sessionData, error: sessionError } =
-          await supabase.auth.exchangeCodeForSession(urlWithCode);
 
         if (sessionError) return { error: sessionError };
+
+        const user = sessionData?.session?.user;
+        if (!user)
+          return { error: new Error("No user returned from session.") };
+
+        // 🔎 Check ban after OAuth login
+        const banCheck = await checkIfBanned(user.id);
+        if ((banCheck as any)?.error) return banCheck;
+
         return { data: sessionData };
       }
 

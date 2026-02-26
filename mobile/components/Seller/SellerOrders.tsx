@@ -20,6 +20,7 @@ import { useNavigation, router } from "expo-router";
 import { COLORS } from "@/constants";
 import { sellerOrderStyles } from "./styles/sellerOrderStyles";
 import { supabase } from "@/lib/supabase";
+import { chatService } from "@/lib/chat";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { dispatchService } from "@/services/dispatchService";
@@ -74,6 +75,7 @@ type DisplayOrder = {
   gcashReference?: string;
   deliveryAddress?: string;
   customerName?: string;
+  customerId?: string;
   specialInstructions?: string;
   riderAssignment?: RiderAssignment | null;
   failureReason?: string;
@@ -925,7 +927,7 @@ const SellerOrders = () => {
       const { data: ordersData, error: ordersError } = await supabase
         .from("orders")
         .select(
-          `*, addresses:addresses(full_address), profiles:profiles(full_name)`,
+          `*, user_id, addresses:addresses(full_address), profiles:profiles(full_name)`,
         )
         .eq("vendor_user_id", user.id)
         .order("created_at", { ascending: false });
@@ -1006,6 +1008,7 @@ const SellerOrders = () => {
             gcashReference: order.gcash_reference,
             deliveryAddress: order.addresses?.full_address,
             customerName: order.profiles?.full_name,
+            customerId: order.user_id,
             specialInstructions: order.note,
             riderAssignment: null,
             failureReason,
@@ -1631,7 +1634,6 @@ const SellerOrders = () => {
                 </TouchableOpacity>
               </>
             )}
-
             {order.status === "preparing" && (
               <>
                 <TouchableOpacity
@@ -1802,6 +1804,79 @@ const SellerOrders = () => {
                     </TouchableOpacity>
                   )}
               </>
+            )}
+            {(order.status === "cancelled" || order.status === "rejected") && (
+              <TouchableOpacity
+                style={sellerOrderStyles.secondaryButton}
+                onPress={async () => {
+                  if (!order.customerId) {
+                    Alert.alert("Error", "Customer information not available");
+                    return;
+                  }
+
+                  try {
+                    // Get current user
+                    const {
+                      data: { user },
+                    } = await supabase.auth.getUser();
+
+                    if (!user) {
+                      Alert.alert(
+                        "Error",
+                        "Please login to chat with customers",
+                      );
+                      return;
+                    }
+
+                    // Fetch buyer's avatar first
+                    const { data: buyerProfile } = await supabase
+                      .from("profiles")
+                      .select("avatar_url")
+                      .eq("user_id", order.customerId)
+                      .single();
+
+                    // Use chatService to get or create conversation
+                    const { data: conversation, error } =
+                      await chatService.getOrCreateConversation({
+                        vendorId: user.id,
+                        buyerId: order.customerId,
+                      });
+
+                    if (error) {
+                      console.error("Error creating conversation:", error);
+                      Alert.alert("Error", "Failed to start chat");
+                      return;
+                    }
+
+                    // Navigate to chat screen with avatar
+                    router.push({
+                      pathname: "/buyer/chat",
+                      params: {
+                        conversationId: conversation.id,
+                        otherPartyName: order.customerName || "Customer",
+                        otherPartyId: order.customerId,
+                        otherPartyType: "buyer",
+                        otherPartyAvatar: buyerProfile?.avatar_url || "", // Add this line
+                      },
+                    });
+                  } catch (error) {
+                    console.error("Error starting chat:", error);
+                    Alert.alert("Error", "Something went wrong");
+                  }
+                }}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.light.primary}
+                  />
+                ) : (
+                  <Text style={sellerOrderStyles.secondaryButtonText}>
+                    Contact Buyer
+                  </Text>
+                )}
+              </TouchableOpacity>
             )}
           </View>
         </View>

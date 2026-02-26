@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -53,6 +53,39 @@ const tabToStatuses: Record<UITabStatus, DatabaseDeliveryStatus[]> = {
   failed: ["failed"],
   canceled: ["cancelled", "rejected"],
 };
+
+// Memoized Tracking Indicator Component
+const TrackingIndicator = React.memo(
+  ({ isTracking }: { isTracking: boolean }) => (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        backgroundColor: isTracking ? "#e8f5e9" : "#ffebee",
+      }}
+    >
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: isTracking ? "#4caf50" : "#f44336",
+          marginRight: 8,
+        }}
+      />
+      <Text
+        style={{
+          fontSize: 12,
+          color: isTracking ? "#2e7d32" : "#c62828",
+        }}
+      >
+        {isTracking ? "Location tracking active" : "Location tracking off"}
+      </Text>
+    </View>
+  ),
+);
 
 // Receipt Modal Component
 const ReceiptModal = ({
@@ -325,7 +358,7 @@ const ReceiptModal = ({
   );
 };
 
-// Delivery Details Modal Component (View-Only)
+// Delivery Details Modal Component (View-Only) - UPDATED with avatar support
 const DeliveryDetailsModal = ({
   visible,
   onClose,
@@ -347,7 +380,176 @@ const DeliveryDetailsModal = ({
 
   const openProofImage = (url: string) => Linking.openURL(url);
 
-  // ─── Reusable Contact Card ─────────────────────────────────────────────────
+  // Handle chat with vendor
+  const handleChatWithVendor = async () => {
+    if (!delivery?.vendor_name) {
+      Alert.alert("Error", "Vendor information not available");
+      return;
+    }
+
+    try {
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat");
+        return;
+      }
+
+      // Get vendor user ID and avatar from vendor_profiles
+      const { data: vendorProfile } = await supabase
+        .from("vendor_profiles")
+        .select("user_id, avatar_url")
+        .eq("shop_name", delivery.vendor_name)
+        .single();
+
+      if (!vendorProfile) {
+        Alert.alert("Error", "Vendor not found");
+        return;
+      }
+
+      // Get or create conversation
+      const { data: conversation, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("rider_id", user.id)
+        .eq("vendor_id", vendorProfile.user_id)
+        .single();
+
+      let conversationId;
+
+      if (error || !conversation) {
+        // Create new conversation
+        const { data: newConversation, error: createError } = await supabase
+          .from("conversations")
+          .insert({
+            rider_id: user.id,
+            vendor_id: vendorProfile.user_id,
+            last_message: null,
+            last_message_time: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error("Error creating conversation:", createError);
+          Alert.alert("Error", "Failed to start chat");
+          return;
+        }
+
+        conversationId = newConversation.id;
+      } else {
+        conversationId = conversation.id;
+      }
+
+      // Navigate to chat screen with vendor avatar
+      router.push({
+        pathname: "/buyer/chat",
+        params: {
+          conversationId: conversationId,
+          otherPartyName: delivery.vendor_name,
+          otherPartyId: vendorProfile.user_id,
+          otherPartyType: "vendor",
+          otherPartyAvatar: vendorProfile?.avatar_url || "", // 👈 Added vendor avatar
+        },
+      });
+    } catch (error) {
+      console.error("Error starting chat with vendor:", error);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
+  // Handle chat with buyer/customer
+  const handleChatWithBuyer = async () => {
+    if (!delivery?.customer_name) {
+      Alert.alert("Error", "Customer information not available");
+      return;
+    }
+
+    try {
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat");
+        return;
+      }
+
+      // Get customer user ID from the order
+      const { data: order } = await supabase
+        .from("orders")
+        .select("user_id")
+        .eq("order_id", delivery.order_id)
+        .single();
+
+      if (!order) {
+        Alert.alert("Error", "Order not found");
+        return;
+      }
+
+      // Get customer avatar from profiles
+      const { data: customerProfile } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("user_id", order.user_id)
+        .single();
+
+      // Get or create conversation
+      const { data: conversation, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("rider_id", user.id)
+        .eq("buyer_id", order.user_id)
+        .single();
+
+      let conversationId;
+
+      if (error || !conversation) {
+        // Create new conversation
+        const { data: newConversation, error: createError } = await supabase
+          .from("conversations")
+          .insert({
+            rider_id: user.id,
+            buyer_id: order.user_id,
+            last_message: null,
+            last_message_time: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error("Error creating conversation:", createError);
+          Alert.alert("Error", "Failed to start chat");
+          return;
+        }
+
+        conversationId = newConversation.id;
+      } else {
+        conversationId = conversation.id;
+      }
+
+      // Navigate to chat screen with customer avatar
+      router.push({
+        pathname: "/buyer/chat",
+        params: {
+          conversationId: conversationId,
+          otherPartyName: delivery.customer_name,
+          otherPartyId: order.user_id,
+          otherPartyType: "buyer",
+          otherPartyAvatar: customerProfile?.avatar_url || "", // 👈 Added customer avatar
+        },
+      });
+    } catch (error) {
+      console.error("Error starting chat with buyer:", error);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
+  // ─── Updated Contact Card without buttons in header ─────────────────────
   const ContactCard = ({
     role,
     name,
@@ -362,7 +564,7 @@ const DeliveryDetailsModal = ({
     isVendor?: boolean;
   }) => (
     <View style={S.modalContactCard}>
-      {/* Avatar + name */}
+      {/* Avatar + name only - no buttons here */}
       <View style={S.modalContactTopRow}>
         <View
           style={[S.modalContactAvatar, isVendor && S.modalContactAvatarVendor]}
@@ -377,15 +579,6 @@ const DeliveryDetailsModal = ({
           <Text style={S.modalContactName}>{name}</Text>
           <Text style={S.modalContactRole}>{role}</Text>
         </View>
-        {/* Call button */}
-        {phone && phone !== "No phone" && (
-          <TouchableOpacity
-            onPress={() => makePhoneCall(phone)}
-            style={S.modalCallButton}
-          >
-            <Ionicons name="call" size={16} color="#fff" />
-          </TouchableOpacity>
-        )}
       </View>
 
       <View style={S.modalContactDivider} />
@@ -450,7 +643,7 @@ const DeliveryDetailsModal = ({
               </View>
             </View>
 
-            {/* ── Customer ── */}
+            {/* ── Customer Info ── */}
             <View style={S.modalSection}>
               <Text style={S.modalSectionTitle}>Customer</Text>
               <ContactCard
@@ -459,9 +652,44 @@ const DeliveryDetailsModal = ({
                 phone={delivery.customer_phone}
                 address={delivery.delivery_address}
               />
+
+              {/* Customer Action Buttons - Below Address */}
+              {delivery.customer_phone &&
+                delivery.customer_phone !== "No phone" && (
+                  <View style={S.modalActionButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        S.modalSecondaryButton,
+                        { flex: 1, marginRight: 4 },
+                      ]}
+                      onPress={handleChatWithBuyer}
+                    >
+                      <Ionicons
+                        name="chatbubble"
+                        size={18}
+                        color={COLORS.light.primary}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalSecondaryButtonText}>Chat</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[S.modalPrimaryButton, { flex: 1, marginLeft: 4 }]}
+                      onPress={() => makePhoneCall(delivery.customer_phone!)}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={18}
+                        color="#fff"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalPrimaryButtonText}>Call</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
             </View>
 
-            {/* ── Vendor ── */}
+            {/* ── Vendor Info ── */}
             <View style={S.modalSection}>
               <Text style={S.modalSectionTitle}>Vendor</Text>
               <ContactCard
@@ -471,6 +699,41 @@ const DeliveryDetailsModal = ({
                 address={delivery.vendor_address}
                 isVendor
               />
+
+              {/* Vendor Action Buttons - Below Address */}
+              {delivery.vendor_phone &&
+                delivery.vendor_phone !== "No phone" && (
+                  <View style={S.modalActionButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        S.modalSecondaryButton,
+                        { flex: 1, marginRight: 4 },
+                      ]}
+                      onPress={handleChatWithVendor}
+                    >
+                      <Ionicons
+                        name="chatbubble"
+                        size={18}
+                        color={COLORS.light.primary}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalSecondaryButtonText}>Chat</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[S.modalPrimaryButton, { flex: 1, marginLeft: 4 }]}
+                      onPress={() => makePhoneCall(delivery.vendor_phone!)}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={18}
+                        color="#fff"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalPrimaryButtonText}>Call</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
             </View>
 
             {/* ── Proof Photos ── */}
@@ -604,7 +867,6 @@ const DeliveryDetailsModal = ({
     </Modal>
   );
 };
-
 // Alias for brevity inside the component
 const S = RiderDeliveryStyles;
 const RiderDelivery = () => {
@@ -631,6 +893,9 @@ const RiderDelivery = () => {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
 
+  // Use a ref to track if location tracking has been initialized
+  const locationInitialized = useRef(false);
+
   const navigation = useNavigation();
 
   const tabs: { key: UITabStatus; label: string }[] = [
@@ -650,6 +915,7 @@ const RiderDelivery = () => {
     setSelectedReceiptDelivery(delivery);
     setReceiptModalVisible(true);
   };
+
   // Get current rider ID
   useEffect(() => {
     const getCurrentRider = async () => {
@@ -663,37 +929,75 @@ const RiderDelivery = () => {
     getCurrentRider();
   }, []);
 
-  // Start/stop location tracking based on app state
+  // Start/stop location tracking based on app state - OPTIMIZED VERSION
   useEffect(() => {
     if (!riderId) return;
 
-    const subscription = AppState.addEventListener(
+    // Only initialize once
+    if (locationInitialized.current) {
+      console.log("Location tracking already initialized, skipping...");
+      return;
+    }
+
+    let isMounted = true;
+    let appStateSubscription: any = null;
+
+    const initializeLocationTracking = async () => {
+      try {
+        console.log("Initializing location tracking for rider:", riderId);
+
+        // Start tracking immediately
+        await locationService.startTracking(riderId);
+
+        if (isMounted) {
+          setIsTracking(true);
+          locationInitialized.current = true;
+        }
+      } catch (error) {
+        console.error("Failed to start location tracking:", error);
+      }
+    };
+
+    // Initialize tracking
+    initializeLocationTracking();
+
+    // Listen for app state changes (but don't re-initialize)
+    appStateSubscription = AppState.addEventListener(
       "change",
-      (nextAppState: AppStateStatus) => {
+      (nextAppState) => {
+        console.log("App state changed to:", nextAppState);
+
         if (nextAppState === "active") {
-          locationService
-            .startTracking(riderId)
-            .then(() => {
-              setIsTracking(true);
-            })
-            .catch(console.error);
+          // App came to foreground - resume tracking if not already tracking
+          if (!locationService.isTrackingActive() && riderId) {
+            console.log("App active, resuming location tracking");
+            locationService
+              .startTracking(riderId)
+              .then(() => {
+                if (isMounted) setIsTracking(true);
+              })
+              .catch(console.error);
+          }
         } else if (nextAppState === "background") {
+          // App went to background - stop tracking to save battery
+          console.log("App background, stopping location tracking");
           locationService.stopTracking();
-          setIsTracking(false);
+          if (isMounted) setIsTracking(false);
         }
       },
     );
 
-    locationService
-      .startTracking(riderId)
-      .then(() => {
-        setIsTracking(true);
-      })
-      .catch(console.error);
-
+    // Cleanup when component unmounts
     return () => {
-      subscription.remove();
+      console.log("Cleaning up location tracking");
+      isMounted = false;
+
+      if (appStateSubscription) {
+        appStateSubscription.remove();
+      }
+
       locationService.stopTracking();
+      locationInitialized.current = false;
     };
   }, [riderId]);
 
@@ -1174,37 +1478,6 @@ const RiderDelivery = () => {
     );
   };
 
-  // Show tracking status indicator
-  const renderTrackingIndicator = () => (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        backgroundColor: isTracking ? "#e8f5e9" : "#ffebee",
-      }}
-    >
-      <View
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: isTracking ? "#4caf50" : "#f44336",
-          marginRight: 8,
-        }}
-      />
-      <Text
-        style={{
-          fontSize: 12,
-          color: isTracking ? "#2e7d32" : "#c62828",
-        }}
-      >
-        {isTracking ? "Location tracking active" : "Location tracking off"}
-      </Text>
-    </View>
-  );
-
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={RiderDeliveryStyles.container}>
@@ -1234,8 +1507,8 @@ const RiderDelivery = () => {
 
   return (
     <SafeAreaView style={RiderDeliveryStyles.container}>
-      {/* Tracking Status Indicator */}
-      {renderTrackingIndicator()}
+      {/* Tracking Status Indicator - Using memoized component */}
+      <TrackingIndicator isTracking={isTracking} />
 
       {/* Header */}
       <View style={RiderDeliveryStyles.header}>

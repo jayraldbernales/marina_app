@@ -138,14 +138,8 @@ export default function Layout() {
               options={{ headerShown: false }}
             />
 
-            <Stack.Screen
-              name="forgot-password"
-              options={{ headerShown: true }}
-            />
-            <Stack.Screen
-              name="reset-password"
-              options={{ headerShown: true }}
-            />
+            <Stack.Screen name="forgot-password" />
+            <Stack.Screen name="reset-password" />
 
             <Stack.Screen name="+not-found" options={{ headerShown: false }} />
           </Stack>

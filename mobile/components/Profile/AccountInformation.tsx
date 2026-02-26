@@ -776,6 +776,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginHorizontal: 16,
     marginTop: 16,
+    marginBottom: 32,
     backgroundColor: COLORS.light.primary,
     paddingVertical: 14,
     borderRadius: 8,

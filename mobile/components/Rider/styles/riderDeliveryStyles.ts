@@ -465,23 +465,51 @@ export const RiderDeliveryStyles = StyleSheet.create({
     flex: 1,
     lineHeight: 19,
   },
-  // Call button inside the card
-  modalCallButton: {
+
+  // Add these to your RiderDeliveryStyles
+  modalActionButtonsContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.light.primary,
-    padding: 8,
-    borderRadius: 20,
-    alignSelf: "flex-start",
-    gap: 5,
-  },
-  modalCallButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.1,
+    gap: 4,
   },
 
+  modalPrimaryButton: {
+    backgroundColor: COLORS.light.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+
+  modalPrimaryButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  modalSecondaryButton: {
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.light.primary,
+  },
+
+  modalSecondaryButtonText: {
+    color: COLORS.light.primary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   // ─── Legacy aliases kept for backward compat ──────────────────────────────
   modalCustomerName: {
     fontSize: 15,

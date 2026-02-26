@@ -587,23 +587,21 @@ const BuyerDashboard = () => {
     cleanupSubscriptions,
   ]);
 
-  //  useFocusEffect to clear cache and refresh data
-  useFocusEffect(
-    useCallback(() => {
-      if (currentUserId) {
-        fetchUnreadMessagesCount(currentUserId);
-      }
-
-      clearProductRatingCache();
-      loadData();
-    }, [currentUserId, fetchUnreadMessagesCount, loadData]),
-  );
-
-  // Initial load
+  // Initial load - runs once on mount
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // On focus - only refresh what's lightweight/important
+  useFocusEffect(
+    useCallback(() => {
+      if (currentUserId) {
+        fetchUnreadMessagesCount(currentUserId); // Only refresh the unread count
+      }
+    }, [currentUserId, fetchUnreadMessagesCount]),
+  );
+
+  // Move cache clearing somewhere else if needed, or remove it
   // Update greeting
   useEffect(() => {
     setGreeting(getGreeting(fullName));

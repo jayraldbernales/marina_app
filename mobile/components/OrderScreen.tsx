@@ -141,7 +141,8 @@ const fetchRiderAssignment = async (
   }
 };
 
-// Replace your OrderDetailsModal component in app/buyer/orders/index.tsx with this:
+// Replace your OrderDetailsModal component with this updated version:
+
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -183,6 +184,13 @@ const OrderDetailsModal = ({
   };
 
   const openProofImage = (url: string) => Linking.openURL(url);
+
+  const handleProductPress = (productId: string) => {
+    router.push({
+      pathname: "../buyer/product-details",
+      params: { product_id: productId },
+    });
+  };
 
   const S = orderStyles;
 
@@ -238,6 +246,7 @@ const OrderDetailsModal = ({
       pending_verification: "Pending Verification",
       failed: "Failed",
       cancelled: "Cancelled",
+      rejected: "Rejected",
     };
     return map[status ?? ""] ?? "Unknown";
   };
@@ -414,6 +423,7 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             )}
+
             {order.status === "failed" && (
               <View style={S.modalSection}>
                 <Text style={S.modalSectionTitle}>Failure Reason</Text>
@@ -460,6 +470,7 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             )}
+
             {/* ── Rider ── */}
             {order.riderAssignment && (
               <View style={S.modalSection}>
@@ -512,7 +523,12 @@ const OrderDetailsModal = ({
               {order.items.map((item) => {
                 const freshness = computeFreshness(item.harvested_at);
                 return (
-                  <View key={item.id} style={S.modalItemRow}>
+                  <TouchableOpacity
+                    key={item.id}
+                    style={S.modalItemRow}
+                    onPress={() => handleProductPress(item.productId)}
+                    activeOpacity={0.7}
+                  >
                     {item.image ? (
                       <Image
                         source={{ uri: item.image }}
@@ -541,7 +557,14 @@ const OrderDetailsModal = ({
                       </Text>
                       <Text style={S.modalItemQuantity}>×{item.quantity}</Text>
                     </View>
-                  </View>
+                    {/* Optional: Add a small indicator that it's clickable */}
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#ccc"
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -1278,6 +1301,23 @@ const OrdersScreen = () => {
                 >
                   <Text style={orderStyles.primaryButtonText}>
                     Rate & Review
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {(order.status === "cancelled" || order.status === "rejected") && (
+              <>
+                <TouchableOpacity
+                  style={orderStyles.secondaryButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: "../buyer/view-vendor",
+                      params: { vendor_user_id: order.vendorId },
+                    });
+                  }}
+                >
+                  <Text style={orderStyles.secondaryButtonText}>
+                    Contact Vendor
                   </Text>
                 </TouchableOpacity>
               </>

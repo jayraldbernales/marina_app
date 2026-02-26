@@ -1,180 +1,314 @@
-import { useState } from "react";
-import { View, Text, TextInput, StyleSheet, Pressable } from "react-native";
-import { supabase } from "../lib/supabase";
+// app/forgot-password.tsx
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Platform,
+  KeyboardAvoidingView,
+  ScrollView,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { COLORS } from "../constants";
 import { PrimaryButton } from "../components/ui/buttons/PrimaryButton";
-import { showError, showSuccess } from "../lib/toast";
+import { TextInputWithIcon } from "../components/ui/inputs/InputField";
+import { AuthCard } from "../components/ui/cards/AuthCard";
+import { ScreenHeader } from "../components/ui/headers/ScreenHeader";
 import { useRouter } from "expo-router";
+import { showError, showSuccess } from "../lib/toast";
+import { usePressAndFocusAnimations } from "../hooks/useAnimations";
+import { supabase } from "../lib/supabase";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  const handleSendReset = async () => {
-    const trimmedEmail = email.trim();
+  const {
+    buttonScale,
+    focusAnim,
+    animatePressIn,
+    animatePressOut,
+    animateFocus,
+  } = usePressAndFocusAnimations();
 
-    if (!trimmedEmail) {
+  const handleResetPassword = async () => {
+    if (isLoading) return;
+
+    if (!email.trim()) {
       showError("Please enter your email address");
       return;
     }
 
-    setLoading(true);
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      showError("Please enter a valid email address");
+      return;
+    }
+
+    setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(
-        trimmedEmail,
-        {
-          redirectTo: "marina://reset-password",
-        }
-      );
+      // Use Supabase to send password reset email
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: "yourapp://reset-password", // Replace with your app's deep link scheme
+      });
 
       if (error) {
+        console.error("Reset password error:", error);
         showError(error.message || "Failed to send reset email");
         return;
       }
 
-      setSubmitted(true);
-      showSuccess("Reset link sent! Check your email.");
+      setResetSent(true);
+      showSuccess("Password reset email sent! Check your inbox.");
     } catch (err: any) {
-      console.error("Reset email error:", err);
-      showError(err?.message || "Failed to send reset email. Try again.");
+      console.error("Reset password error:", err);
+      showError("Something went wrong. Please try again.");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  if (submitted) {
+  const navigateToLogin = () => {
+    router.back();
+  };
+
+  if (resetSent) {
     return (
-      <View style={styles.container}>
-        <View style={styles.successBox}>
-          <Text style={styles.successIcon}>✓</Text>
-          <Text style={styles.successTitle}>Check Your Email</Text>
-          <Text style={styles.successMessage}>
-            We've sent a password reset link to {email}
-          </Text>
-          <Text style={styles.successSubtext}>
-            Click the link to reset your password. The link will expire in 24
-            hours.
-          </Text>
-        </View>
+      <LinearGradient
+        colors={[
+          COLORS.light.background,
+          COLORS.light.seafoam,
+          COLORS.light.background,
+        ]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.container}
+      >
+        <ScreenHeader title="Forgot Password" onBackPress={navigateToLogin} />
 
-        <PrimaryButton
-          title="Back to Login"
-          onPress={() => router.replace("/login")}
-        />
-
-        <Pressable onPress={() => setSubmitted(false)}>
-          <Text style={styles.tryAgain}>Didn't receive email? Try again</Text>
-        </Pressable>
-      </View>
+        <AuthCard
+          title="Check Your Email"
+          subtitle="We've sent you a password reset link"
+        >
+          <View style={styles.successContainer}>
+            <Text style={styles.successText}>
+              We've sent a password reset link to:
+            </Text>
+            <Text style={styles.emailText}>{email}</Text>
+            <Text style={styles.instructionText}>
+              Please check your email and follow the instructions to reset your
+              password.
+            </Text>
+            <Text style={styles.noteText}>
+              Note: The reset link will expire in 1 hour.
+            </Text>
+            // Simple custom button using the same styling as your AuthCard
+            buttons
+            <Pressable
+              onPress={navigateToLogin}
+              style={({ pressed }) => [
+                styles.simpleButton,
+                pressed && styles.simpleButtonPressed,
+              ]}
+            >
+              <Text style={styles.simpleButtonText}>Back to Login</Text>
+            </Pressable>
+            <View style={styles.resendContainer}>
+              <Text style={styles.resendText}>Didn't receive the email? </Text>
+              <Pressable onPress={() => setResetSent(false)}>
+                <Text style={styles.resendLink}>Try again</Text>
+              </Pressable>
+            </View>
+          </View>
+        </AuthCard>
+      </LinearGradient>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View>
-        <Text style={styles.title}>Reset Your Password</Text>
-        <Text style={styles.subtitle}>
-          Enter your email address and we'll send you a link to reset your
-          password.
-        </Text>
+    <LinearGradient
+      colors={[
+        COLORS.light.background,
+        COLORS.light.seafoam,
+        COLORS.light.background,
+      ]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+      <ScreenHeader title="Forgot Password" onBackPress={navigateToLogin} />
 
-        <TextInput
-          style={styles.input}
-          placeholder="your@email.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          placeholderTextColor="#999"
-          value={email}
-          onChangeText={setEmail}
-          editable={!loading}
-        />
-      </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboardView}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollView}
+          keyboardShouldPersistTaps="handled"
+        >
+          <AuthCard
+            title="Reset Password"
+            subtitle="Enter your email to receive a reset link"
+          >
+            <Text style={styles.description}>
+              We'll send you a link to reset your password. The link will expire
+              in 1 hour.
+            </Text>
 
-      <View>
-        <PrimaryButton
-          title={loading ? "Sending..." : "Send Reset Link"}
-          onPress={handleSendReset}
-          disabled={loading}
-          isLoading={loading}
-        />
+            <TextInputWithIcon
+              iconName="mail-outline"
+              placeholder="Enter your email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              focused={emailFocused}
+              focusAnim={focusAnim}
+              label="Email"
+              onFocus={() => {
+                setEmailFocused(true);
+                animateFocus(true);
+              }}
+              onBlur={() => {
+                setEmailFocused(false);
+                animateFocus(false);
+              }}
+              // Removed editable prop as it doesn't exist in your component
+            />
 
-        <Pressable onPress={() => router.replace("/login")}>
-          <Text style={styles.backLink}>Back to Login</Text>
-        </Pressable>
-      </View>
-    </View>
+            <PrimaryButton
+              title={isLoading ? "Sending..." : "Send Reset Link"}
+              onPress={handleResetPassword}
+              buttonScale={buttonScale}
+              onPressIn={animatePressIn}
+              onPressOut={animatePressOut}
+              isLoading={isLoading}
+              disabled={isLoading}
+            />
+
+            <View style={styles.loginContainer}>
+              <Text style={styles.loginText}>Remember your password? </Text>
+              <Pressable onPress={navigateToLogin}>
+                <Text style={styles.loginLink}>Login</Text>
+              </Pressable>
+            </View>
+          </AuthCard>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingTop: 40,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 8,
-    color: "#000",
+  keyboardView: {
+    flex: 1,
   },
-  subtitle: {
+  scrollView: {
+    flexGrow: 1,
+    paddingTop: Platform.OS === "ios" ? 20 : 20,
+    paddingBottom: 40,
+  },
+  description: {
     fontSize: 14,
-    color: "#666",
+    color: "#666666", // Using hex instead of COLORS.light.textSecondary
     marginBottom: 24,
     lineHeight: 20,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 0,
-    fontSize: 16,
-    backgroundColor: "#fff",
-    color: "#000",
-  },
-  backLink: {
-    marginTop: 16,
-    textAlign: "center",
-    color: "#0066cc",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  successBox: {
+  loginContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 32,
+    marginTop: 20,
   },
-  successIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+  loginText: {
+    fontSize: 14,
+    color: "#666666", // Using hex instead of COLORS.light.textSecondary
   },
-  successTitle: {
+  loginLink: {
+    fontSize: 14,
+    color: COLORS.light.oceanMedium, // This exists in your original code
+    fontWeight: "600",
+  },
+  successContainer: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  successText: {
+    fontSize: 16,
+    color: "#666666", // Using hex instead of COLORS.light.textSecondary
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  emailText: {
     fontSize: 18,
     fontWeight: "600",
-    marginBottom: 8,
-    color: "#000",
-  },
-  successMessage: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 12,
+    color: COLORS.light.oceanDeep, // This exists in your original code
+    marginBottom: 16,
     textAlign: "center",
   },
-  successSubtext: {
+  instructionText: {
+    fontSize: 14,
+    color: "#666666", // Using hex instead of COLORS.light.textSecondary
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  noteText: {
     fontSize: 12,
-    color: "#999",
+    color: COLORS.light.oceanMedium, // This exists in your original code
     textAlign: "center",
-    lineHeight: 18,
+    marginBottom: 32,
+    fontStyle: "italic",
   },
-  tryAgain: {
-    marginTop: 16,
-    textAlign: "center",
-    color: "#0066cc",
+  resendContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 20,
+  },
+  resendText: {
     fontSize: 14,
-    fontWeight: "500",
+    color: "#666666", // Using hex instead of COLORS.light.textSecondary
+  },
+  resendLink: {
+    fontSize: 14,
+    color: COLORS.light.oceanMedium, // This exists in your original code
+    fontWeight: "600",
+  },
+  simpleButton: {
+    backgroundColor: COLORS.light.oceanMedium || "#2E86C1",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    marginTop: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  simpleButtonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+  simpleButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
 });
