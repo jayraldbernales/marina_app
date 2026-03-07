@@ -34,11 +34,14 @@ interface Product {
     id: string;
     shop_name: string;
     avatar_url?: string | null;
+    address?: string | null;
+    barangay?: string | null;
+    municipality?: string | null;
   };
   category?: string | null;
   type: "product";
   freshness_status: FreshnessStatus;
-  discount_percent?: number | null; // Added discount_percent
+  discount_percent?: number | null;
 }
 
 interface Vendor {
@@ -46,7 +49,9 @@ interface Vendor {
   shop_name: string;
   avatar_url?: string | null;
   description?: string | null;
-  location?: string | null;
+  address?: string | null;
+  barangay?: string | null;
+  municipality?: string | null;
   product_count?: number;
   rating: number;
   totalReviews: number;
@@ -90,6 +95,17 @@ interface ReviewData {
   created_at: string;
 }
 
+// Address data type
+interface AddressData {
+  address_id: string;
+  full_address: string | null;
+  purok: string | null;
+  barangay: string | null;
+  municipality: string | null;
+  address_type: string | null;
+  is_default: boolean;
+}
+
 // -------------------- CONSTANTS --------------------
 
 const FRESHNESS_FILTERS: Array<{
@@ -118,7 +134,7 @@ const ALLOWED_FRESHNESS = [
   FreshnessStatus.ULTRA_FRESH,
   FreshnessStatus.FRESH,
   FreshnessStatus.GOOD,
-  FreshnessStatus.FAIR, // Added FAIR to allowed freshness
+  FreshnessStatus.FAIR,
 ];
 
 const PRICE_RANGES: PriceRange[] = [
@@ -165,6 +181,21 @@ const isProductFresh = (harvestedAt: string): boolean => {
   return ALLOWED_FRESHNESS.includes(freshness.status);
 };
 
+// Format address for display
+const formatAddress = (vendor: {
+  barangay?: string | null;
+  municipality?: string | null;
+}): string => {
+  if (vendor.barangay && vendor.municipality) {
+    return `${vendor.barangay}, ${vendor.municipality}`;
+  } else if (vendor.barangay) {
+    return vendor.barangay;
+  } else if (vendor.municipality) {
+    return vendor.municipality;
+  }
+  return "Location not set";
+};
+
 // Type guards
 const isProduct = (item: SearchResult): item is Product => {
   return item.type === "product";
@@ -186,9 +217,11 @@ const BuyerSearch = () => {
   const [filteredResults, setFilteredResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
+  const [locations, setLocations] = useState<string[]>([]); // Available barangays for filtering
+  const [categories, setCategories] = useState<string[]>([]); // Available categories for filtering
 
   // Filter states
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [freshnessFilter, setFreshnessFilter] =
     useState<FreshnessFilter>("all");
@@ -196,6 +229,7 @@ const BuyerSearch = () => {
     useState<PriceRangeFilter>("all");
 
   // Modal states
+  const [showLocationModal, setShowLocationModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showFreshnessModal, setShowFreshnessModal] = useState(false);
   const [showPriceModal, setShowPriceModal] = useState(false);
@@ -214,6 +248,38 @@ const BuyerSearch = () => {
   const debouncedSearch = useDebounce(searchQuery, 500);
   const ITEMS_PER_PAGE = 20;
 
+  // Fetch unique locations (barangays) from vendor addresses
+  const fetchLocations = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("addresses")
+        .select("barangay")
+        .eq("address_type", "business")
+        .not("barangay", "is", null);
+
+      if (error) {
+        console.error("Error fetching locations:", error);
+        return;
+      }
+
+      // Get unique barangays and filter out null/empty values
+      const uniqueLocations = Array.from(
+        new Set(
+          (data || [])
+            .map((addr) => addr.barangay)
+            .filter(
+              (barangay): barangay is string =>
+                barangay !== null && barangay.trim() !== "",
+            ),
+        ),
+      ).sort();
+
+      setLocations(uniqueLocations);
+    } catch (error) {
+      console.error("Error in fetchLocations:", error);
+    }
+  }, []);
+
   // Fetch categories
   const fetchCategories = useCallback(async () => {
     try {
@@ -230,6 +296,30 @@ const BuyerSearch = () => {
       setCategories((data || []).map((cat) => cat.category_name));
     } catch (error) {
       console.error("Error in fetchCategories:", error);
+    }
+  }, []);
+
+  // Fetch vendor address
+  const fetchVendorAddress = useCallback(async (vendorUserId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("addresses")
+        .select(
+          "full_address, purok, barangay, municipality, address_type, is_default",
+        )
+        .eq("user_id", vendorUserId)
+        .eq("address_type", "business")
+        .maybeSingle();
+
+      if (error) {
+        console.error("Error fetching vendor address:", error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error("Error in fetchVendorAddress:", error);
+      return null;
     }
   }, []);
 
@@ -275,22 +365,22 @@ const BuyerSearch = () => {
         .from("products")
         .select(
           `
-            product_id,
-            product_name,
-            price,
-            stock,
-            unit,
-            harvested_at,
-            images,
-            vendor_user_id,
-            discount_percent,
-            categories:category_id(category_name),
-            vendor_profiles!vendor_user_id(
-              user_id,
-              shop_name,
-              avatar_url
-            )
-          `,
+          product_id,
+          product_name,
+          price,
+          stock,
+          unit,
+          harvested_at,
+          images,
+          vendor_user_id,
+          discount_percent,
+          categories:category_id(category_name),
+          vendor_profiles!vendor_user_id(
+            user_id,
+            shop_name,
+            avatar_url
+          )
+        `,
         )
         .eq("is_active", true)
         .gt("stock", 0);
@@ -308,61 +398,89 @@ const BuyerSearch = () => {
         return [];
       }
 
-      const products = (data || [])
-        .map((item: any) => {
-          let categoryName: string | null = null;
-          if (item.categories) {
-            if (Array.isArray(item.categories) && item.categories.length > 0) {
-              categoryName = item.categories[0]?.category_name || null;
-            } else if (
-              !Array.isArray(item.categories) &&
-              item.categories?.category_name
-            ) {
-              categoryName = item.categories.category_name;
-            }
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      // Get unique vendor IDs
+      const vendorIds = [...new Set(data.map((item) => item.vendor_user_id))];
+
+      // Batch fetch all vendor addresses in one query
+      const { data: addresses, error: addressesError } = await supabase
+        .from("addresses")
+        .select("user_id, full_address, purok, barangay, municipality")
+        .in("user_id", vendorIds)
+        .eq("address_type", "business");
+
+      if (addressesError) {
+        console.error("Error fetching vendor addresses:", addressesError);
+      }
+
+      // Create a map of vendor addresses for quick lookup
+      const addressMap = new Map();
+      addresses?.forEach((addr) => {
+        addressMap.set(addr.user_id, addr);
+      });
+
+      // Process products
+      const products = data.map((item: any) => {
+        let categoryName: string | null = null;
+        if (item.categories) {
+          if (Array.isArray(item.categories) && item.categories.length > 0) {
+            categoryName = item.categories[0]?.category_name || null;
+          } else if (
+            !Array.isArray(item.categories) &&
+            item.categories?.category_name
+          ) {
+            categoryName = item.categories.category_name;
           }
+        }
 
-          let vendorData = item.vendor_profiles;
-          let shopName = "Seafood Vendor";
-          let avatarUrl: string | null = null;
+        let vendorData = item.vendor_profiles;
+        let shopName = "Seafood Vendor";
+        let avatarUrl: string | null = null;
 
-          if (vendorData) {
-            if (Array.isArray(vendorData) && vendorData.length > 0) {
-              shopName = vendorData[0]?.shop_name || "Seafood Vendor";
-              avatarUrl = vendorData[0]?.avatar_url || null;
-            } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
-              shopName = vendorData.shop_name;
-              avatarUrl = vendorData.avatar_url || null;
-            }
+        if (vendorData) {
+          if (Array.isArray(vendorData) && vendorData.length > 0) {
+            shopName = vendorData[0]?.shop_name || "Seafood Vendor";
+            avatarUrl = vendorData[0]?.avatar_url || null;
+          } else if (!Array.isArray(vendorData) && vendorData?.shop_name) {
+            shopName = vendorData.shop_name;
+            avatarUrl = vendorData.avatar_url || null;
           }
+        }
 
-          const freshness = computeFreshness(item.harvested_at);
+        // Get address from map
+        const address = addressMap.get(item.vendor_user_id);
+        const freshness = computeFreshness(item.harvested_at);
 
-          return {
-            id: item.product_id,
-            name: item.product_name,
-            price: Number(item.price ?? 0),
-            stock: Number(item.stock ?? 0),
-            thumbnail: item.images?.[0] ?? null,
-            harvested_at: item.harvested_at,
-            unit: item.unit,
-            vendor: {
-              id: item.vendor_user_id,
-              shop_name: shopName,
-              avatar_url: avatarUrl,
-            },
-            category: categoryName,
-            type: "product" as const,
-            freshness_status: freshness.status,
-            discount_percent: item.discount_percent,
-          };
-        })
-        // Filter out products that are not fresh (exclude OLD/NOT_FRESH)
-        .filter((product: Product) =>
-          ALLOWED_FRESHNESS.includes(product.freshness_status),
-        );
+        return {
+          id: item.product_id,
+          name: item.product_name,
+          price: Number(item.price ?? 0),
+          stock: Number(item.stock ?? 0),
+          thumbnail: item.images?.[0] ?? null,
+          harvested_at: item.harvested_at,
+          unit: item.unit,
+          vendor: {
+            id: item.vendor_user_id,
+            shop_name: shopName,
+            avatar_url: avatarUrl,
+            address: address?.full_address || null,
+            barangay: address?.barangay || null,
+            municipality: address?.municipality || null,
+          },
+          category: categoryName,
+          type: "product" as const,
+          freshness_status: freshness.status,
+          discount_percent: item.discount_percent,
+        };
+      });
 
-      return products;
+      // Filter out products that are not fresh
+      return products.filter((product: Product) =>
+        ALLOWED_FRESHNESS.includes(product.freshness_status),
+      );
     } catch (error) {
       console.error("Error in searchProducts:", error);
       return [];
@@ -377,84 +495,185 @@ const BuyerSearch = () => {
           .from("vendor_profiles")
           .select(
             `
-            user_id,
-            shop_name,
-            avatar_url,
-            gcash_name,
-            approval_status
-          `,
+          user_id,
+          shop_name,
+          avatar_url,
+          gcash_name,
+          approval_status
+        `,
           )
           .eq("approval_status", "approved");
 
+        // If there's a search query, we need to filter vendors by shop name OR address
         if (query.trim()) {
-          dbQuery = dbQuery.ilike("shop_name", `%${query}%`);
+          // First, get all approved vendors
+          const { data: allVendors, error: vendorsError } = await dbQuery;
+
+          if (vendorsError) {
+            console.error("Error fetching vendors:", vendorsError);
+            return [];
+          }
+
+          if (!allVendors || allVendors.length === 0) {
+            return [];
+          }
+
+          // Fetch addresses for all vendors
+          const vendorIds = allVendors.map((v) => v.user_id);
+          const { data: addresses, error: addressesError } = await supabase
+            .from("addresses")
+            .select("user_id, full_address, purok, barangay, municipality")
+            .in("user_id", vendorIds)
+            .eq("address_type", "business");
+
+          if (addressesError) {
+            console.error("Error fetching addresses:", addressesError);
+          }
+
+          // Create a map of vendor addresses
+          const addressMap = new Map();
+          addresses?.forEach((addr) => {
+            addressMap.set(addr.user_id, addr);
+          });
+
+          // Filter vendors that match the query in shop name or address
+          const queryLower = query.toLowerCase().trim();
+          const matchingVendors = allVendors.filter((vendor) => {
+            // Check shop name
+            if (vendor.shop_name?.toLowerCase().includes(queryLower)) {
+              return true;
+            }
+
+            // Check address
+            const address = addressMap.get(vendor.user_id);
+            if (address) {
+              const addressFields = [
+                address.full_address,
+                address.purok,
+                address.barangay,
+                address.municipality,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+              return addressFields.includes(queryLower);
+            }
+
+            return false;
+          });
+
+          // Now process only the matching vendors
+          const vendorsWithDetails = await Promise.all(
+            matchingVendors.map(async (vendor: any) => {
+              const { count: productCount } = await supabase
+                .from("products")
+                .select("*", { count: "exact", head: true })
+                .eq("vendor_user_id", vendor.user_id)
+                .eq("is_active", true)
+                .gt("stock", 0);
+
+              // Fetch vendor rating
+              const { rating, totalReviews } = await fetchVendorRating(
+                vendor.user_id,
+              );
+
+              // Fetch vendor address
+              const address = await fetchVendorAddress(vendor.user_id);
+
+              return {
+                id: vendor.user_id,
+                shop_name: vendor.shop_name || "Unnamed Shop",
+                avatar_url: vendor.avatar_url,
+                description: null,
+                address: address?.full_address || null,
+                barangay: address?.barangay || null,
+                municipality: address?.municipality || null,
+                product_count: productCount || 0,
+                rating: rating,
+                totalReviews: totalReviews,
+                type: "vendor" as const,
+              };
+            }),
+          );
+
+          return vendorsWithDetails;
+        } else {
+          // No search query - return all vendors with their details
+          const { data, error } = await dbQuery;
+
+          if (error) {
+            console.error("Error searching vendors:", error);
+            return [];
+          }
+
+          const vendorsWithDetails = await Promise.all(
+            (data || []).map(async (vendor: any) => {
+              const { count: productCount } = await supabase
+                .from("products")
+                .select("*", { count: "exact", head: true })
+                .eq("vendor_user_id", vendor.user_id)
+                .eq("is_active", true)
+                .gt("stock", 0);
+
+              // Fetch vendor rating
+              const { rating, totalReviews } = await fetchVendorRating(
+                vendor.user_id,
+              );
+
+              // Fetch vendor address
+              const address = await fetchVendorAddress(vendor.user_id);
+
+              return {
+                id: vendor.user_id,
+                shop_name: vendor.shop_name || "Unnamed Shop",
+                avatar_url: vendor.avatar_url,
+                description: null,
+                address: address?.full_address || null,
+                barangay: address?.barangay || null,
+                municipality: address?.municipality || null,
+                product_count: productCount || 0,
+                rating: rating,
+                totalReviews: totalReviews,
+                type: "vendor" as const,
+              };
+            }),
+          );
+
+          return vendorsWithDetails;
         }
-
-        const { data, error } = await dbQuery.order("shop_name", {
-          ascending: true,
-        });
-
-        if (error) {
-          console.error("Error searching vendors:", error);
-          return [];
-        }
-
-        const vendorsWithDetails = await Promise.all(
-          (data || []).map(async (vendor: any) => {
-            const { count: productCount } = await supabase
-              .from("products")
-              .select("*", { count: "exact", head: true })
-              .eq("vendor_user_id", vendor.user_id)
-              .eq("is_active", true)
-              .gt("stock", 0);
-
-            // Fetch vendor rating
-            const { rating, totalReviews } = await fetchVendorRating(
-              vendor.user_id,
-            );
-
-            return {
-              id: vendor.user_id,
-              shop_name: vendor.shop_name || "Unnamed Shop",
-              avatar_url: vendor.avatar_url,
-              description: null,
-              location: null,
-              product_count: productCount || 0,
-              rating: rating,
-              totalReviews: totalReviews,
-              type: "vendor" as const,
-            };
-          }),
-        );
-
-        return vendorsWithDetails;
       } catch (error) {
         console.error("Error in searchVendors:", error);
         return [];
       }
     },
-    [fetchVendorRating],
+    [fetchVendorRating, fetchVendorAddress],
   );
 
   // Apply all filters
   const applyFilters = useCallback(
     (items: SearchResult[]) => {
       return items.filter((item) => {
-        // For vendors, only show if they match the search query (no other filters apply)
-        if (isVendor(item)) {
-          return true;
-        }
-
-        // For products, apply all filters
-        if (isProduct(item)) {
-          // Category filter
-          if (
-            selectedCategory &&
-            item.category?.toLowerCase() !== selectedCategory.toLowerCase()
-          ) {
+        // Category filter (only for products)
+        if (selectedCategory && isProduct(item)) {
+          if (item.category?.toLowerCase() !== selectedCategory.toLowerCase()) {
             return false;
           }
+        }
 
+        // Location filter (based on vendor's barangay)
+        if (selectedLocation) {
+          const itemBarangay = isProduct(item)
+            ? item.vendor.barangay
+            : item.barangay;
+
+          if (itemBarangay?.toLowerCase() !== selectedLocation.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // For products, apply price and freshness filters
+        if (isProduct(item)) {
           // Price filter
           if (priceRangeFilter !== "all") {
             const range = PRICE_RANGES.find(
@@ -473,14 +692,12 @@ const BuyerSearch = () => {
             const freshness = computeFreshness(item.harvested_at);
             if (freshness.status !== freshnessFilter) return false;
           }
-
-          return true;
         }
 
         return true;
       });
     },
-    [selectedCategory, priceRangeFilter, freshnessFilter],
+    [selectedLocation, selectedCategory, priceRangeFilter, freshnessFilter],
   );
 
   // Apply sorting
@@ -567,6 +784,7 @@ const BuyerSearch = () => {
     }
   }, [
     results,
+    selectedLocation,
     selectedCategory,
     priceRangeFilter,
     freshnessFilter,
@@ -577,6 +795,7 @@ const BuyerSearch = () => {
 
   // Initial load
   useEffect(() => {
+    fetchLocations();
     fetchCategories();
     performSearch();
   }, []);
@@ -610,6 +829,7 @@ const BuyerSearch = () => {
   }, []);
 
   const handleClearFilters = useCallback(() => {
+    setSelectedLocation(null);
     setSelectedCategory(null);
     setFreshnessFilter("all");
     setPriceRangeFilter("all");
@@ -618,13 +838,15 @@ const BuyerSearch = () => {
   // Get active filter count
   const getActiveFilterCount = useCallback(() => {
     let count = 0;
+    if (selectedLocation) count++;
     if (selectedCategory) count++;
     if (freshnessFilter !== "all") count++;
     if (priceRangeFilter !== "all") count++;
     return count;
-  }, [selectedCategory, freshnessFilter, priceRangeFilter]);
+  }, [selectedLocation, selectedCategory, freshnessFilter, priceRangeFilter]);
 
   // Get filter labels
+  const getLocationLabel = () => selectedLocation || "Location";
   const getCategoryLabel = () => selectedCategory || "Category";
   const getFreshnessLabel = () => {
     const filter = FRESHNESS_FILTERS.find((f) => f.value === freshnessFilter);
@@ -769,10 +991,23 @@ const BuyerSearch = () => {
             {item.vendor.shop_name}
           </Text>
 
-          {item.category && (
-            <Text style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
-              {item.category}
-            </Text>
+          {/* Display vendor address */}
+          {item.vendor.barangay && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: 2,
+              }}
+            >
+              <Ionicons name="location-outline" size={10} color="#999" />
+              <Text
+                style={{ fontSize: 11, color: "#999", marginLeft: 2 }}
+                numberOfLines={1}
+              >
+                {formatAddress(item.vendor)}
+              </Text>
+            </View>
           )}
 
           <View
@@ -887,6 +1122,25 @@ const BuyerSearch = () => {
             {item.shop_name}
           </Text>
 
+          {/* Display vendor address */}
+          {item.barangay && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
+              <Ionicons name="location-outline" size={10} color="#999" />
+              <Text
+                style={{ fontSize: 11, color: "#999", marginLeft: 2 }}
+                numberOfLines={1}
+              >
+                {formatAddress(item)}
+              </Text>
+            </View>
+          )}
+
           <View
             style={{
               flexDirection: "row",
@@ -969,7 +1223,7 @@ const BuyerSearch = () => {
         >
           {searchQuery.trim()
             ? `We couldn't find any matches for "${searchQuery}"`
-            : "Try searching for fresh seafood, shop names, or categories"}
+            : "Try searching for fresh seafood, shop names, or locations"}
         </Text>
         {getActiveFilterCount() > 0 && (
           <TouchableOpacity
@@ -1053,7 +1307,48 @@ const BuyerSearch = () => {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16 }}
           >
-            {/* Category Filter */}
+            {/* Location Filter */}
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: selectedLocation
+                  ? COLORS.light.primary
+                  : "#f0f0f0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                marginRight: 8,
+              }}
+              onPress={() => setShowLocationModal(true)}
+            >
+              <Ionicons
+                name="location-outline"
+                size={14}
+                color={selectedLocation ? "#fff" : "#666"}
+              />
+              <Text
+                style={{
+                  color: selectedLocation ? "#fff" : "#666",
+                  fontSize: 13,
+                  marginLeft: 4,
+                  fontWeight: "500",
+                }}
+              >
+                {getLocationLabel()}
+              </Text>
+              {selectedLocation && (
+                <TouchableOpacity
+                  onPress={() => setSelectedLocation(null)}
+                  style={{ marginLeft: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={14} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+
+            {/* Category Filter (ADDED BACK) */}
             <TouchableOpacity
               style={{
                 flexDirection: "row",
@@ -1262,7 +1557,127 @@ const BuyerSearch = () => {
           }
         />
 
-        {/* Category Filter Modal */}
+        {/* Location Filter Modal */}
+        <Modal
+          visible={showLocationModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowLocationModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+                maxHeight: "70%",
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "bold",
+                    color: COLORS.light.primary,
+                  }}
+                >
+                  Filter by Location
+                </Text>
+                <TouchableOpacity onPress={() => setShowLocationModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              {/* "All Locations" option */}
+              <TouchableOpacity
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#f0f0f0",
+                }}
+                onPress={() => {
+                  setSelectedLocation(null);
+                  setShowLocationModal(false);
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: !selectedLocation ? COLORS.light.primary : "#333",
+                    flex: 1,
+                  }}
+                >
+                  All Locations
+                </Text>
+                {!selectedLocation && (
+                  <Ionicons
+                    name="checkmark"
+                    size={20}
+                    color={COLORS.light.primary}
+                  />
+                )}
+              </TouchableOpacity>
+
+              <FlatList
+                data={locations}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 12,
+                      borderBottomWidth: 1,
+                      borderBottomColor: "#f0f0f0",
+                    }}
+                    onPress={() => {
+                      setSelectedLocation(item);
+                      setShowLocationModal(false);
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        color:
+                          selectedLocation === item
+                            ? COLORS.light.primary
+                            : "#333",
+                        flex: 1,
+                      }}
+                    >
+                      {item}
+                    </Text>
+                    {selectedLocation === item && (
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={COLORS.light.primary}
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Category Filter Modal (ADDED BACK) */}
         <Modal
           visible={showCategoryModal}
           transparent
@@ -1306,6 +1721,38 @@ const BuyerSearch = () => {
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
+
+              {/* "All Categories" option */}
+              <TouchableOpacity
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#f0f0f0",
+                }}
+                onPress={() => {
+                  setSelectedCategory(null);
+                  setShowCategoryModal(false);
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: !selectedCategory ? COLORS.light.primary : "#333",
+                    flex: 1,
+                  }}
+                >
+                  All Categories
+                </Text>
+                {!selectedCategory && (
+                  <Ionicons
+                    name="checkmark"
+                    size={20}
+                    color={COLORS.light.primary}
+                  />
+                )}
+              </TouchableOpacity>
 
               <FlatList
                 data={categories}

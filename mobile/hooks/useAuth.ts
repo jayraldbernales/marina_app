@@ -54,7 +54,7 @@ export function useAuth() {
       .from("profiles")
       .select("banned")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       await supabase.auth.signOut();

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useUserStore } from "../store/userStore";
 import { COLORS } from "../constants";
+import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NotificationProvider } from "../contexts/NotificationContext"; // ADD THIS
 
@@ -18,7 +19,42 @@ export default function Layout() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasSeenWelcome, setHasSeenWelcome] = useState(false);
   const { user, setUser } = useUserStore();
+  useEffect(() => {
+    const handleDeepLink = async (url: string) => {
+      if (!url.includes("type=recovery") && !url.includes("reset-password"))
+        return;
 
+      const fragment = url.split("#")[1];
+      if (!fragment) return;
+
+      const params = new URLSearchParams(fragment);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (!error) {
+          router.replace("/reset-password");
+        }
+      }
+    };
+
+    // App already open when link clicked
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      handleDeepLink(url);
+    });
+
+    // App opened cold from the link
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink(url);
+    });
+
+    return () => subscription.remove();
+  }, []);
   // Initialize auth session and welcome flag on app launch
   useEffect(() => {
     const initializeAuth = async () => {
@@ -92,7 +128,12 @@ export default function Layout() {
     } else if (!user && currentSegment === "index" && hasSeenWelcome) {
       // Skip index if welcome has been seen
       router.replace("/login");
-    } else if (user && isAuthScreen && currentSegment !== "index") {
+    } else if (
+      user &&
+      isAuthScreen &&
+      currentSegment !== "index" &&
+      currentSegment !== "reset-password"
+    ) {
       router.replace("/(tabs)");
     }
   }, [user, isReady, segments, hasSeenWelcome]);

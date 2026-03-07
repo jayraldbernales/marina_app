@@ -54,8 +54,12 @@ export default function ForgotPasswordScreen() {
 
     try {
       // Use Supabase to send password reset email
+      const redirectTo = __DEV__
+        ? `exp://askl608-anonymous-8081.exp.direct/--/reset-password`
+        : "marina://reset-password";
+
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "yourapp://reset-password", // Replace with your app's deep link scheme
+        redirectTo,
       });
 
       if (error) {
@@ -108,8 +112,6 @@ export default function ForgotPasswordScreen() {
             <Text style={styles.noteText}>
               Note: The reset link will expire in 1 hour.
             </Text>
-            // Simple custom button using the same styling as your AuthCard
-            buttons
             <Pressable
               onPress={navigateToLogin}
               style={({ pressed }) => [
@@ -287,8 +289,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   simpleButton: {
-    backgroundColor: COLORS.light.oceanMedium || "#2E86C1",
-    paddingVertical: 16,
+    backgroundColor: COLORS.light.primary,
+    paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
     alignItems: "center",

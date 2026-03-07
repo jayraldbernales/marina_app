@@ -19,6 +19,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
@@ -28,11 +37,44 @@ import {
   Ban,
   CheckCircle,
   AlertTriangle,
+  User as UserIcon,
+  Calendar,
+  ShoppingBag,
+  MapPin,
+  Phone,
+  Eye,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface UserWithBan extends User {
   banned?: boolean;
+  mobile_number?: string;
+  avatar_url?: string;
+}
+
+interface UserDetails extends UserWithBan {
+  addresses?: Array<{
+    address_id: string;
+    full_address: string;
+    purok: string;
+    barangay: string;
+    municipality: string;
+    address_type: string;
+    is_default: boolean;
+  }>;
+  orders?: Array<{
+    order_id: string;
+    order_number: string;
+    total_amount: number;
+    order_status: string;
+    created_at: string;
+  }>;
+  stats?: {
+    totalOrders: number;
+    totalSpent: number;
+    completedOrders: number;
+  };
 }
 
 const UserManagement = () => {
@@ -42,8 +84,12 @@ const UserManagement = () => {
   const [users, setUsers] = useState<UserWithBan[]>([]);
   const [loading, setLoading] = useState(true);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserWithBan | null>(null);
+  const [selectedUserDetails, setSelectedUserDetails] =
+    useState<UserDetails | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const { toast } = useToast();
 
   // Fetch users from profiles table (excluding admins)
@@ -59,10 +105,12 @@ const UserManagement = () => {
           email,
           role,
           banned,
-          created_at
+          created_at,
+          mobile_number,
+          avatar_url
         `,
         )
-        .neq("role", "admin") // 👈 Exclude admins
+        .neq("role", "admin")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -74,6 +122,8 @@ const UserManagement = () => {
         role: profile.role as UserRole,
         banned: profile.banned || false,
         createdAt: profile.created_at,
+        mobile_number: profile.mobile_number,
+        avatar_url: profile.avatar_url,
       }));
 
       setUsers(mappedUsers);
@@ -92,6 +142,87 @@ const UserManagement = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const fetchUserDetails = async (userId: string) => {
+    setLoadingDetails(true);
+    try {
+      // Fetch user profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // Fetch user addresses
+      const { data: addresses, error: addressesError } = await supabase
+        .from("addresses")
+        .select("*")
+        .eq("user_id", userId)
+        .order("is_default", { ascending: false });
+
+      if (addressesError) throw addressesError;
+
+      // Fetch user orders
+      const { data: orders, error: ordersError } = await supabase
+        .from("orders")
+        .select(
+          `
+          order_id,
+          order_number,
+          total_amount,
+          order_status,
+          created_at
+        `,
+        )
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (ordersError) throw ordersError;
+
+      // Calculate stats
+      const totalOrders = orders?.length || 0;
+      const totalSpent =
+        orders?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0;
+      const completedOrders =
+        orders?.filter((o) => o.order_status === "delivered").length || 0;
+
+      setSelectedUserDetails({
+        id: userId,
+        name: profile.full_name || "Unnamed User",
+        email: profile.email || "",
+        role: profile.role as UserRole,
+        banned: profile.banned || false,
+        createdAt: profile.created_at,
+        mobile_number: profile.mobile_number,
+        avatar_url: profile.avatar_url,
+        addresses: addresses || [],
+        orders: orders || [],
+        stats: {
+          totalOrders,
+          totalSpent,
+          completedOrders,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching user details:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load user details",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleViewDetails = async (user: UserWithBan) => {
+    setSelectedUser(user);
+    await fetchUserDetails(user.id);
+    setDetailsDialogOpen(true);
+  };
 
   const handleBanUser = async () => {
     if (!selectedUser) return;
@@ -136,7 +267,10 @@ const UserManagement = () => {
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (user.mobile_number || "")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
     const matchesRole = roleFilter === "all" || user.role === roleFilter;
     const matchesStatus =
       statusFilter === "all" ||
@@ -150,9 +284,19 @@ const UserManagement = () => {
     user: "bg-muted text-muted-foreground border-border",
   };
 
+  const getStatusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: "bg-warning/10 text-warning border-warning/20",
+      processing: "bg-primary/10 text-primary border-primary/20",
+      delivered: "bg-success/10 text-success border-success/20",
+      cancelled: "bg-destructive/10 text-destructive border-destructive/20",
+    };
+    return colors[status] || "bg-muted text-muted-foreground border-border";
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -165,7 +309,7 @@ const UserManagement = () => {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search users by name or email..."
+            placeholder="Search users by name, email, or phone..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -203,7 +347,7 @@ const UserManagement = () => {
                   User
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Email
+                  Contact
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Role
@@ -230,27 +374,38 @@ const UserManagement = () => {
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <span className="text-sm font-medium text-primary">
+                      <Avatar className="w-10 h-10">
+                        <AvatarImage src={user.avatar_url} />
+                        <AvatarFallback className="bg-primary/10 text-primary">
                           {user.name
                             .split(" ")
                             .map((n) => n[0])
                             .join("")
                             .toUpperCase()
                             .slice(0, 2)}
-                        </span>
-                      </div>
+                        </AvatarFallback>
+                      </Avatar>
                       <span className="text-sm font-medium text-foreground">
                         {user.name}
                       </span>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">
-                        {user.email}
-                      </span>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm text-muted-foreground truncate max-w-50">
+                          {user.email}
+                        </span>
+                      </div>
+                      {user.mobile_number && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm text-muted-foreground">
+                            {user.mobile_number}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -283,31 +438,41 @@ const UserManagement = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        user.banned
-                          ? "text-success hover:text-success"
-                          : "text-destructive hover:text-destructive",
-                      )}
-                      onClick={() => {
-                        setSelectedUser(user);
-                        setBanDialogOpen(true);
-                      }}
-                    >
-                      {user.banned ? (
-                        <>
-                          <CheckCircle className="w-4 h-4 mr-2" />
-                          Unban
-                        </>
-                      ) : (
-                        <>
-                          <Ban className="w-4 h-4 mr-2" />
-                          Ban
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewDetails(user)}
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          user.banned
+                            ? "text-success hover:text-success"
+                            : "text-destructive hover:text-destructive",
+                        )}
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setBanDialogOpen(true);
+                        }}
+                      >
+                        {user.banned ? (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Unban
+                          </>
+                        ) : (
+                          <>
+                            <Ban className="w-4 h-4 mr-2" />
+                            Ban
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -339,6 +504,293 @@ const UserManagement = () => {
           </span>
         </span>
       </div>
+
+      {/* User Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>User Details</DialogTitle>
+            <DialogDescription>
+              Detailed information about the user account
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : selectedUserDetails ? (
+            <Tabs defaultValue="profile" className="mt-4">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="profile">Profile</TabsTrigger>
+                <TabsTrigger value="addresses">Addresses</TabsTrigger>
+                <TabsTrigger value="orders">Order History</TabsTrigger>
+              </TabsList>
+
+              {/* Profile Tab */}
+              <TabsContent value="profile" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <UserIcon className="w-5 h-5" />
+                      Personal Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="w-20 h-20">
+                        <AvatarImage src={selectedUserDetails.avatar_url} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-2xl">
+                          {selectedUserDetails.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .toUpperCase()
+                            .slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="text-xl font-semibold">
+                          {selectedUserDetails.name}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge
+                            className={cn(
+                              "capitalize",
+                              roleColors[selectedUserDetails.role],
+                            )}
+                          >
+                            <Shield className="w-3 h-3 mr-1" />
+                            {selectedUserDetails.role}
+                          </Badge>
+                          {selectedUserDetails.banned ? (
+                            <Badge variant="destructive">Banned</Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="bg-success/10 text-success"
+                            >
+                              Active
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-4">
+                      <div className="space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          Email
+                        </label>
+                        <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                          <Mail className="w-4 h-4 text-muted-foreground" />
+                          <span>{selectedUserDetails.email}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          Phone
+                        </label>
+                        <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                          <Phone className="w-4 h-4 text-muted-foreground" />
+                          <span>
+                            {selectedUserDetails.mobile_number ||
+                              "Not provided"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          Member Since
+                        </label>
+                        <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                          <span>
+                            {selectedUserDetails.createdAt
+                              ? new Date(
+                                  selectedUserDetails.createdAt,
+                                ).toLocaleDateString()
+                              : "N/A"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          User ID
+                        </label>
+                        <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg">
+                          <span className="font-mono text-xs">
+                            {selectedUserDetails.id}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Stats Cards */}
+                <div className="grid grid-cols-3 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">
+                        Total Orders
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">
+                        {selectedUserDetails.stats?.totalOrders || 0}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">
+                        Total Spent
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">
+                        ₱
+                        {(
+                          selectedUserDetails.stats?.totalSpent || 0
+                        ).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">
+                        Completed Orders
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">
+                        {selectedUserDetails.stats?.completedOrders || 0}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              {/* Addresses Tab */}
+              <TabsContent value="addresses" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <MapPin className="w-5 h-5" />
+                      Saved Addresses
+                    </CardTitle>
+                    <CardDescription>
+                      {selectedUserDetails.addresses?.length || 0} address(es)
+                      on file
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {selectedUserDetails.addresses?.map((address) => (
+                        <div
+                          key={address.address_id}
+                          className="p-4 border border-border rounded-lg relative"
+                        >
+                          {address.is_default && (
+                            <Badge
+                              className="absolute top-2 right-2"
+                              variant="secondary"
+                            >
+                              Default
+                            </Badge>
+                          )}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">
+                                {address.address_type}
+                              </Badge>
+                            </div>
+                            <p className="text-sm">
+                              {address.full_address}
+                              {address.purok && `, ${address.purok}`}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {address.barangay}, {address.municipality}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedUserDetails.addresses?.length === 0 && (
+                        <p className="text-center text-muted-foreground py-4">
+                          No addresses saved
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Orders Tab */}
+              <TabsContent value="orders" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShoppingBag className="w-5 h-5" />
+                      Recent Orders
+                    </CardTitle>
+                    <CardDescription>
+                      Last {selectedUserDetails.orders?.length || 0} orders
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {selectedUserDetails.orders?.map((order) => (
+                        <div
+                          key={order.order_id}
+                          className="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">
+                              Order #{order.order_number}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(order.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <Badge
+                              className={cn(
+                                "mb-1",
+                                getStatusBadge(order.order_status),
+                              )}
+                            >
+                              {order.order_status}
+                            </Badge>
+                            <p className="text-sm font-semibold">
+                              ₱{order.total_amount.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedUserDetails.orders?.length === 0 && (
+                        <p className="text-center text-muted-foreground py-4">
+                          No orders found
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDetailsDialogOpen(false)}
+            >
+              <X className="w-4 h-4 mr-2" />
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Ban Confirmation Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
