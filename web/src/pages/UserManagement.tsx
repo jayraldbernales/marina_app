@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
-import type { User, UserRole } from "@/types";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,208 +44,48 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface UserWithBan extends User {
-  banned?: boolean;
-  mobile_number?: string;
-  avatar_url?: string;
-}
-
-interface UserDetails extends UserWithBan {
-  addresses?: Array<{
-    address_id: string;
-    full_address: string;
-    purok: string;
-    barangay: string;
-    municipality: string;
-    address_type: string;
-    is_default: boolean;
-  }>;
-  orders?: Array<{
-    order_id: string;
-    order_number: string;
-    total_amount: number;
-    order_status: string;
-    created_at: string;
-  }>;
-  stats?: {
-    totalOrders: number;
-    totalSpent: number;
-    completedOrders: number;
-  };
-}
+import {
+  useUsers,
+  useUserDetails,
+  useBanUser,
+  type UserWithBan,
+} from "@/hooks/useUserManagement";
 
 const UserManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [users, setUsers] = useState<UserWithBan[]>([]);
-  const [loading, setLoading] = useState(true);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserWithBan | null>(null);
-  const [selectedUserDetails, setSelectedUserDetails] =
-    useState<UserDetails | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
   const { toast } = useToast();
 
-  // Fetch users from profiles table (excluding admins)
-  const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("profiles")
-        .select(
-          `
-          user_id,
-          full_name,
-          email,
-          role,
-          banned,
-          created_at,
-          mobile_number,
-          avatar_url
-        `,
-        )
-        .neq("role", "admin")
-        .order("created_at", { ascending: false });
+  // React Query hooks
+  const { data: users = [], isLoading, error } = useUsers();
+  const { data: selectedUserDetails, isLoading: loadingDetails } =
+    useUserDetails(selectedUserId);
+  const banUserMutation = useBanUser();
 
-      if (error) throw error;
-
-      const mappedUsers: UserWithBan[] = (data || []).map((profile: any) => ({
-        id: profile.user_id,
-        name: profile.full_name || "Unnamed User",
-        email: profile.email || "",
-        role: profile.role as UserRole,
-        banned: profile.banned || false,
-        createdAt: profile.created_at,
-        mobile_number: profile.mobile_number,
-        avatar_url: profile.avatar_url,
-      }));
-
-      setUsers(mappedUsers);
-    } catch (error: any) {
-      console.error("Error fetching users:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load users",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const fetchUserDetails = async (userId: string) => {
-    setLoadingDetails(true);
-    try {
-      // Fetch user profile
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .single();
-
-      if (profileError) throw profileError;
-
-      // Fetch user addresses
-      const { data: addresses, error: addressesError } = await supabase
-        .from("addresses")
-        .select("*")
-        .eq("user_id", userId)
-        .order("is_default", { ascending: false });
-
-      if (addressesError) throw addressesError;
-
-      // Fetch user orders
-      const { data: orders, error: ordersError } = await supabase
-        .from("orders")
-        .select(
-          `
-          order_id,
-          order_number,
-          total_amount,
-          order_status,
-          created_at
-        `,
-        )
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (ordersError) throw ordersError;
-
-      // Calculate stats
-      const totalOrders = orders?.length || 0;
-      const totalSpent =
-        orders?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0;
-      const completedOrders =
-        orders?.filter((o) => o.order_status === "delivered").length || 0;
-
-      setSelectedUserDetails({
-        id: userId,
-        name: profile.full_name || "Unnamed User",
-        email: profile.email || "",
-        role: profile.role as UserRole,
-        banned: profile.banned || false,
-        createdAt: profile.created_at,
-        mobile_number: profile.mobile_number,
-        avatar_url: profile.avatar_url,
-        addresses: addresses || [],
-        orders: orders || [],
-        stats: {
-          totalOrders,
-          totalSpent,
-          completedOrders,
-        },
-      });
-    } catch (error: any) {
-      console.error("Error fetching user details:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load user details",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
-
-  const handleViewDetails = async (user: UserWithBan) => {
+  const handleViewDetails = (user: UserWithBan) => {
     setSelectedUser(user);
-    await fetchUserDetails(user.id);
+    setSelectedUserId(user.id);
     setDetailsDialogOpen(true);
   };
 
   const handleBanUser = async () => {
     if (!selectedUser) return;
 
-    setIsUpdating(true);
     try {
-      const newBanStatus = !selectedUser.banned;
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ banned: newBanStatus })
-        .eq("user_id", selectedUser.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setUsers(
-        users.map((u) =>
-          u.id === selectedUser.id ? { ...u, banned: newBanStatus } : u,
-        ),
-      );
+      await banUserMutation.mutateAsync({
+        userId: selectedUser.id,
+        banned: !selectedUser.banned,
+      });
 
       toast({
-        title: newBanStatus ? "User Banned" : "User Unbanned",
-        description: `${selectedUser.name} has been ${newBanStatus ? "banned" : "unbanned"} successfully.`,
+        title: selectedUser.banned ? "User Unbanned" : "User Banned",
+        description: `${selectedUser.name} has been ${selectedUser.banned ? "unbanned" : "banned"} successfully.`,
       });
 
       setBanDialogOpen(false);
@@ -259,8 +97,6 @@ const UserManagement = () => {
         description: error.message || "Failed to update user status",
         variant: "destructive",
       });
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -294,10 +130,22 @@ const UserManagement = () => {
     return colors[status] || "bg-muted text-muted-foreground border-border";
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6 bg-card rounded-xl border border-border shadow-card">
+          <p className="text-center text-destructive">
+            Failed to load users. Please try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -819,9 +667,9 @@ const UserManagement = () => {
             <Button
               variant={selectedUser?.banned ? "default" : "destructive"}
               onClick={handleBanUser}
-              disabled={isUpdating}
+              disabled={banUserMutation.isPending}
             >
-              {isUpdating ? (
+              {banUserMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Updating...

@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
-import type { Order } from "@/types";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
 import {
   Search,
   ShoppingCart,
@@ -35,6 +32,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrders, useOrderDetails } from "@/hooks/useOrders";
 
 const statusConfig: Record<
   string,
@@ -44,7 +42,6 @@ const statusConfig: Record<
     className: string;
   }
 > = {
-  // Original statuses
   pending: {
     label: "Pending",
     icon: Clock,
@@ -65,8 +62,6 @@ const statusConfig: Record<
     icon: XCircle,
     className: "bg-destructive/10 text-destructive border-destructive/20",
   },
-
-  // Additional statuses from your database
   preparing: {
     label: "Preparing",
     icon: Package,
@@ -97,7 +92,6 @@ const statusConfig: Record<
     icon: AlertCircle,
     className: "bg-orange-100 text-orange-700 border-orange-200",
   },
-
   paid: {
     label: "Paid",
     icon: CheckCircle,
@@ -113,8 +107,6 @@ const statusConfig: Record<
     icon: Clock,
     className: "bg-warning/10 text-warning border-warning/20",
   },
-
-  // Fallback for unknown statuses
   unknown: {
     label: "Unknown",
     icon: AlertCircle,
@@ -127,241 +119,21 @@ const getStatusConfig = (status: string) => {
   return statusConfig[status?.toLowerCase()] || statusConfig.unknown;
 };
 
-// Extended order interface for view details
-interface OrderDetails {
-  id: string;
-  orderNumber: string;
-  buyerName: string;
-  vendorName: string;
-  status: string; // Change to string to handle any status
-  total: number;
-  items: number;
-  date: string;
-  // Additional details
-  buyerEmail?: string;
-  buyerMobile?: string;
-  buyerAddress?: string;
-  vendorEmail?: string;
-  vendorMobile?: string;
-  vendorAddress?: string;
-  orderItems?: OrderItem[];
-}
-
-interface OrderItem {
-  id: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-}
-
 const OrderMonitoring = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<OrderDetails | null>(null);
-  const { toast } = useToast();
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
-  // Fetch orders
-  const fetchOrders = async () => {
-    try {
-      setLoading(true);
+  // Use React Query hooks
+  const { data: orders = [], isLoading, error } = useOrders();
 
-      // Get orders
-      const { data: ordersData, error: ordersError } = await supabase
-        .from("orders")
-        .select(
-          `
-          order_id,
-          order_number,
-          user_id,
-          vendor_user_id,
-          total_amount,
-          order_status,
-          created_at
-        `,
-        )
-        .order("created_at", { ascending: false });
+  const { data: selectedOrder, isLoading: loadingDetails } =
+    useOrderDetails(selectedOrderId);
 
-      if (ordersError) throw ordersError;
-
-      if (!ordersData || ordersData.length === 0) {
-        setOrders([]);
-        setLoading(false);
-        return;
-      }
-
-      // Get buyer and vendor IDs
-      const buyerIds = ordersData.map((o) => o.user_id).filter(Boolean);
-      const vendorIds = ordersData.map((o) => o.vendor_user_id).filter(Boolean);
-
-      // Fetch buyer profiles
-      const { data: buyersData } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .in("user_id", buyerIds);
-
-      const buyerMap = new Map();
-      buyersData?.forEach((b) => buyerMap.set(b.user_id, b.full_name));
-
-      // Fetch vendor profiles
-      const { data: vendorsData } = await supabase
-        .from("vendor_profiles")
-        .select("user_id, shop_name")
-        .in("user_id", vendorIds);
-
-      const vendorMap = new Map();
-      vendorsData?.forEach((v) => vendorMap.set(v.user_id, v.shop_name));
-
-      // Get item counts for each order
-      const orderIds = ordersData.map((o) => o.order_id);
-      const { data: itemsData } = await supabase
-        .from("order_items")
-        .select("order_id")
-        .in("order_id", orderIds);
-
-      const itemCountMap = new Map();
-      itemsData?.forEach((item) => {
-        itemCountMap.set(
-          item.order_id,
-          (itemCountMap.get(item.order_id) || 0) + 1,
-        );
-      });
-
-      const mappedOrders: Order[] = ordersData.map((order: any) => ({
-        id: order.order_id,
-        orderNumber: order.order_number || `ORD-${order.order_id.slice(0, 8)}`,
-        buyerName: buyerMap.get(order.user_id) || "Unknown",
-        vendorName: vendorMap.get(order.vendor_user_id) || "Unknown",
-        status: order.order_status || "pending",
-        total: Number(order.total_amount || 0),
-        items: itemCountMap.get(order.order_id) || 0,
-        date: order.created_at
-          ? new Date(order.created_at).toLocaleString()
-          : "",
-      }));
-
-      setOrders(mappedOrders);
-    } catch (error: any) {
-      console.error("Error fetching orders:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load orders",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchOrders();
-  }, []);
-
-  const handleViewOrder = async (order: Order) => {
-    try {
-      // Fetch full order details
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select(
-          `
-          order_id,
-          order_number,
-          user_id,
-          vendor_user_id,
-          total_amount,
-          order_status,
-          created_at,
-          address_id
-        `,
-        )
-        .eq("order_id", order.id)
-        .single();
-
-      if (orderError) throw orderError;
-
-      // Fetch buyer details
-      const { data: buyerData } = await supabase
-        .from("profiles")
-        .select("full_name, email, mobile_number")
-        .eq("user_id", orderData.user_id)
-        .single();
-
-      // Fetch vendor details
-      const { data: vendorProfile } = await supabase
-        .from("vendor_profiles")
-        .select("shop_name, gcash_number, gcash_name, user_id")
-        .eq("user_id", orderData.vendor_user_id)
-        .single();
-
-      // Fetch vendor email from profiles
-      const { data: vendorUserData } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("user_id", orderData.vendor_user_id)
-        .single();
-
-      // Fetch address
-      const { data: addressData } = await supabase
-        .from("addresses")
-        .select("full_address")
-        .eq("address_id", orderData.address_id)
-        .single();
-
-      // Fetch order items
-      const { data: itemsData } = await supabase
-        .from("order_items")
-        .select(
-          `
-          order_item_id,
-          quantity,
-          unit_price,
-          subtotal,
-          products (
-            product_name
-          )
-        `,
-        )
-        .eq("order_id", order.id);
-
-      const orderItems: OrderItem[] = (itemsData || []).map((item: any) => ({
-        id: item.order_item_id,
-        productName: item.products?.product_name || "Unknown Product",
-        quantity: item.quantity || 0,
-        unitPrice: Number(item.unit_price || 0),
-        subtotal: Number(item.subtotal || 0),
-      }));
-
-      const orderDetails: OrderDetails = {
-        id: order.id,
-        orderNumber: order.orderNumber,
-        buyerName: order.buyerName,
-        vendorName: order.vendorName,
-        status: order.status,
-        total: order.total,
-        items: order.items,
-        date: order.date,
-        buyerEmail: buyerData?.email,
-        buyerMobile: buyerData?.mobile_number,
-        buyerAddress: addressData?.full_address,
-        vendorEmail: vendorUserData?.email,
-        vendorMobile: vendorProfile?.gcash_number,
-        vendorAddress: vendorProfile?.gcash_name,
-        orderItems: orderItems,
-      };
-
-      setSelectedOrder(orderDetails);
-      setViewDialogOpen(true);
-    } catch (error) {
-      console.error("Error fetching order details:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load order details",
-        variant: "destructive",
-      });
-    }
+  const handleViewOrder = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setViewDialogOpen(true);
   };
 
   const filteredOrders = orders.filter((order) => {
@@ -382,10 +154,22 @@ const OrderMonitoring = () => {
     cancelled: orders.filter((o) => o.status === "cancelled").length,
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6 bg-card rounded-xl border border-border shadow-card">
+          <p className="text-center text-destructive">
+            Failed to load orders. Please try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -515,7 +299,6 @@ const OrderMonitoring = () => {
             </thead>
             <tbody className="divide-y divide-border">
               {filteredOrders.map((order) => {
-                // Use the safe getter function
                 const status = getStatusConfig(order.status);
                 const StatusIcon = status.icon;
 
@@ -562,7 +345,7 @@ const OrderMonitoring = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleViewOrder(order)}
+                        onClick={() => handleViewOrder(order.id)}
                       >
                         <Eye className="w-4 h-4" />
                       </Button>
@@ -585,9 +368,9 @@ const OrderMonitoring = () => {
 
       {/* View Order Details Modal */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] md:max-w-[700px] bg-white p-0 gap-0">
+        <DialogContent className="sm:max-w-150 md:max-w-175 bg-white p-0 gap-0">
           {/* Header */}
-          <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
+          <div className="bg-linear-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-gray-900">
                 <ShoppingCart className="w-5 h-5 text-primary" />
@@ -613,7 +396,11 @@ const OrderMonitoring = () => {
           </div>
 
           {/* Content */}
-          {selectedOrder && (
+          {loadingDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : selectedOrder ? (
             <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Order Info */}
               <div className="bg-primary/5 p-3 rounded-lg">
@@ -743,7 +530,7 @@ const OrderMonitoring = () => {
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Footer */}
           <DialogFooter className="px-6 py-3 bg-gray-50 border-t rounded-b-lg">

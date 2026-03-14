@@ -11,10 +11,7 @@ type AuthContextType = {
   login: (
     email: string,
     password: string,
-  ) => Promise<{
-    success: boolean;
-    error?: string;
-  }>;
+  ) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<{ success: boolean; error?: string }>;
 };
 
@@ -24,8 +21,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const isHandlingAuthRef = useRef(false);
-  const isInitializingRef = useRef(true); // 👈 NEW: tracks if init is still running
+
+  const isInitializingRef = useRef(true);
+  const isLoggingOutRef = useRef(false);
+  const listenerLockRef = useRef(false);
 
   const loadRole = async (userId: string) => {
     const { data, error } = await supabase
@@ -49,17 +48,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!mounted) return;
 
         if (data.session?.user) {
-          const user = data.session.user;
-          const roleValue = await loadRole(user.id);
+          const sessionUser = data.session.user;
+          const roleValue = await loadRole(sessionUser.id);
           if (!mounted) return;
 
           if (roleValue !== "admin" && roleValue !== "viewer") {
-            console.warn("Unauthorized role for web app:", roleValue);
+            console.warn("Unauthorized role:", roleValue);
             await supabase.auth.signOut();
             setUser(null);
             setRole(null);
           } else {
-            setUser(user);
+            setUser(sessionUser);
             setRole(roleValue);
           }
         }
@@ -67,43 +66,53 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         console.error("Auth initialization error:", error);
       } finally {
         if (mounted) {
-          isInitializingRef.current = false; // 👈 Mark init as done
-          setIsLoading(false);
+          isInitializingRef.current = false;
+          setIsLoading(false); // ← only set false here, NEVER set true again after this
         }
       }
     };
 
     initializeAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
+    const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // 👇 Skip listener entirely while initializeAuth is still running
         if (isInitializingRef.current) return;
-        if (isHandlingAuthRef.current) return;
+        if (isLoggingOutRef.current) return;
+        if (listenerLockRef.current) return;
 
-        isHandlingAuthRef.current = true;
+        // TOKEN_REFRESHED: just update the user object, don't re-fetch role
+        // The role hasn't changed — avoid a DB round-trip that causes loading flicker
+        if (event === "TOKEN_REFRESHED") {
+          if (session?.user) {
+            setUser(session.user); // update user with fresh token data
+          }
+          return; // ← exit early, no DB call, no loading state change
+        }
 
+        if (event === "SIGNED_OUT") {
+          setUser(null);
+          setRole(null);
+          return;
+        }
+
+        // Only lock for events that need a DB call (SIGNED_IN, USER_UPDATED, etc.)
+        listenerLockRef.current = true;
         try {
           console.log("Auth state changed:", event, session?.user?.email);
 
-          if (event === "SIGNED_OUT") {
-            setUser(null);
-            setRole(null);
-            setIsLoading(false);
-            return;
-          }
-
           if (session?.user) {
-            const user = session.user;
-            const roleValue = await loadRole(user.id);
+            const sessionUser = session.user;
+            const roleValue = await loadRole(sessionUser.id);
+
+            if (!mounted) return;
 
             if (roleValue !== "admin" && roleValue !== "viewer") {
-              console.warn("Unauthorized role for web app:", roleValue);
+              console.warn("Unauthorized role:", roleValue);
               await supabase.auth.signOut();
               setUser(null);
               setRole(null);
             } else {
-              setUser(user);
+              setUser(sessionUser);
               setRole(roleValue);
             }
           } else {
@@ -113,19 +122,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (error) {
           console.error("Auth state change error:", error);
         } finally {
-          isHandlingAuthRef.current = false;
-          setIsLoading(false);
+          listenerLockRef.current = false;
+          // NOTE: never set isLoading here — init already completed
         }
       },
     );
 
     return () => {
       mounted = false;
-      try {
-        listener?.subscription?.unsubscribe();
-      } catch (err) {
-        // ignore
-      }
+      authListener?.subscription?.unsubscribe();
     };
   }, []);
 
@@ -136,41 +141,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         password,
       });
 
-      if (error) {
-        return { success: false, error: error.message };
-      }
+      if (error) return { success: false, error: error.message };
 
-      const user = data?.user;
-      if (!user) {
+      const sessionUser = data?.user;
+      if (!sessionUser) {
         return {
           success: false,
           error: "Could not retrieve user after login.",
         };
       }
 
-      const roleValue = await loadRole(user.id);
+      const roleValue = await loadRole(sessionUser.id);
       if (roleValue !== "admin" && roleValue !== "viewer") {
         await supabase.auth.signOut();
         return {
           success: false,
-          error:
-            "Access denied: only admin or viewer can sign in on the web app.",
+          error: "Access denied: only admin or viewer can sign in.",
         };
       }
 
-      setUser(user);
+      setUser(sessionUser);
       setRole(roleValue);
       return { success: true };
     } catch (err: any) {
-      console.error("Login error:", err);
       return { success: false, error: err?.message || "Login failed" };
     }
   };
 
   const logout = async () => {
     try {
-      isHandlingAuthRef.current = true;
+      isLoggingOutRef.current = true; // block listener BEFORE signOut fires events
       const { error } = await supabase.auth.signOut();
+
       setUser(null);
       setRole(null);
 
@@ -181,12 +183,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       return { success: true };
     } catch (err: any) {
-      console.error("Logout failed:", err);
       setUser(null);
       setRole(null);
       return { success: false, error: err?.message || String(err) };
     } finally {
-      isHandlingAuthRef.current = false;
+      isLoggingOutRef.current = false;
     }
   };
 

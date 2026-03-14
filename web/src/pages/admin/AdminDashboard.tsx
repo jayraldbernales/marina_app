@@ -9,14 +9,13 @@ import {
   ShoppingCart,
   CheckCircle,
   UserCheck,
-  Bike, // Changed from Eye to Bike for riders
+  Bike,
 } from "lucide-react";
 
 const AdminDashboard = () => {
-  const { stats, weeklyData, recentOrders, topVendors, loading } =
-    useAdminDashboard();
+  const { data, isLoading, error } = useAdminDashboard();
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6 animate-slide-in">
         <div className="p-6">
@@ -28,7 +27,7 @@ const AdminDashboard = () => {
     );
   }
 
-  if (!stats) {
+  if (error || !data?.stats) {
     return (
       <div className="space-y-6 animate-slide-in">
         <div className="p-6 bg-card rounded-xl border border-border shadow-card">
@@ -40,6 +39,7 @@ const AdminDashboard = () => {
     );
   }
 
+  const { stats, weeklyData, recentOrders, topVendors } = data;
   const s = stats;
 
   return (
@@ -49,49 +49,37 @@ const AdminDashboard = () => {
         <StatCard
           title="Total Users"
           value={s.totalUsers}
-          change="+12% from last month"
-          changeType="positive"
           icon={Users}
           iconColor="bg-primary"
         />
         <StatCard
           title="Total Vendors"
           value={s.totalVendors}
-          change="+8% from last month"
-          changeType="positive"
           icon={Store}
           iconColor="bg-ocean-medium"
         />
         <StatCard
           title="Total Orders"
           value={s.totalOrders}
-          change="+23% from last month"
-          changeType="positive"
           icon={ShoppingCart}
           iconColor="bg-aqua-bright"
         />
         <StatCard
           title="Completed"
           value={s.completedTransactions}
-          change="84% completion rate"
-          changeType="neutral"
           icon={CheckCircle}
           iconColor="bg-success"
         />
         <StatCard
           title="Buyers"
           value={s.buyerCount}
-          change="+15% growth"
-          changeType="positive"
           icon={UserCheck}
           iconColor="bg-coral"
         />
         <StatCard
           title="Riders"
           value={s.riderCount}
-          change="Active delivery partners"
-          changeType="neutral"
-          icon={Bike} // Changed from Eye to Bike
+          icon={Bike}
           iconColor="bg-warning"
         />
       </div>
