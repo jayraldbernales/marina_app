@@ -1295,14 +1295,6 @@ const OrdersScreen = () => {
                     Contact Vendor
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={orderStyles.primaryButton}
-                  onPress={() => handleRateOrder(order)}
-                >
-                  <Text style={orderStyles.primaryButtonText}>
-                    Rate & Review
-                  </Text>
-                </TouchableOpacity>
               </>
             )}
             {(order.status === "cancelled" || order.status === "rejected") && (

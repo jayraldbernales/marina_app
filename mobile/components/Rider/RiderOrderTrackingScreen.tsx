@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -8,13 +8,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Linking,
   Image,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from "react-native-maps";
-import { COLORS } from "../constants";
+import { COLORS } from "../../constants";
 import { supabase } from "@/lib/supabase";
 
 type OrderStatus =
@@ -32,6 +32,12 @@ type OrderItem = {
   price: number;
   quantity: number;
   vendor: string;
+};
+
+type CustomerInfo = {
+  name: string;
+  phone?: string | null;
+  avatar?: string | null;
 };
 
 type RiderInfo = {
@@ -54,6 +60,7 @@ const OrderTrackingScreen = () => {
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<any>(null);
+  const [customer, setCustomer] = useState<CustomerInfo | null>(null);
   const [rider, setRider] = useState<RiderInfo | null>(null);
   const [orderStatuses, setOrderStatuses] = useState<
     Array<{
@@ -90,25 +97,35 @@ const OrderTrackingScreen = () => {
   const [refreshingLocation, setRefreshingLocation] = useState(false);
   const [mapReady, setMapReady] = useState(false);
 
+  // Cache timeout ref for route fetching
+  const routeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+
   useEffect(() => {
     if (orderId) {
       fetchOrderDetails();
     }
+    return () => {
+      if (routeTimeoutRef.current) {
+        clearTimeout(routeTimeoutRef.current);
+      }
+    };
   }, [orderId]);
 
-  // Fetch route when rider location changes
+  // Debounced route fetch
   useEffect(() => {
     if (riderLocation && deliveryLocation) {
-      fetchRoadRoute();
+      if (routeTimeoutRef.current) {
+        clearTimeout(routeTimeoutRef.current);
+      }
+      routeTimeoutRef.current = setTimeout(() => {
+        fetchRoadRoute();
+      }, 500);
     }
   }, [riderLocation, deliveryLocation]);
 
   useEffect(() => {
-    if (!riderLocation) {
-      return;
-    }
+    if (!riderLocation) return;
 
-    // allow one render pass while the custom marker view loads
     setRiderMarkerTracksViewChanges(true);
     const timeout = setTimeout(() => {
       setRiderMarkerTracksViewChanges(false);
@@ -117,75 +134,19 @@ const OrderTrackingScreen = () => {
     return () => clearTimeout(timeout);
   }, [riderLocation]);
 
-  const fetchRiderInfo = async (
-    riderUserId: string,
-  ): Promise<RiderInfo | null> => {
-    try {
-      // Get rider profile with vehicle type
-      const { data: riderProfile, error: riderError } = await supabase
-        .from("rider_profiles")
-        .select("vehicle_type, license_plate, current_lat, current_lng")
-        .eq("user_id", riderUserId)
-        .maybeSingle();
-
-      if (riderError) {
-        console.error("Error fetching rider profile:", riderError);
-        return null;
-      }
-
-      // Get user profile with name and avatar
-      const { data: userProfile, error: userError } = await supabase
-        .from("profiles")
-        .select("full_name, avatar_url, mobile_number")
-        .eq("user_id", riderUserId)
-        .maybeSingle();
-
-      if (userError || !userProfile) {
-        console.error("Error fetching user profile:", userError);
-        return null;
-      }
-
-      // Set rider location if available
-      if (riderProfile?.current_lat && riderProfile?.current_lng) {
-        const newRiderLocation = {
-          latitude: parseFloat(riderProfile.current_lat as any) || 0,
-          longitude: parseFloat(riderProfile.current_lng as any) || 0,
-        };
-
-        setRiderLocation((prev) => {
-          if (
-            prev?.latitude === newRiderLocation.latitude &&
-            prev?.longitude === newRiderLocation.longitude
-          ) {
-            return prev; // avoid redundant updates to prevent marker flicker
-          }
-          return newRiderLocation;
-        });
-      }
-
-      return {
-        id: riderUserId,
-        name: userProfile.full_name || "Rider",
-        avatar: userProfile.avatar_url,
-        vehicle: riderProfile?.vehicle_type,
-        plateNumber: riderProfile?.license_plate,
-        phone: userProfile.mobile_number,
-      };
-    } catch (error) {
-      console.error("Error in fetchRiderInfo:", error);
-      return null;
-    }
-  };
-
+  // Optimized: Fetch all data in parallel
   const fetchOrderDetails = async () => {
     try {
       setLoading(true);
 
-      // Fetch order details with address including coordinates
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select(
-          `
+      // Run multiple queries in parallel
+      const [orderResult, itemsResult, deliveryResult] =
+        await Promise.allSettled([
+          // Fetch order details with address
+          supabase
+            .from("orders")
+            .select(
+              `
           *,
           addresses!inner(
             full_address,
@@ -193,31 +154,15 @@ const OrderTrackingScreen = () => {
             longitude
           )
         `,
-        )
-        .eq("order_id", orderId)
-        .single();
+            )
+            .eq("order_id", orderId)
+            .single(),
 
-      if (orderError) {
-        console.error("Order fetch error:", orderError);
-        throw orderError;
-      }
-      setOrder(orderData);
-
-      // Set delivery location from address
-      if (orderData.addresses?.latitude && orderData.addresses?.longitude) {
-        setDeliveryLocation({
-          latitude: parseFloat(orderData.addresses.latitude),
-          longitude: parseFloat(orderData.addresses.longitude),
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
-      }
-
-      // Fetch order items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("order_items")
-        .select(
-          `
+          // Fetch order items
+          supabase
+            .from("order_items")
+            .select(
+              `
           *,
           products!inner(
             product_name,
@@ -227,42 +172,81 @@ const OrderTrackingScreen = () => {
             )
           )
         `,
-        )
-        .eq("order_id", orderId);
+            )
+            .eq("order_id", orderId),
 
-      if (itemsError) {
-        console.error("Items fetch error:", itemsError);
-        throw itemsError;
+          // Fetch delivery info
+          supabase
+            .from("deliveries")
+            .select("rider_user_id, pickup_time, delivered_time")
+            .eq("order_id", orderId)
+            .maybeSingle(),
+        ]);
+
+      // Process order data
+      if (orderResult.status === "fulfilled" && !orderResult.value.error) {
+        const orderData = orderResult.value.data;
+        setOrder(orderData);
+
+        // Set delivery location
+        if (orderData.addresses?.latitude && orderData.addresses?.longitude) {
+          setDeliveryLocation({
+            latitude: parseFloat(orderData.addresses.latitude),
+            longitude: parseFloat(orderData.addresses.longitude),
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
+
+        // Fetch customer info separately
+        if (orderData.user_id) {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("full_name, mobile_number, avatar_url")
+            .eq("user_id", orderData.user_id)
+            .single();
+
+          if (profileData) {
+            setCustomer({
+              name: profileData.full_name || "Customer",
+              phone: profileData.mobile_number,
+              avatar: profileData.avatar_url,
+            });
+          }
+        }
+
+        // Process items
+        if (itemsResult.status === "fulfilled" && !itemsResult.value.error) {
+          const itemsData = itemsResult.value.data;
+          const formattedItems = itemsData.map((item: any) => ({
+            id: item.order_item_id,
+            name: item.products.product_name,
+            price: item.unit_price,
+            quantity: item.quantity,
+            vendor: item.products.vendor_profiles.shop_name,
+          }));
+          setOrderItems(formattedItems);
+        }
+
+        // Process delivery and fetch rider info
+        if (
+          deliveryResult.status === "fulfilled" &&
+          deliveryResult.value.data?.rider_user_id
+        ) {
+          const deliveryData = deliveryResult.value.data;
+
+          // Fetch rider info in parallel with status timeline
+          const riderInfo = await fetchRiderInfo(deliveryData.rider_user_id);
+          setRider(riderInfo);
+
+          // Build status timeline
+          buildStatusTimeline(orderData.order_status, deliveryData);
+        } else {
+          buildStatusTimeline(orderData.order_status, null);
+        }
+      } else {
+        throw new Error("Failed to fetch order");
       }
-
-      const formattedItems = itemsData.map((item: any) => ({
-        id: item.order_item_id,
-        name: item.products.product_name,
-        price: item.unit_price,
-        quantity: item.quantity,
-        vendor: item.products.vendor_profiles.shop_name,
-      }));
-      setOrderItems(formattedItems);
-
-      // REMOVED: Vendor location fetching code
-
-      // Fetch delivery to get rider_user_id
-      const { data: deliveryData, error: deliveryError } = await supabase
-        .from("deliveries")
-        .select("rider_user_id, pickup_time, delivered_time")
-        .eq("order_id", orderId)
-        .maybeSingle();
-
-      if (deliveryError) {
-        console.error("Delivery fetch error:", deliveryError);
-      } else if (deliveryData?.rider_user_id) {
-        // Fetch rider info using the rider_user_id
-        const riderInfo = await fetchRiderInfo(deliveryData.rider_user_id);
-        setRider(riderInfo);
-      }
-
-      // Build status timeline
-      buildStatusTimeline(orderData.order_status, deliveryData);
     } catch (error) {
       console.error("Error in fetchOrderDetails:", error);
       Alert.alert("Error", "Failed to load order details");
@@ -270,91 +254,131 @@ const OrderTrackingScreen = () => {
       setLoading(false);
     }
   };
+  const fetchRiderInfo = async (
+    riderUserId: string,
+  ): Promise<RiderInfo | null> => {
+    try {
+      // Fetch rider profile and user profile in parallel
+      const [riderProfileResult, userProfileResult] = await Promise.allSettled([
+        supabase
+          .from("rider_profiles")
+          .select("vehicle_type, license_plate, current_lat, current_lng")
+          .eq("user_id", riderUserId)
+          .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("full_name, avatar_url, mobile_number")
+          .eq("user_id", riderUserId)
+          .maybeSingle(),
+      ]);
 
-  // New function to fetch road route from RoutePH
+      let riderProfile = null;
+      let userProfile = null;
+
+      if (
+        riderProfileResult.status === "fulfilled" &&
+        !riderProfileResult.value.error
+      ) {
+        riderProfile = riderProfileResult.value.data;
+      }
+
+      if (
+        userProfileResult.status === "fulfilled" &&
+        !userProfileResult.value.error
+      ) {
+        userProfile = userProfileResult.value.data;
+      }
+
+      if (riderProfile?.current_lat && riderProfile?.current_lng) {
+        setRiderLocation({
+          latitude: parseFloat(riderProfile.current_lat as any) || 0,
+          longitude: parseFloat(riderProfile.current_lng as any) || 0,
+        });
+      }
+
+      return {
+        id: riderUserId,
+        name: userProfile?.full_name || "Rider",
+        avatar: userProfile?.avatar_url,
+        vehicle: riderProfile?.vehicle_type,
+        plateNumber: riderProfile?.license_plate,
+        phone: userProfile?.mobile_number,
+      };
+    } catch (error) {
+      console.error("Error in fetchRiderInfo:", error);
+      return null;
+    }
+  };
+
+  // Optimized route fetching with timeout
   const fetchRoadRoute = async () => {
     if (!riderLocation || !deliveryLocation) return;
 
     setCalculatingRoute(true);
+
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     try {
-      // RoutePH API endpoint for driving route
       const response = await fetch(
         `https://routeph.com/api/osrm/v1/driving/${riderLocation.longitude},${riderLocation.latitude};${deliveryLocation.longitude},${deliveryLocation.latitude}?overview=full&geometries=geojson`,
         {
           method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
         },
       );
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
-      // Check if the response is successful and contains routes
-      if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+      if (data.code === "Ok" && data.routes?.length > 0) {
         const route = data.routes[0];
-
-        // Extract coordinates from GeoJSON
-        if (route.geometry && route.geometry.coordinates) {
-          // Convert [lng, lat] to {latitude, longitude}
+        if (route.geometry?.coordinates) {
           const coords = route.geometry.coordinates.map((coord: number[]) => ({
             latitude: coord[1],
             longitude: coord[0],
           }));
 
           setRouteCoordinates(coords);
-
-          // Distance in meters, convert to km
-          const distanceKm = route.distance / 1000;
-          setRouteDistance(parseFloat(distanceKm.toFixed(1)));
-
-          // Duration in seconds, convert to minutes
-          const durationMin = Math.round(route.duration / 60);
-          setRouteDuration(durationMin);
+          setRouteDistance(parseFloat((route.distance / 1000).toFixed(1)));
+          setRouteDuration(Math.round(route.duration / 60));
         }
       } else {
-        console.log("Route not found, using fallback calculation");
-        // Fallback to straight line if no route found
-        setRouteCoordinates([]);
-
-        // Calculate approximate straight-line distance
-        const straightDistance = calculateApproximateDistance(
-          riderLocation.latitude,
-          riderLocation.longitude,
-          deliveryLocation.latitude,
-          deliveryLocation.longitude,
-        );
-        setRouteDistance(straightDistance);
-        setRouteDuration(Math.round(straightDistance * 12)); // Rough estimate: 12 min per km
+        // Fast fallback calculation
+        calculateStraightLineRoute();
       }
     } catch (error) {
-      console.error("RoutePH error:", error);
-
-      // Fallback: calculate approximate straight-line distance
-      if (riderLocation && deliveryLocation) {
-        const distanceKm = calculateApproximateDistance(
-          riderLocation.latitude,
-          riderLocation.longitude,
-          deliveryLocation.latitude,
-          deliveryLocation.longitude,
-        );
-        setRouteDistance(distanceKm);
-        setRouteDuration(Math.round(distanceKm * 12));
-        setRouteCoordinates([]);
-      }
+      clearTimeout(timeoutId);
+      console.error("Route fetch error:", error);
+      calculateStraightLineRoute();
     } finally {
       setCalculatingRoute(false);
     }
   };
 
-  // Helper function to calculate approximate straight-line distance
+  const calculateStraightLineRoute = () => {
+    if (!riderLocation || !deliveryLocation) return;
+
+    const distanceKm = calculateApproximateDistance(
+      riderLocation.latitude,
+      riderLocation.longitude,
+      deliveryLocation.latitude,
+      deliveryLocation.longitude,
+    );
+    setRouteDistance(distanceKm);
+    setRouteDuration(Math.round(distanceKm * 12));
+    setRouteCoordinates([]);
+  };
+
   const calculateApproximateDistance = (
     lat1: number,
     lon1: number,
     lat2: number,
     lon2: number,
   ): number => {
-    const R = 6371; // Earth's radius in km
+    const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
@@ -379,25 +403,11 @@ const OrderTrackingScreen = () => {
         .maybeSingle();
 
       if (riderProfile?.current_lat && riderProfile?.current_lng) {
-        const newRiderLocation = {
+        setRiderLocation({
           latitude: parseFloat(riderProfile.current_lat as any) || 0,
           longitude: parseFloat(riderProfile.current_lng as any) || 0,
-        };
-
-        setRiderLocation((prev) => {
-          if (
-            prev?.latitude === newRiderLocation.latitude &&
-            prev?.longitude === newRiderLocation.longitude
-          ) {
-            return prev;
-          }
-          return newRiderLocation;
         });
-
-        // Route will automatically refetch due to the useEffect
         Alert.alert("Success", "Rider location updated");
-      } else {
-        Alert.alert("Info", "Rider location not available");
       }
     } catch (error) {
       console.error("Error refreshing rider location:", error);
@@ -412,69 +422,53 @@ const OrderTrackingScreen = () => {
       ? new Date(order.created_at)
       : new Date();
 
-    const statuses: Array<{
-      title: string;
-      subtitle: string;
-      time: string;
-      icon: keyof typeof Ionicons.glyphMap;
-      completed: boolean;
-    }> = [];
-
-    // Order Confirmed - always completed
-    statuses.push({
-      title: "Order Confirmed",
-      subtitle: "Your order has been confirmed",
-      time: formatTime(createdTime),
-      icon: "checkmark-circle",
-      completed: true,
-    });
-
-    // Preparing - completed if status is past pending
-    const preparingCompleted = !["pending", "cancelled", "rejected"].includes(
-      orderStatus,
-    );
-    statuses.push({
-      title: "Preparing Order",
-      subtitle: "Vendor is preparing your items",
-      time:
-        preparingCompleted && deliveryData?.pickup_time
-          ? formatTime(new Date(deliveryData.pickup_time))
-          : preparingCompleted
-            ? "Completed"
-            : "In progress",
-      icon: "restaurant",
-      completed: preparingCompleted,
-    });
-
-    // Out for Delivery - completed if status is shipped or delivered
-    const shippedCompleted = ["shipped", "delivered"].includes(orderStatus);
-    statuses.push({
-      title: "Out for Delivery",
-      subtitle: "Rider is on the way to your location",
-      time:
-        shippedCompleted && deliveryData?.pickup_time
-          ? formatTime(new Date(deliveryData.pickup_time))
-          : shippedCompleted
-            ? "In transit"
-            : "Pending",
-      icon: "car",
-      completed: shippedCompleted,
-    });
-
-    // Delivered - completed only if status is delivered
-    const deliveredCompleted = orderStatus === "delivered";
-    statuses.push({
-      title: "Delivered",
-      subtitle: "Order delivered successfully",
-      time:
-        deliveredCompleted && deliveryData?.delivered_time
-          ? formatTime(new Date(deliveryData.delivered_time))
-          : deliveredCompleted
-            ? "Completed"
-            : "Pending",
-      icon: "home",
-      completed: deliveredCompleted,
-    });
+    const statuses = [
+      {
+        title: "Order Confirmed",
+        subtitle: "Your order has been confirmed",
+        time: formatTime(createdTime),
+        icon: "checkmark-circle" as const,
+        completed: true,
+      },
+      {
+        title: "Preparing Order",
+        subtitle: "Vendor is preparing your items",
+        time:
+          !["pending", "cancelled", "rejected"].includes(orderStatus) &&
+          deliveryData?.pickup_time
+            ? formatTime(new Date(deliveryData.pickup_time))
+            : !["pending", "cancelled", "rejected"].includes(orderStatus)
+              ? "Completed"
+              : "In progress",
+        icon: "restaurant" as const,
+        completed: !["pending", "cancelled", "rejected"].includes(orderStatus),
+      },
+      {
+        title: "Out for Delivery",
+        subtitle: "Rider is on the way to your location",
+        time:
+          ["shipped", "delivered"].includes(orderStatus) &&
+          deliveryData?.pickup_time
+            ? formatTime(new Date(deliveryData.pickup_time))
+            : ["shipped", "delivered"].includes(orderStatus)
+              ? "In transit"
+              : "Pending",
+        icon: "car" as const,
+        completed: ["shipped", "delivered"].includes(orderStatus),
+      },
+      {
+        title: "Delivered",
+        subtitle: "Order delivered successfully",
+        time:
+          orderStatus === "delivered" && deliveryData?.delivered_time
+            ? formatTime(new Date(deliveryData.delivered_time))
+            : orderStatus === "delivered"
+              ? "Completed"
+              : "Pending",
+        icon: "home" as const,
+        completed: orderStatus === "delivered",
+      },
+    ];
 
     setOrderStatuses(statuses);
   };
@@ -490,43 +484,29 @@ const OrderTrackingScreen = () => {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
+    return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
   };
 
-  const handleCallRider = () => {
-    if (rider?.phone) {
-      Linking.openURL(`tel:${rider.phone}`);
-    } else {
-      Alert.alert("Error", "Rider phone number not available");
-    }
-  };
-
-  const handleViewRiderProfile = () => {
-    if (rider?.id) {
-      router.push({
-        pathname: "../buyer/view-rider",
-        params: { rider_user_id: rider.id },
-      });
-    }
-  };
-
   const getInitialRegion = () => {
-    if (deliveryLocation) {
-      return deliveryLocation;
-    }
-
-    // Default to a central location in the Philippines if no delivery location
+    if (deliveryLocation) return deliveryLocation;
     return {
       latitude: 14.5995,
       longitude: 120.9842,
       latitudeDelta: 0.0922,
       longitudeDelta: 0.0421,
     };
+  };
+
+  const makePhoneCall = (phoneNumber: string) => {
+    if (phoneNumber && phoneNumber !== "No phone") {
+      Linking.openURL(`tel:${phoneNumber}`);
+    } else {
+      Alert.alert("Error", "No phone number available");
+    }
   };
 
   if (loading) {
@@ -551,11 +531,9 @@ const OrderTrackingScreen = () => {
             <View style={{ width: 40 }} />
           </View>
         </View>
-        <View
-          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
-        >
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.light.primary} />
-          <Text style={{ marginTop: 12 }}>Loading order details...</Text>
+          <Text style={styles.loadingText}>Loading order details...</Text>
         </View>
       </SafeAreaView>
     );
@@ -589,111 +567,55 @@ const OrderTrackingScreen = () => {
         contentContainerStyle={{ paddingBottom: 20 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Order Status Section */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Order Status</Text>
-          <View style={styles.statusContainer}>
-            {orderStatuses.map((status, index) => (
-              <View key={index} style={styles.statusItem}>
-                <View style={styles.statusIconContainer}>
-                  <View
-                    style={[
-                      styles.statusIcon,
-                      status.completed
-                        ? styles.statusIconCompleted
-                        : styles.statusIconPending,
-                    ]}
-                  >
-                    <Ionicons
-                      name={status.icon}
-                      size={20}
-                      color={status.completed ? "#fff" : COLORS.light.primary}
-                    />
-                  </View>
-                  {index < orderStatuses.length - 1 && (
-                    <View
-                      style={[
-                        styles.statusLine,
-                        status.completed && styles.statusLineCompleted,
-                      ]}
-                    />
-                  )}
-                </View>
-                <View style={styles.statusContent}>
-                  <View style={styles.statusTextContainer}>
-                    <Text style={styles.statusTitle}>{status.title}</Text>
-                    <Text style={styles.statusTime}>{status.time}</Text>
-                  </View>
-                  <Text style={styles.statusSubtitle}>{status.subtitle}</Text>
-                </View>
-                {status.completed && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={24}
-                    color="green"
-                    style={styles.checkmark}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Delivery Rider Section - Only show if rider assigned */}
-        {rider && (
-          <TouchableOpacity
-            style={styles.sectionCard}
-            onPress={handleViewRiderProfile}
-            activeOpacity={0.7}
-          >
+        {/* Customer Section - NEW */}
+        {customer && (
+          <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Delivery Rider</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={COLORS.light.primary}
-              />
+              <View style={styles.addressHeader}>
+                <Ionicons
+                  name="person"
+                  size={20}
+                  color={COLORS.light.primary}
+                />
+                <Text style={styles.addressTitle}>Customer Details</Text>
+              </View>
             </View>
-            <View style={styles.riderCard}>
-              <View style={styles.riderInfo}>
-                {rider.avatar ? (
+
+            <View style={styles.customerContainer}>
+              <View style={styles.customerInfo}>
+                {customer.avatar ? (
                   <Image
-                    source={{ uri: rider.avatar }}
-                    style={styles.riderAvatarImage}
+                    source={{ uri: customer.avatar }}
+                    style={styles.customerAvatar}
                   />
                 ) : (
-                  <View style={styles.riderAvatarPlaceholder}>
-                    <Text style={styles.riderAvatarText}>
-                      {rider.name.charAt(0)}
+                  <View style={styles.customerAvatarPlaceholder}>
+                    <Text style={styles.customerAvatarText}>
+                      {customer.name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
                 )}
-                <View style={styles.riderDetails}>
-                  <Text style={styles.riderName}>{rider.name}</Text>
-                  {rider.vehicle && (
-                    <Text style={styles.riderVehicle}>{rider.vehicle}</Text>
-                  )}
-                  {rider.plateNumber && (
-                    <Text style={styles.riderPlate}>
-                      Plate: {rider.plateNumber}
-                    </Text>
+                <View style={styles.customerDetails}>
+                  <Text style={styles.customerName}>{customer.name}</Text>
+                  {customer.phone && customer.phone !== "No phone" && (
+                    <Text style={styles.customerPhone}>{customer.phone}</Text>
                   )}
                 </View>
               </View>
-              {rider.phone && (
-                <TouchableOpacity
-                  style={styles.callButton}
-                  onPress={handleCallRider}
-                >
-                  <Ionicons
-                    name="call"
-                    size={24}
-                    color={COLORS.light.primary}
-                  />
-                </TouchableOpacity>
+
+              {/* Customer Action Buttons */}
+              {customer.phone && customer.phone !== "No phone" && (
+                <View style={styles.customerActionButtons}>
+                  <TouchableOpacity
+                    style={styles.customerCallButton}
+                    onPress={() => makePhoneCall(customer.phone!)}
+                  >
+                    <Ionicons name="call" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
-          </TouchableOpacity>
+          </View>
         )}
 
         {/* Delivery Address Section */}
@@ -733,22 +655,18 @@ const OrderTrackingScreen = () => {
               onMapReady={() => setMapReady(true)}
             >
               {/* Delivery location marker */}
-              {deliveryLocation && (
-                <Marker
-                  coordinate={{
-                    latitude: deliveryLocation.latitude,
-                    longitude: deliveryLocation.longitude,
-                  }}
-                  title="Delivery Location"
-                  description={order?.addresses?.full_address}
-                >
-                  <View style={styles.markerDelivery}>
-                    <Ionicons name="home" size={14} color="#fff" />
-                  </View>
-                </Marker>
-              )}
-
-              {/* REMOVED: Vendor location marker */}
+              <Marker
+                coordinate={{
+                  latitude: deliveryLocation.latitude,
+                  longitude: deliveryLocation.longitude,
+                }}
+                title="Delivery Location"
+                description={order?.addresses?.full_address}
+              >
+                <View style={styles.markerDelivery}>
+                  <Ionicons name="home" size={14} color="#fff" />
+                </View>
+              </Marker>
 
               {/* Rider location marker */}
               {riderLocation && (
@@ -764,7 +682,7 @@ const OrderTrackingScreen = () => {
                 </Marker>
               )}
 
-              {/* Road path between rider and delivery location */}
+              {/* Road path */}
               {routeCoordinates.length > 0 && mapReady && (
                 <Polyline
                   coordinates={routeCoordinates}
@@ -776,7 +694,7 @@ const OrderTrackingScreen = () => {
               )}
             </MapView>
 
-            {/* Refresh location button */}
+            {/* Refresh button */}
             {rider && (
               <TouchableOpacity
                 style={styles.refreshLocationButton}
@@ -798,7 +716,8 @@ const OrderTrackingScreen = () => {
               </TouchableOpacity>
             )}
 
-            {/* Route info indicator */}
+            {/* Route info */}
+            {/* Route info */}
             {riderLocation && deliveryLocation && (
               <View style={styles.routeInfoContainer}>
                 {calculatingRoute ? (
@@ -924,16 +843,16 @@ const OrderTrackingScreen = () => {
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity
+            style={styles.trackButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.trackButtonText}>Back</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.supportButton}
             onPress={() => router.push("/support&help")}
           >
             <Text style={styles.supportButtonText}>Contact Support</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.trackButton}
-            onPress={() => router.push("/(tabs)/orders")}
-          >
-            <Text style={styles.trackButtonText}>Back to Orders</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -975,6 +894,16 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     color: "#7fffd4",
     fontSize: 14,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#666",
   },
   mapContainer: {
     height: 250,
@@ -1316,7 +1245,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#fff",
-  }, // Add these styles to your existing StyleSheet
+  },
+  // New customer styles
+  customerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  customerInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  customerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  customerAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  customerAvatarText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  customerDetails: {
+    flex: 1,
+  },
+  customerName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.light.primary,
+    marginBottom: 2,
+  },
+  customerPhone: {
+    fontSize: 13,
+    color: "#666",
+  },
+  customerActionButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  customerCallButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.light.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   arrivedText: {
     color: "#10b981",
     fontWeight: "600",

@@ -8,7 +8,9 @@ import { useUserStore } from "../store/userStore";
 import { COLORS } from "../constants";
 import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NotificationProvider } from "../contexts/NotificationContext"; // ADD THIS
+import { NotificationProvider } from "../contexts/NotificationContext";
+import { CartProvider } from "../contexts/CartContext";
+import { VendorOrderProvider } from "../contexts/VendorOrderContext";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -162,29 +164,36 @@ export default function Layout() {
 
       {/* WRAP YOUR STACK WITH NOTIFICATION PROVIDER */}
       <NotificationProvider>
-        <View style={{ flex: 1 }}>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="login" />
-            <Stack.Screen name="signup" />
-            <Stack.Screen name="terms" options={{ headerShown: true }} />
-            <Stack.Screen name="privacy" options={{ headerShown: true }} />
+        <CartProvider>
+          <VendorOrderProvider>
+            <View style={{ flex: 1 }}>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="index" />
+                <Stack.Screen name="login" />
+                <Stack.Screen name="signup" />
+                <Stack.Screen name="terms" options={{ headerShown: true }} />
+                <Stack.Screen name="privacy" options={{ headerShown: true }} />
 
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="(seller-tabs)" />
-            <Stack.Screen name="(rider-tabs)" />
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="(seller-tabs)" />
+                <Stack.Screen name="(rider-tabs)" />
 
-            <Stack.Screen
-              name="registration"
-              options={{ headerShown: false }}
-            />
+                <Stack.Screen
+                  name="registration"
+                  options={{ headerShown: false }}
+                />
 
-            <Stack.Screen name="forgot-password" />
-            <Stack.Screen name="reset-password" />
+                <Stack.Screen name="forgot-password" />
+                <Stack.Screen name="reset-password" />
 
-            <Stack.Screen name="+not-found" options={{ headerShown: false }} />
-          </Stack>
-        </View>
+                <Stack.Screen
+                  name="+not-found"
+                  options={{ headerShown: false }}
+                />
+              </Stack>
+            </View>
+          </VendorOrderProvider>
+        </CartProvider>
       </NotificationProvider>
     </>
   );

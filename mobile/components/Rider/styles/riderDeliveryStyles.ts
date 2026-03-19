@@ -1011,5 +1011,58 @@ export const RiderDeliveryStyles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
+  }, // ─── Track Order Button Styles ───────────────────────────────────────────
+  trackOrderButton: {
+    width: "100%",
+    height: 180,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 16,
+    backgroundColor: COLORS.light.primary + "10",
+  },
+  trackOrderImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: COLORS.light.primary,
+  },
+  trackLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginVertical: 8,
+    paddingHorizontal: 2,
+  }, // Add these to your RiderDeliveryStyles
+  proofRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  proofRowLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  viewProofButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  viewProofButtonText: {
+    fontSize: 14,
+    color: COLORS.light.primary,
+    fontWeight: "500",
+  },
+  modalPaymentCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
   },
 });

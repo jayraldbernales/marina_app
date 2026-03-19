@@ -24,6 +24,7 @@ import { chatService } from "@/lib/chat";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { dispatchService } from "@/services/dispatchService";
+import { useVendorOrderContext } from "@/contexts/VendorOrderContext";
 
 type OrderStatus =
   | "pending"
@@ -619,6 +620,7 @@ const SellerOrders = () => {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const { refreshPendingOrders } = useVendorOrderContext();
 
   // NEW: Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -1173,7 +1175,7 @@ const SellerOrders = () => {
             : order,
         ),
       );
-
+      refreshPendingOrders();
       Alert.alert(
         "Success",
         "Order has been rejected and stock has been restored",
@@ -1226,7 +1228,7 @@ const SellerOrders = () => {
           order.id === orderId ? { ...order, status: newStatus } : order,
         ),
       );
-
+      refreshPendingOrders();
       if (newStatus === "preparing") {
         dispatchService
           .handleOrderAcceptance(orderId, user?.id!)
@@ -1325,7 +1327,7 @@ const SellerOrders = () => {
                   prev ? { ...prev, status: "cancelled" as OrderStatus } : null,
                 );
               }
-
+              refreshPendingOrders();
               Alert.alert(
                 "Success",
                 "Order has been cancelled and stock restored",

@@ -26,6 +26,7 @@ import { cartScreenStyles } from "../components/styles/cartScreenStyles";
 import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useCartContext } from "@/contexts/CartContext";
 import { COLORS } from "@/constants";
 
 type RootStackParamList = {
@@ -66,6 +67,7 @@ const CartScreen = () => {
   const [hasHomeAddress, setHasHomeAddress] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const updatingItems = useRef<Set<string>>(new Set());
 
   // Delivery fee state
   const [deliveryFees, setDeliveryFees] = useState<Record<string, VendorFee>>(
@@ -82,6 +84,7 @@ const CartScreen = () => {
 
   const navigation = useNavigation<NavigationProp>();
   const user = useUserStore((state) => state.user);
+  const { refreshCartCount, updateCartCount } = useCartContext();
 
   // Calculate approximate distance (fallback)
   const calculateApproximateDistance = (
@@ -126,7 +129,6 @@ const CartScreen = () => {
         const distanceKm = data.routes[0].distance / 1000;
         let fee = distanceKm * 15;
         fee = Math.max(15, Math.min(fee, 300));
-
         return {
           fee: Math.round(fee),
           distance: parseFloat(distanceKm.toFixed(2)),
@@ -135,7 +137,6 @@ const CartScreen = () => {
       return null;
     } catch (error) {
       console.error(`RoutePH error for vendor ${vendorUserId}:`, error);
-
       const distanceKm = calculateApproximateDistance(
         vendorLat,
         vendorLng,
@@ -144,7 +145,6 @@ const CartScreen = () => {
       );
       let fee = distanceKm * 15;
       fee = Math.max(15, Math.min(fee, 300));
-
       return {
         fee: Math.round(fee),
         distance: parseFloat(distanceKm.toFixed(2)),
@@ -166,9 +166,7 @@ const CartScreen = () => {
   };
 
   const calculateSelectedVendorFees = useCallback(async () => {
-    // Guard against running if already calculating
     if (calculatingFees) return;
-
     if (!buyerAddressCoords || selectedItems.length === 0) return;
 
     setCalculatingFees(true);
@@ -192,7 +190,6 @@ const CartScreen = () => {
             buyerAddressCoords.latitude,
             buyerAddressCoords.longitude,
           );
-
           if (result) {
             newFees[vendorUserId] = result;
           } else {
@@ -219,10 +216,6 @@ const CartScreen = () => {
       .join(",");
     const hasValidData = selectedItems.length > 0 && buyerAddressCoords;
 
-    // Only calculate if:
-    // 1. We have valid data AND
-    // 2. We haven't calculated for this exact selection AND
-    // 3. We're not already calculating
     if (
       hasValidData &&
       calculatedForSelection.current !== selectedIds &&
@@ -231,7 +224,6 @@ const CartScreen = () => {
       calculatedForSelection.current = selectedIds;
       calculateSelectedVendorFees();
     } else if (!hasValidData && Object.keys(deliveryFees).length > 0) {
-      // Clear fees if no items selected
       setDeliveryFees({});
       calculatedForSelection.current = "";
     }
@@ -440,12 +432,22 @@ const CartScreen = () => {
 
       setDeleting("bulk");
 
+      // Optimistically subtract count immediately
+      const totalQuantityRemoved = selectedItems.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      );
+      updateCartCount(-totalQuantityRemoved);
+
       const { error } = await supabase
         .from("carts")
         .delete()
         .in("cart_id", selectedCartIds);
 
-      if (error) throw error;
+      if (error) {
+        refreshCartCount(); // revert to real count on error
+        throw error;
+      }
 
       setCartItems(cartItems.filter((item) => !item.selected));
     } catch (error: any) {
@@ -457,10 +459,12 @@ const CartScreen = () => {
 
   const updateQuantity = async (cartItemId: string, newQuantity: number) => {
     try {
-      if (newQuantity < 0) return;
+      if (newQuantity <= 0) return;
 
       const item = cartItems.find((i) => i.cartItemId === cartItemId);
-      if (item && newQuantity > item.stock) {
+      if (!item) return;
+
+      if (newQuantity > item.stock) {
         Alert.alert(
           "Insufficient Stock",
           `Only ${item.stock} ${item.unit} available.`,
@@ -468,25 +472,42 @@ const CartScreen = () => {
         return;
       }
 
+      // Prevent spam: if this item is already being updated, ignore
+      if (updatingItems.current.has(cartItemId)) return;
+      updatingItems.current.add(cartItemId);
+
+      // Optimistically adjust count immediately
+      const delta = newQuantity - item.quantity;
+      updateCartCount(delta);
+
+      // Optimistically update UI immediately
+      setCartItems((prev) =>
+        prev.map((i) =>
+          i.cartItemId === cartItemId ? { ...i, quantity: newQuantity } : i,
+        ),
+      );
+
       const { error } = await supabase
         .from("cart_items")
         .update({ quantity: newQuantity })
         .eq("cart_item_id", cartItemId);
 
-      if (error) throw error;
-
-      setCartItems(
-        cartItems.map((item) =>
-          item.cartItemId === cartItemId
-            ? { ...item, quantity: newQuantity }
-            : item,
-        ),
-      );
+      if (error) {
+        refreshCartCount();
+        // Revert UI on error
+        setCartItems((prev) =>
+          prev.map((i) =>
+            i.cartItemId === cartItemId ? { ...i, quantity: item.quantity } : i,
+          ),
+        );
+        throw error;
+      }
     } catch (error: any) {
       Alert.alert("Error", `Failed to update quantity: ${error.message}`);
+    } finally {
+      updatingItems.current.delete(cartItemId);
     }
   };
-
   const handleCheckoutPreview = () => {
     if (selectedItems.length === 0) {
       Alert.alert(
@@ -526,6 +547,14 @@ const CartScreen = () => {
 
   const handleConfirmOrder = async () => {
     setShowPreview(false);
+
+    // Optimistically clear count for checked out items immediately
+    const totalQuantityCheckedOut = selectedItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
+    updateCartCount(-totalQuantityCheckedOut);
+
     try {
       const { data: addressData, error: addressError } = await supabase
         .from("addresses")
@@ -536,6 +565,7 @@ const CartScreen = () => {
 
       if (addressError) throw addressError;
       if (!addressData) {
+        refreshCartCount(); // revert on error
         Alert.alert(
           "Error",
           "No default address found. Please set a default address.",
@@ -583,18 +613,20 @@ const CartScreen = () => {
 
         const orderResults = await Promise.all(orderPromises);
         const orderNumbers = orderResults.map((r) => r.orderNumber);
-        const totalDeliveryFee = orderResults.reduce(
+        const totalDeliveryFeeResult = orderResults.reduce(
           (sum, result) => sum + result.vendorDeliveryFee,
           0,
         );
-        const finalTotal = subtotal + totalDeliveryFee;
+        const finalTotal = subtotal + totalDeliveryFeeResult;
 
         await fetchCartItems();
+
         const cartIdsToDelete = [
           ...new Set(selectedItems.map((item) => item.cartId)),
         ];
         if (cartIdsToDelete.length > 0) {
           await supabase.from("carts").delete().in("cart_id", cartIdsToDelete);
+          refreshCartCount(); // sync to real count after order
         }
 
         Alert.alert(
@@ -662,6 +694,7 @@ const CartScreen = () => {
       }
     } catch (error: any) {
       console.error("Checkout error:", error);
+      refreshCartCount(); // revert on any error
       Alert.alert("Error", `Failed to process checkout: ${error.message}`);
     }
   };
@@ -998,6 +1031,7 @@ const CartScreen = () => {
             {selectedItems.length}/{cartItems.length} selected
           </Text>
         </View>
+
         <ScrollView style={{ padding: 12, marginBottom: 80, paddingTop: 10 }}>
           <View
             style={{
@@ -1352,7 +1386,7 @@ const CartItemComponent = ({
         <MaterialCommunityIcons
           name={item.selected ? "checkbox-marked" : "checkbox-blank-outline"}
           size={24}
-          color={item.selected ? COLORS.light.primary : COLORS.light.primary}
+          color={COLORS.light.primary}
         />
       </TouchableOpacity>
       {item.image ? (
@@ -1379,18 +1413,9 @@ const CartItemComponent = ({
         <Text style={cartScreenStyles.cartVendor}>{item.vendor}</Text>
         {renderPrice(item)}
       </View>
-      <View
-        style={{
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
+      <View style={{ alignItems: "center", justifyContent: "center" }}>
         <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginTop: 8,
-          }}
+          style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}
         >
           <TouchableOpacity
             onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}

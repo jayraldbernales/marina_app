@@ -21,10 +21,7 @@ import BuyerDashboardSkeleton from "../components/skeleton/BuyerDashboardSkeleto
 import { supabase } from "../lib/supabase";
 import { computeFreshness, FreshnessStatus } from "../utils/freshness";
 import { RealtimeChannel } from "@supabase/supabase-js";
-import {
-  fetchMultipleProductRatings,
-  clearProductRatingCache,
-} from "../utils/productRatings";
+import { fetchMultipleProductRatings } from "../utils/productRatings";
 
 // -------------------- TYPES --------------------
 

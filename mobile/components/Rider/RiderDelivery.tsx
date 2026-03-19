@@ -358,7 +358,7 @@ const ReceiptModal = ({
   );
 };
 
-// Delivery Details Modal Component (View-Only) - UPDATED with avatar support
+// Delivery Details Modal Component (View-Only) - UPDATED with proof photos as buttons
 const DeliveryDetailsModal = ({
   visible,
   onClose,
@@ -379,6 +379,16 @@ const DeliveryDetailsModal = ({
   };
 
   const openProofImage = (url: string) => Linking.openURL(url);
+
+  const handleTrackOrder = () => {
+    router.push({
+      pathname: "/rider/rider-order-tracking",
+      params: {
+        orderId: delivery.order_id,
+        orderNumber: delivery.order_number,
+      },
+    });
+  };
 
   // Handle chat with vendor
   const handleChatWithVendor = async () => {
@@ -452,7 +462,7 @@ const DeliveryDetailsModal = ({
           otherPartyName: delivery.vendor_name,
           otherPartyId: vendorProfile.user_id,
           otherPartyType: "vendor",
-          otherPartyAvatar: vendorProfile?.avatar_url || "", // 👈 Added vendor avatar
+          otherPartyAvatar: vendorProfile?.avatar_url || "",
         },
       });
     } catch (error) {
@@ -540,7 +550,7 @@ const DeliveryDetailsModal = ({
           otherPartyName: delivery.customer_name,
           otherPartyId: order.user_id,
           otherPartyType: "buyer",
-          otherPartyAvatar: customerProfile?.avatar_url || "", // 👈 Added customer avatar
+          otherPartyAvatar: customerProfile?.avatar_url || "",
         },
       });
     } catch (error) {
@@ -549,7 +559,7 @@ const DeliveryDetailsModal = ({
     }
   };
 
-  // ─── Updated Contact Card without buttons in header ─────────────────────
+  // ─── Contact Card component ─────────────────────
   const ContactCard = ({
     role,
     name,
@@ -564,7 +574,6 @@ const DeliveryDetailsModal = ({
     isVendor?: boolean;
   }) => (
     <View style={S.modalContactCard}>
-      {/* Avatar + name only - no buttons here */}
       <View style={S.modalContactTopRow}>
         <View
           style={[S.modalContactAvatar, isVendor && S.modalContactAvatarVendor]}
@@ -583,7 +592,6 @@ const DeliveryDetailsModal = ({
 
       <View style={S.modalContactDivider} />
 
-      {/* Phone */}
       {phone && phone !== "No phone" && (
         <View style={S.modalContactPhoneRow}>
           <Ionicons
@@ -596,7 +604,6 @@ const DeliveryDetailsModal = ({
         </View>
       )}
 
-      {/* Address */}
       {address && (
         <View style={S.modalContactAddressRow}>
           <Ionicons
@@ -653,7 +660,7 @@ const DeliveryDetailsModal = ({
                 address={delivery.delivery_address}
               />
 
-              {/* Customer Action Buttons - Below Address */}
+              {/* Customer Action Buttons */}
               {delivery.customer_phone &&
                 delivery.customer_phone !== "No phone" && (
                   <View style={S.modalActionButtonsContainer}>
@@ -700,7 +707,7 @@ const DeliveryDetailsModal = ({
                 isVendor
               />
 
-              {/* Vendor Action Buttons - Below Address */}
+              {/* Vendor Action Buttons */}
               {delivery.vendor_phone &&
                 delivery.vendor_phone !== "No phone" && (
                   <View style={S.modalActionButtonsContainer}>
@@ -736,74 +743,73 @@ const DeliveryDetailsModal = ({
                 )}
             </View>
 
-            {/* ── Proof Photos ── */}
+            {/* Track Order Button - Only show if status is picked_up (in transit) */}
+            {delivery.status === "picked_up" && (
+              <View style={[S.modalSection, { marginTop: 0 }]}>
+                <Text style={S.trackLabel}>Track Location</Text>
+                <TouchableOpacity
+                  style={S.trackOrderButton}
+                  onPress={handleTrackOrder}
+                >
+                  <Image
+                    source={require("../../assets/img/ridermap.png")}
+                    style={S.trackOrderImage}
+                    resizeMode="cover"
+                  />
+                  <View style={S.proofOverlay}>
+                    <Ionicons name="expand-outline" size={22} color="#fff" />
+                    <Text style={S.proofOverlayText}>Tap to view</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+            {/* ── Proof Photos — View buttons only (UPDATED) ── */}
             {(delivery.pickup_proof_url || delivery.delivered_proof_url) && (
-              <View style={S.proofSection}>
-                <Text style={S.proofLabel}>Proof Photos</Text>
-
-                {delivery.pickup_proof_url && (
-                  <>
-                    <Text
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Delivery Proof</Text>
+                <View style={S.modalPaymentCard}>
+                  {delivery.pickup_proof_url && (
+                    <View
                       style={[
-                        S.modalSectionTitle,
-                        { marginBottom: 6, fontSize: 12 },
+                        S.proofRow,
+                        { marginBottom: delivery.delivered_proof_url ? 10 : 0 },
                       ]}
                     >
-                      Pickup
-                    </Text>
-                    <TouchableOpacity
-                      style={S.proofImageContainer}
-                      onPress={() => openProofImage(delivery.pickup_proof_url!)}
-                    >
-                      <Image
-                        source={{ uri: delivery.pickup_proof_url }}
-                        style={S.proofImage}
-                        resizeMode="cover"
-                      />
-                      <View style={S.proofOverlay}>
+                      <Text style={S.proofRowLabel}>Pickup Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() =>
+                          openProofImage(delivery.pickup_proof_url!)
+                        }
+                      >
                         <Ionicons
-                          name="expand-outline"
-                          size={22}
-                          color="#fff"
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
                         />
-                        <Text style={S.proofOverlayText}>Tap to view</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                {delivery.delivered_proof_url && (
-                  <>
-                    <Text
-                      style={[
-                        S.modalSectionTitle,
-                        { marginBottom: 6, fontSize: 12 },
-                      ]}
-                    >
-                      Delivery
-                    </Text>
-                    <TouchableOpacity
-                      style={S.proofImageContainer}
-                      onPress={() =>
-                        openProofImage(delivery.delivered_proof_url!)
-                      }
-                    >
-                      <Image
-                        source={{ uri: delivery.delivered_proof_url }}
-                        style={S.proofImage}
-                        resizeMode="cover"
-                      />
-                      <View style={S.proofOverlay}>
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {delivery.delivered_proof_url && (
+                    <View style={S.proofRow}>
+                      <Text style={S.proofRowLabel}>Delivery Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() =>
+                          openProofImage(delivery.delivered_proof_url!)
+                        }
+                      >
                         <Ionicons
-                          name="expand-outline"
-                          size={22}
-                          color="#fff"
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
                         />
-                        <Text style={S.proofOverlayText}>Tap to view</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </>
-                )}
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               </View>
             )}
 

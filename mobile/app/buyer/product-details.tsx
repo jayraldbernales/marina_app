@@ -26,6 +26,7 @@ import { formatHoursAgo } from "../../utils/time";
 import LoadingSpinner from "../../components/Loading";
 import { chatService } from "../../lib/chat";
 import { fetchProductRating } from "../../utils/productRatings";
+import { useCartContext } from "@/contexts/CartContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -106,6 +107,7 @@ export default function BuyerProductDetail() {
   const [originalPrice, setOriginalPrice] = useState(0);
   const [discountedPrice, setDiscountedPrice] = useState(0);
   const [discountPercent, setDiscountPercent] = useState(0);
+  const { updateCartCount } = useCartContext();
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
@@ -371,6 +373,9 @@ export default function BuyerProductDetail() {
           ? `${selectedQuantity} item(s) added to pre-order!`
           : `${selectedQuantity} item(s) added to cart!`,
       );
+
+      updateCartCount(selectedQuantity);
+
       // Reset quantity after successful add
       setSelectedQuantity(1);
     } catch (err) {
