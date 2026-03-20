@@ -28,6 +28,7 @@ import {
 } from "@/services/deliveryService";
 import { locationService } from "@/services/locationService";
 import { dispatchService } from "@/services/dispatchService";
+import { useRiderDeliveryContext } from "@/contexts/RiderDeliveryContext";
 import * as ImagePicker from "expo-image-picker";
 
 // Map database status to UI tabs
@@ -898,6 +899,7 @@ const RiderDelivery = () => {
   }>({ delivery: null, reason: "" });
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const { refreshPendingDeliveries } = useRiderDeliveryContext();
 
   // Use a ref to track if location tracking has been initialized
   const locationInitialized = useRef(false);
@@ -1058,6 +1060,7 @@ const RiderDelivery = () => {
         true,
       );
       Alert.alert("Success", "You have accepted this delivery!");
+      refreshPendingDeliveries();
       loadDeliveries();
     } catch (error: any) {
       console.error("Error accepting delivery:", error);
@@ -1087,6 +1090,7 @@ const RiderDelivery = () => {
 
               await deliveryService.respondToOffer(deliveryId, riderId, false);
               Alert.alert("Success", "Delivery rejected");
+              refreshPendingDeliveries();
               loadDeliveries();
             } catch (error) {
               console.error("Error rejecting delivery:", error);

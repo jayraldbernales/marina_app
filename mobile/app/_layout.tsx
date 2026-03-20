@@ -11,6 +11,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NotificationProvider } from "../contexts/NotificationContext";
 import { CartProvider } from "../contexts/CartContext";
 import { VendorOrderProvider } from "../contexts/VendorOrderContext";
+import { RiderDeliveryProvider } from "../contexts/RiderDeliveryContext";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -107,13 +108,11 @@ export default function Layout() {
     };
   }, []);
 
-  // Handle navigation based on auth state and welcome flag
   useEffect(() => {
     if (!isReady || !(segments.length > 0)) return;
 
     const currentSegment = segments[0] as string;
     const authScreens = [
-      "index",
       "login",
       "signup",
       "forgot-password",
@@ -123,23 +122,18 @@ export default function Layout() {
     ];
     const isAuthScreen = authScreens.includes(currentSegment);
 
-    // If not logged in and not on an auth screen, redirect to login
-    // But allow index only if welcome hasn't been seen
-    if (!user && !isAuthScreen) {
+    // If welcome already seen and user lands on index, skip it
+    if (currentSegment === "index" && hasSeenWelcome) {
       router.replace("/login");
-    } else if (!user && currentSegment === "index" && hasSeenWelcome) {
-      // Skip index if welcome has been seen
+      return;
+    }
+
+    if (!user && !isAuthScreen && currentSegment !== "index") {
       router.replace("/login");
-    } else if (
-      user &&
-      isAuthScreen &&
-      currentSegment !== "index" &&
-      currentSegment !== "reset-password"
-    ) {
+    } else if (user && isAuthScreen && currentSegment !== "reset-password") {
       router.replace("/(tabs)");
     }
   }, [user, isReady, segments, hasSeenWelcome]);
-
   // Show loading screen during auth initialization
   if (isLoading) {
     return (
@@ -166,32 +160,37 @@ export default function Layout() {
       <NotificationProvider>
         <CartProvider>
           <VendorOrderProvider>
-            <View style={{ flex: 1 }}>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="login" />
-                <Stack.Screen name="signup" />
-                <Stack.Screen name="terms" options={{ headerShown: true }} />
-                <Stack.Screen name="privacy" options={{ headerShown: true }} />
+            <RiderDeliveryProvider>
+              <View style={{ flex: 1 }}>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="login" />
+                  <Stack.Screen name="signup" />
+                  <Stack.Screen name="terms" options={{ headerShown: true }} />
+                  <Stack.Screen
+                    name="privacy"
+                    options={{ headerShown: true }}
+                  />
 
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="(seller-tabs)" />
-                <Stack.Screen name="(rider-tabs)" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="(seller-tabs)" />
+                  <Stack.Screen name="(rider-tabs)" />
 
-                <Stack.Screen
-                  name="registration"
-                  options={{ headerShown: false }}
-                />
+                  <Stack.Screen
+                    name="registration"
+                    options={{ headerShown: false }}
+                  />
 
-                <Stack.Screen name="forgot-password" />
-                <Stack.Screen name="reset-password" />
+                  <Stack.Screen name="forgot-password" />
+                  <Stack.Screen name="reset-password" />
 
-                <Stack.Screen
-                  name="+not-found"
-                  options={{ headerShown: false }}
-                />
-              </Stack>
-            </View>
+                  <Stack.Screen
+                    name="+not-found"
+                    options={{ headerShown: false }}
+                  />
+                </Stack>
+              </View>
+            </RiderDeliveryProvider>
           </VendorOrderProvider>
         </CartProvider>
       </NotificationProvider>

@@ -410,11 +410,11 @@ class DispatchService {
           console.error("Error in timeout handler:", error);
         }
       },
-      3 * 60 * 1000,
-    ); // 3 minutes
+      1 * 60 * 1000,
+    ); // 1 minute
 
     this.pendingTimeouts.set(deliveryId, timeout);
-    console.log(`⏰ Timeout set for delivery ${deliveryId} (3 minutes)`);
+    console.log(`⏰ Timeout set for delivery ${deliveryId} (1 minute)`);
   }
 
   // Clear timeout when rider responds
@@ -429,14 +429,14 @@ class DispatchService {
   // Check for stuck deliveries on startup
   async checkStuckDeliveries() {
     try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
       const { data: stuckDeliveries, error } = await supabase
         .from("deliveries")
         .select("delivery_id, rider_user_id")
         .eq("status", "pending")
         .not("rider_user_id", "is", null)
-        .lt("assigned_at", fiveMinutesAgo); // Older than 5 minutes
+        .lt("assigned_at", twoMinutesAgo); // Older than 5 minutes
 
       if (error) {
         console.error("Error checking stuck deliveries:", error);

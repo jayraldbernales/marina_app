@@ -193,7 +193,7 @@ const EditRiderProfile = () => {
           "address_id, full_address, purok, barangay, municipality, is_default, latitude, longitude",
         )
         .eq("user_id", userId)
-        .eq("address_type", "home")
+        .eq("address_type", "residential")
         .limit(1)
         .maybeSingle();
 
@@ -494,7 +494,7 @@ const EditRiderProfile = () => {
         purok: addressData.purok.trim(),
         barangay: addressData.barangay,
         municipality: addressData.municipality,
-        address_type: "home",
+        address_type: "residential",
         is_default: true,
         latitude: latitude,
         longitude: longitude,

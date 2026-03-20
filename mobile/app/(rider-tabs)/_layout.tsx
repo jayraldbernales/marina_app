@@ -10,10 +10,12 @@ import { HapticTab } from "@/components/HapticTab";
 import TabBarBackground from "@/components/ui/TabBarBackground";
 import { COLORS } from "@/constants/colors";
 import { useNotificationContext } from "@/contexts/NotificationContext";
-import CustomTabIcon from "@/components/CustomTabIcon"; // ADD THIS IMPORT
+import { useRiderDeliveryContext } from "@/contexts/RiderDeliveryContext";
+import CustomTabIcon from "@/components/CustomTabIcon";
 
 export default function TabLayout() {
-  const { riderUnreadCount, messageUnreadCount } = useNotificationContext(); // ADD messageUnreadCount
+  const { riderUnreadCount, messageUnreadCount } = useNotificationContext();
+  const { pendingDeliveryCount } = useRiderDeliveryContext();
 
   return (
     <Tabs
@@ -62,17 +64,47 @@ export default function TabLayout() {
         }}
       />
 
-      {/* DELIVERIES */}
       <Tabs.Screen
         name="deliveries"
         options={{
           title: "Deliveries",
           tabBarIcon: ({ focused, size, color }) => (
-            <MaterialCommunityIcons
-              name={focused ? "truck-delivery" : "truck-delivery-outline"}
-              size={size ?? 28}
-              color={color}
-            />
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <MaterialCommunityIcons
+                name={focused ? "truck-delivery" : "truck-delivery-outline"}
+                size={size ?? 28}
+                color={color}
+              />
+              {pendingDeliveryCount > 0 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -6,
+                    backgroundColor: "red",
+                    borderRadius: 10,
+                    minWidth: 16,
+                    height: 16,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Text
+                    style={{ color: "white", fontSize: 10, fontWeight: "bold" }}
+                  >
+                    {pendingDeliveryCount > 99 ? "99+" : pendingDeliveryCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />

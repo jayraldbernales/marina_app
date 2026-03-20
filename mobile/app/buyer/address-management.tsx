@@ -248,8 +248,8 @@ const AddressManagement = () => {
         municipality,
         address_type: addressType,
         is_default: isDefault,
-        latitude: useCurrentLocation ? latitude : null,
-        longitude: useCurrentLocation ? longitude : null,
+        latitude: latitude || null,
+        longitude: longitude || null,
       };
 
       let result;
@@ -650,59 +650,61 @@ const AddressManagement = () => {
                   }}
                   onMunicipalityChange={setMunicipality}
                   onCoordinatesChange={(lat, lng) => {
-                    if (!useCurrentLocation) {
-                      setLatitude(lat);
-                      setLongitude(lng);
-                    }
+                    setLatitude(lat);
+                    setLongitude(lng);
                   }}
                   initialLatitude={editingAddress?.latitude}
                   initialLongitude={editingAddress?.longitude}
                 />
               </View>
 
-              {/* Use Current Location Checkbox */}
-              <View style={styles.locationCheckboxContainer}>
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={handleLocationCheckboxToggle}
-                  disabled={saving}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.checkbox,
-                      useCurrentLocation && styles.checkboxChecked,
-                    ]}
+              {/* Use Current Location Checkbox - HIDE DURING EDIT */}
+              {!editingAddress && (
+                <View style={styles.locationCheckboxContainer}>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={handleLocationCheckboxToggle}
+                    disabled={saving}
+                    activeOpacity={0.7}
                   >
-                    {useCurrentLocation && (
-                      <Ionicons name="checkmark" size={16} color="#fff" />
-                    )}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Use current location</Text>
-                </TouchableOpacity>
-
-                <Text style={styles.locationHelperText}>
-                  When checked, your exact coordinates will be saved to help
-                  riders deliver more accurately
-                </Text>
-
-                {saving && useCurrentLocation && (
-                  <ActivityIndicator
-                    size="small"
-                    color={COLORS.light.primary}
-                    style={styles.locationLoader}
-                  />
-                )}
-
-                {useCurrentLocation && latitude && longitude && !saving && (
-                  <View style={styles.coordinatesPreview}>
-                    <Ionicons name="locate" size={14} color="#10b981" />
-                    <Text style={styles.coordinatesPreviewText}>
-                      Coordinates ready
+                    <View
+                      style={[
+                        styles.checkbox,
+                        useCurrentLocation && styles.checkboxChecked,
+                      ]}
+                    >
+                      {useCurrentLocation && (
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      )}
+                    </View>
+                    <Text style={styles.checkboxLabel}>
+                      Use current location
                     </Text>
-                  </View>
-                )}
-              </View>
+                  </TouchableOpacity>
+
+                  <Text style={styles.locationHelperText}>
+                    When checked, your exact coordinates will be saved to help
+                    riders deliver more accurately
+                  </Text>
+
+                  {saving && useCurrentLocation && (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.primary}
+                      style={styles.locationLoader}
+                    />
+                  )}
+
+                  {useCurrentLocation && latitude && longitude && !saving && (
+                    <View style={styles.coordinatesPreview}>
+                      <Ionicons name="locate" size={14} color="#10b981" />
+                      <Text style={styles.coordinatesPreviewText}>
+                        Coordinates ready
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* Set as Default Option */}
               <View style={styles.defaultContainer}>
