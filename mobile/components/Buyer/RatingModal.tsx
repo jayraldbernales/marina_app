@@ -19,10 +19,12 @@ import { useUserStore } from "@/store/userStore";
 // Types
 type OrderStatus =
   | "pending"
+  | "finding_rider"
   | "preparing"
   | "ready-to-ship"
   | "shipped"
   | "delivered"
+  | "failed"
   | "cancelled"
   | "rejected";
 
@@ -76,72 +78,100 @@ const RatingModal: React.FC<RatingModalProps> = ({
   order,
   onRatingSubmitted,
 }) => {
-  // Separate ratings for product, vendor, and rider - default to 5
-  const [productRating, setProductRating] = useState(5);
+  // Per-product ratings
+  const [productRatings, setProductRatings] = useState<Record<string, number>>(
+    {},
+  );
+  const [productComments, setProductComments] = useState<
+    Record<string, string>
+  >({});
+
+  // Vendor and rider ratings (still global since they're the same for all products)
   const [vendorRating, setVendorRating] = useState(5);
   const [riderRating, setRiderRating] = useState(5);
-  const [comment, setComment] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
-  const [existingReview, setExistingReview] = useState<any>(null);
+  const [existingReviews, setExistingReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const user = useUserStore((state) => state.user);
 
+  // Initialize ratings when order loads
+  useEffect(() => {
+    if (order) {
+      const initialRatings: Record<string, number> = {};
+      const initialComments: Record<string, string> = {};
+      order.items.forEach((item) => {
+        initialRatings[item.productId] = 5;
+        initialComments[item.productId] = "";
+      });
+      setProductRatings(initialRatings);
+      setProductComments(initialComments);
+    }
+  }, [order]);
+
   useEffect(() => {
     if (visible && order) {
-      checkExistingReview();
+      checkExistingReviews();
     }
   }, [visible, order]);
 
-  const checkExistingReview = async () => {
+  const checkExistingReviews = async () => {
     if (!order || !user?.id) return;
 
     setLoading(true);
     try {
+      // Check for existing reviews for this order
       const { data, error } = await supabase
         .from("reviews")
         .select("*")
         .eq("order_id", order.id)
-        .eq("user_id", user.id)
-        .maybeSingle();
+        .eq("user_id", user.id);
 
-      if (error && error.code !== "PGRST116") {
-        console.error("Error checking existing review:", error);
+      if (error) {
+        console.error("Error checking existing reviews:", error);
       }
 
-      if (data) {
-        setExistingReview(data);
-        setProductRating(data.product_rating);
-        setVendorRating(data.vendor_rating);
-        setRiderRating(data.rider_rating);
-        setComment(data.comment || "");
+      if (data && data.length > 0) {
+        setExistingReviews(data);
+
+        // Load existing ratings and comments
+        const ratings: Record<string, number> = {};
+        const comments: Record<string, string> = {};
+
+        data.forEach((review) => {
+          ratings[review.product_id] = review.product_rating;
+          comments[review.product_id] = review.comment || "";
+        });
+
+        setProductRatings(ratings);
+        setProductComments(comments);
+
+        // Set vendor and rider ratings from first review (they should be the same)
+        setVendorRating(data[0].vendor_rating || 5);
+        setRiderRating(data[0].rider_rating || 5);
       } else {
-        setExistingReview(null);
-        // Set defaults to 5 when no existing review
-        setProductRating(5);
+        setExistingReviews([]);
+        // Reset to defaults
+        const defaultRatings: Record<string, number> = {};
+        const defaultComments: Record<string, string> = {};
+        order.items.forEach((item) => {
+          defaultRatings[item.productId] = 5;
+          defaultComments[item.productId] = "";
+        });
+        setProductRatings(defaultRatings);
+        setProductComments(defaultComments);
         setVendorRating(5);
         setRiderRating(5);
-        setComment("");
       }
     } catch (error) {
-      console.error("Error checking existing review:", error);
+      console.error("Error checking existing reviews:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Reset to defaults when modal opens with new order
-  useEffect(() => {
-    if (visible && order && !existingReview) {
-      setProductRating(5);
-      setVendorRating(5);
-      setRiderRating(5);
-      setComment("");
-    }
-  }, [visible, order, existingReview]);
-
-  const handleSubmitRating = async () => {
+  const handleSubmitRatings = async () => {
     if (!order || !user?.id) return;
 
     setSubmitting(true);
@@ -154,7 +184,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
         return;
       }
 
-      // Get rider ID from deliveries table (if not already provided)
+      // Get rider ID from deliveries table
       let riderId = order.riderId;
       if (!riderId) {
         const { data: deliveryData, error: deliveryError } = await supabase
@@ -176,171 +206,156 @@ const RatingModal: React.FC<RatingModalProps> = ({
         return;
       }
 
-      const reviewData = {
+      // Create reviews for each product
+      const reviewsData = order.items.map((item) => ({
         order_id: order.id,
+        product_id: item.productId,
         user_id: user.id,
         vendor_user_id: vendorId,
         rider_user_id: riderId,
-        product_rating: productRating,
+        product_rating: productRatings[item.productId] || 5,
         vendor_rating: vendorRating,
         rider_rating: riderRating,
-        comment: comment.trim() || null,
-      };
+        comment: productComments[item.productId]?.trim() || null,
+      }));
 
-      let error;
-      if (existingReview) {
-        // Update existing review
-        const { error: updateError } = await supabase
+      // Delete existing reviews first (if any)
+      if (existingReviews.length > 0) {
+        const { error: deleteError } = await supabase
           .from("reviews")
-          .update(reviewData)
-          .eq("review_id", existingReview.review_id);
-        error = updateError;
-      } else {
-        // Insert new review
-        const { error: insertError } = await supabase
-          .from("reviews")
-          .insert([reviewData]);
-        error = insertError;
+          .delete()
+          .eq("order_id", order.id)
+          .eq("user_id", user.id);
+
+        if (deleteError) throw deleteError;
       }
 
-      if (error) throw error;
+      // Insert new reviews
+      const { error: insertError } = await supabase
+        .from("reviews")
+        .insert(reviewsData);
+
+      if (insertError) throw insertError;
 
       Alert.alert(
         "Success",
-        existingReview
-          ? "Review updated successfully!"
-          : "Thank you for your review!",
+        existingReviews.length > 0
+          ? "Reviews updated successfully!"
+          : "Thank you for your reviews!",
         [{ text: "OK", onPress: onRatingSubmitted }],
       );
 
       onClose();
     } catch (error: any) {
-      console.error("Error submitting review:", error);
-      Alert.alert("Error", error.message || "Failed to submit review");
+      console.error("Error submitting reviews:", error);
+      Alert.alert("Error", error.message || "Failed to submit reviews");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDeleteReview = async () => {
-    if (!existingReview) return;
-
-    Alert.alert(
-      "Delete Review",
-      "Are you sure you want to delete your review?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setSubmitting(true);
-            try {
-              const { error } = await supabase
-                .from("reviews")
-                .delete()
-                .eq("review_id", existingReview.review_id);
-
-              if (error) throw error;
-
-              Alert.alert("Success", "Review deleted successfully", [
-                { text: "OK", onPress: onRatingSubmitted },
-              ]);
-
-              onClose();
-            } catch (error: any) {
-              console.error("Error deleting review:", error);
-              Alert.alert("Error", error.message || "Failed to delete review");
-            } finally {
-              setSubmitting(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  // Render product items with images and details
-  const renderProductItems = () => {
-    if (!order || order.items.length === 0) return null;
-
-    return (
-      <View style={orderStyles.productsContainer}>
-        <Text style={orderStyles.productsTitle}>Products</Text>
-        {order.items.map((item) => (
-          <View key={item.id} style={orderStyles.productItemCard}>
-            {/* Product Image */}
-            <View style={orderStyles.productImageContainer}>
-              {item.image ? (
-                <Image
-                  source={{ uri: item.image }}
-                  style={orderStyles.productImage}
-                />
-              ) : (
-                <View
-                  style={[
-                    orderStyles.productImage,
-                    orderStyles.productImagePlaceholder,
-                  ]}
-                >
-                  <Ionicons name="image-outline" size={24} color="#999" />
-                </View>
-              )}
-            </View>
-
-            {/* Product Details */}
-            <View style={orderStyles.productInfo}>
-              <View style={orderStyles.productMetaRow}>
-                <Text style={orderStyles.productName} numberOfLines={2}>
-                  {item.name}
-                </Text>
-                <Text style={orderStyles.productPrice}>
-                  ₱{(item.price * item.quantity).toLocaleString()}
-                </Text>
-              </View>
-              <View style={orderStyles.productMetaRow}>
-                <Text style={orderStyles.productVendor}>{item.vendor}</Text>
-                <Text style={orderStyles.productQuantity}>
-                  Qty: {item.quantity}
-                </Text>
-              </View>
-            </View>
-          </View>
-        ))}
-      </View>
-    );
-  };
-
-  // Render large stars for product rating
-  const renderProductStars = (
-    rating: number,
-    setRating: (value: number) => void,
-    label: string,
-  ) => (
-    <View style={orderStyles.productRatingSection}>
-      <Text style={orderStyles.productRatingLabel}>{label}</Text>
-      <View style={orderStyles.productStarsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <TouchableOpacity
-            key={star}
-            onPress={() => setRating(star)}
-            disabled={submitting}
-          >
-            <Ionicons
-              name={star <= rating ? "star" : "star-outline"}
-              size={44}
-              color={star <= rating ? "#FFB800" : "#D1D5DB"}
+  // Render rating UI for each product
+  const renderProductRating = (item: DisplayOrder["items"][0]) => (
+    <View key={item.id} style={orderStyles.productRatingContainer}>
+      {/* Product Info */}
+      <View style={orderStyles.productItemCard}>
+        <View style={orderStyles.productImageContainer}>
+          {item.image ? (
+            <Image
+              source={{ uri: item.image }}
+              style={orderStyles.productImage}
             />
-          </TouchableOpacity>
-        ))}
+          ) : (
+            <View
+              style={[
+                orderStyles.productImage,
+                orderStyles.productImagePlaceholder,
+              ]}
+            >
+              <Ionicons name="image-outline" size={24} color="#999" />
+            </View>
+          )}
+        </View>
+        <View style={orderStyles.productInfo}>
+          <View style={orderStyles.productMetaRow}>
+            <Text style={orderStyles.productName} numberOfLines={2}>
+              {item.name}
+            </Text>
+            <Text style={orderStyles.productPrice}>
+              ₱{(item.price * item.quantity).toLocaleString()}
+            </Text>
+          </View>
+          <View style={orderStyles.productMetaRow}>
+            <Text style={orderStyles.productVendor}>{item.vendor}</Text>
+            <Text style={orderStyles.productQuantity}>
+              Qty: {item.quantity}
+            </Text>
+          </View>
+        </View>
       </View>
-      <Text style={orderStyles.productRatingHint}>
-        {rating === 1 && "Poor"}
-        {rating === 2 && "Fair"}
-        {rating === 3 && "Good"}
-        {rating === 4 && "Very Good"}
-        {rating === 5 && "Excellent"}
-      </Text>
+
+      {/* Rating Stars for this product */}
+      <View style={orderStyles.productRatingStars}>
+        <Text style={orderStyles.ratingLabel}>Rate this product</Text>
+        <View style={orderStyles.starsRow}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <TouchableOpacity
+              key={star}
+              onPress={() =>
+                setProductRatings((prev) => ({
+                  ...prev,
+                  [item.productId]: star,
+                }))
+              }
+              disabled={submitting}
+            >
+              <Ionicons
+                name={
+                  star <= (productRatings[item.productId] || 5)
+                    ? "star"
+                    : "star-outline"
+                }
+                size={32}
+                color={
+                  star <= (productRatings[item.productId] || 5)
+                    ? "#FFB800"
+                    : "#D1D5DB"
+                }
+                style={orderStyles.starIcon}
+              />
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={orderStyles.ratingHint}>
+          {(productRatings[item.productId] || 5) === 1 && "Poor"}
+          {(productRatings[item.productId] || 5) === 2 && "Fair"}
+          {(productRatings[item.productId] || 5) === 3 && "Good"}
+          {(productRatings[item.productId] || 5) === 4 && "Very Good"}
+          {(productRatings[item.productId] || 5) === 5 && "Excellent"}
+        </Text>
+      </View>
+
+      {/* Comment for this product */}
+      <View style={orderStyles.productCommentContainer}>
+        <TextInput
+          style={orderStyles.ratingCommentInput}
+          placeholder={`Comments for ${item.name} (optional)`}
+          placeholderTextColor="#afabab"
+          value={productComments[item.productId] || ""}
+          onChangeText={(text) =>
+            setProductComments((prev) => ({
+              ...prev,
+              [item.productId]: text,
+            }))
+          }
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+          editable={!submitting}
+        />
+      </View>
+
+      <View style={orderStyles.ratingDivider} />
     </View>
   );
 
@@ -383,7 +398,9 @@ const RatingModal: React.FC<RatingModalProps> = ({
           {/* Modal Header */}
           <View style={orderStyles.modalHeader}>
             <Text style={orderStyles.modalTitle}>
-              {existingReview ? "Edit Your Review" : "Rate Your Order"}
+              {existingReviews.length > 0
+                ? "Edit Your Reviews"
+                : "Rate Your Order"}
             </Text>
             <TouchableOpacity
               onPress={onClose}
@@ -396,7 +413,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
           {loading ? (
             <View style={{ padding: 40, alignItems: "center" }}>
               <ActivityIndicator size="large" color={COLORS.light.primary} />
-              <Text style={{ marginTop: 12 }}>Loading review...</Text>
+              <Text style={{ marginTop: 12 }}>Loading reviews...</Text>
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -412,45 +429,16 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 </View>
               )}
 
-              {/* Product Items with Images */}
-              {renderProductItems()}
-
-              {/* Divider */}
-              <View style={orderStyles.ratingDivider} />
-
-              {/* Product Rating - Large Stars */}
-              {renderProductStars(
-                productRating,
-                setProductRating,
-                "Rate Product Quality",
-              )}
-
-              {/* Divider */}
-              <View style={orderStyles.ratingDivider} />
-
-              {/* Comment Input */}
-              <View style={orderStyles.ratingCommentContainer}>
-                <Text style={orderStyles.commentLabel}>Comments</Text>
-                <TextInput
-                  style={orderStyles.ratingCommentInput}
-                  placeholder="Share more thoughts on the products to help other buyers."
-                  placeholderTextColor="#afabab"
-                  value={comment}
-                  onChangeText={setComment}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  editable={!submitting}
-                />
+              {/* Rate each product */}
+              <View style={orderStyles.productsContainer}>
+                <Text style={orderStyles.productsTitle}>Rate Each Product</Text>
+                {order?.items.map((item) => renderProductRating(item))}
               </View>
-
-              {/* Divider */}
-              <View style={orderStyles.ratingDivider} />
 
               {/* Vendor and Rider Ratings */}
               <View style={orderStyles.serviceRatingsContainer}>
                 <Text style={orderStyles.serviceRatingsTitle}>
-                  Rate Service
+                  Rate Overall Service
                 </Text>
                 {order &&
                   order.items[0] &&
@@ -460,7 +448,6 @@ const RatingModal: React.FC<RatingModalProps> = ({
                     `Seller Service`,
                   )}
 
-                {/* Rider Rating - Inline Small Stars */}
                 {renderInlineStars(
                   riderRating,
                   setRiderRating,
@@ -468,39 +455,23 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 )}
               </View>
 
-              {/* Divider */}
-              <View style={orderStyles.ratingDivider} />
-
               {/* Action Buttons */}
               <View style={orderStyles.ratingActions}>
-                {existingReview && (
-                  <TouchableOpacity
-                    style={[
-                      orderStyles.ratingDeleteButton,
-                      submitting && orderStyles.disabledButton,
-                    ]}
-                    onPress={handleDeleteReview}
-                    disabled={submitting}
-                  >
-                    <Text style={orderStyles.ratingDeleteButtonText}>
-                      Delete Review
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
                 <TouchableOpacity
                   style={[
                     orderStyles.ratingSubmitButton,
                     submitting && orderStyles.disabledButton,
                   ]}
-                  onPress={handleSubmitRating}
+                  onPress={handleSubmitRatings}
                   disabled={submitting}
                 >
                   {submitting ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <Text style={orderStyles.ratingSubmitButtonText}>
-                      {existingReview ? "Update Review" : "Submit Review"}
+                      {existingReviews.length > 0
+                        ? "Update Reviews"
+                        : "Submit Reviews"}
                     </Text>
                   )}
                 </TouchableOpacity>

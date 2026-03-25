@@ -26,6 +26,7 @@ export const sellerOrderStyles = StyleSheet.create({
   tabsContainer: {
     backgroundColor: COLORS.common.white,
     maxHeight: 60,
+    flexShrink: 0,
   },
   tabsContent: {
     paddingHorizontal: 16,
@@ -212,7 +213,6 @@ export const sellerOrderStyles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 80,
   },
   emptyIcon: {
     fontSize: 60,
@@ -764,5 +764,26 @@ export const sellerOrderStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     marginTop: 8,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginVertical: 8,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#333",
+    paddingVertical: 8,
+  },
+  clearButton: {
+    padding: 4,
   },
 });

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from "react-native-maps";
 import { COLORS } from "../constants";
 import { supabase } from "@/lib/supabase";
 
@@ -65,11 +66,56 @@ const OrderTrackingScreen = () => {
   >([]);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
+  // Map related state
+  const [deliveryLocation, setDeliveryLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  } | null>(null);
+
+  const [riderLocation, setRiderLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [riderMarkerTracksViewChanges, setRiderMarkerTracksViewChanges] =
+    useState(true);
+
+  // Route state
+  const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
+  const [routeDistance, setRouteDistance] = useState<number | null>(null);
+  const [routeDuration, setRouteDuration] = useState<number | null>(null);
+  const [calculatingRoute, setCalculatingRoute] = useState(false);
+
+  const [refreshingLocation, setRefreshingLocation] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+
   useEffect(() => {
     if (orderId) {
       fetchOrderDetails();
     }
   }, [orderId]);
+
+  // Fetch route when rider location changes
+  useEffect(() => {
+    if (riderLocation && deliveryLocation) {
+      fetchRoadRoute();
+    }
+  }, [riderLocation, deliveryLocation]);
+
+  useEffect(() => {
+    if (!riderLocation) {
+      return;
+    }
+
+    // allow one render pass while the custom marker view loads
+    setRiderMarkerTracksViewChanges(true);
+    const timeout = setTimeout(() => {
+      setRiderMarkerTracksViewChanges(false);
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [riderLocation]);
 
   const fetchRiderInfo = async (
     riderUserId: string,
@@ -78,7 +124,7 @@ const OrderTrackingScreen = () => {
       // Get rider profile with vehicle type
       const { data: riderProfile, error: riderError } = await supabase
         .from("rider_profiles")
-        .select("vehicle_type, license_plate")
+        .select("vehicle_type, license_plate, current_lat, current_lng")
         .eq("user_id", riderUserId)
         .maybeSingle();
 
@@ -99,6 +145,24 @@ const OrderTrackingScreen = () => {
         return null;
       }
 
+      // Set rider location if available
+      if (riderProfile?.current_lat && riderProfile?.current_lng) {
+        const newRiderLocation = {
+          latitude: parseFloat(riderProfile.current_lat as any) || 0,
+          longitude: parseFloat(riderProfile.current_lng as any) || 0,
+        };
+
+        setRiderLocation((prev) => {
+          if (
+            prev?.latitude === newRiderLocation.latitude &&
+            prev?.longitude === newRiderLocation.longitude
+          ) {
+            return prev; // avoid redundant updates to prevent marker flicker
+          }
+          return newRiderLocation;
+        });
+      }
+
       return {
         id: riderUserId,
         name: userProfile.full_name || "Rider",
@@ -116,15 +180,18 @@ const OrderTrackingScreen = () => {
   const fetchOrderDetails = async () => {
     try {
       setLoading(true);
-      console.log("Fetching order details for ID:", orderId);
 
-      // Fetch order details
+      // Fetch order details with address including coordinates
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
         .select(
           `
           *,
-          addresses!inner(full_address)
+          addresses!inner(
+            full_address,
+            latitude,
+            longitude
+          )
         `,
         )
         .eq("order_id", orderId)
@@ -134,8 +201,17 @@ const OrderTrackingScreen = () => {
         console.error("Order fetch error:", orderError);
         throw orderError;
       }
-      console.log("Order data fetched:", orderData);
       setOrder(orderData);
+
+      // Set delivery location from address
+      if (orderData.addresses?.latitude && orderData.addresses?.longitude) {
+        setDeliveryLocation({
+          latitude: parseFloat(orderData.addresses.latitude),
+          longitude: parseFloat(orderData.addresses.longitude),
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      }
 
       // Fetch order items
       const { data: itemsData, error: itemsError } = await supabase
@@ -146,6 +222,7 @@ const OrderTrackingScreen = () => {
           products!inner(
             product_name,
             vendor_profiles!inner(
+              user_id,
               shop_name
             )
           )
@@ -166,6 +243,8 @@ const OrderTrackingScreen = () => {
         vendor: item.products.vendor_profiles.shop_name,
       }));
       setOrderItems(formattedItems);
+
+      // REMOVED: Vendor location fetching code
 
       // Fetch delivery to get rider_user_id
       const { data: deliveryData, error: deliveryError } = await supabase
@@ -189,6 +268,142 @@ const OrderTrackingScreen = () => {
       Alert.alert("Error", "Failed to load order details");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // New function to fetch road route from RoutePH
+  const fetchRoadRoute = async () => {
+    if (!riderLocation || !deliveryLocation) return;
+
+    setCalculatingRoute(true);
+    try {
+      // RoutePH API endpoint for driving route
+      const response = await fetch(
+        `https://routeph.com/api/osrm/v1/driving/${riderLocation.longitude},${riderLocation.latitude};${deliveryLocation.longitude},${deliveryLocation.latitude}?overview=full&geometries=geojson`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      // Check if the response is successful and contains routes
+      if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+
+        // Extract coordinates from GeoJSON
+        if (route.geometry && route.geometry.coordinates) {
+          // Convert [lng, lat] to {latitude, longitude}
+          const coords = route.geometry.coordinates.map((coord: number[]) => ({
+            latitude: coord[1],
+            longitude: coord[0],
+          }));
+
+          setRouteCoordinates(coords);
+
+          // Distance in meters, convert to km
+          const distanceKm = route.distance / 1000;
+          setRouteDistance(parseFloat(distanceKm.toFixed(1)));
+
+          // Duration in seconds, convert to minutes
+          const durationMin = Math.round(route.duration / 60);
+          setRouteDuration(durationMin);
+        }
+      } else {
+        console.log("Route not found, using fallback calculation");
+        // Fallback to straight line if no route found
+        setRouteCoordinates([]);
+
+        // Calculate approximate straight-line distance
+        const straightDistance = calculateApproximateDistance(
+          riderLocation.latitude,
+          riderLocation.longitude,
+          deliveryLocation.latitude,
+          deliveryLocation.longitude,
+        );
+        setRouteDistance(straightDistance);
+        setRouteDuration(Math.round(straightDistance * 12)); // Rough estimate: 12 min per km
+      }
+    } catch (error) {
+      console.error("RoutePH error:", error);
+
+      // Fallback: calculate approximate straight-line distance
+      if (riderLocation && deliveryLocation) {
+        const distanceKm = calculateApproximateDistance(
+          riderLocation.latitude,
+          riderLocation.longitude,
+          deliveryLocation.latitude,
+          deliveryLocation.longitude,
+        );
+        setRouteDistance(distanceKm);
+        setRouteDuration(Math.round(distanceKm * 12));
+        setRouteCoordinates([]);
+      }
+    } finally {
+      setCalculatingRoute(false);
+    }
+  };
+
+  // Helper function to calculate approximate straight-line distance
+  const calculateApproximateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return parseFloat((R * c).toFixed(1));
+  };
+
+  const refreshRiderLocation = async () => {
+    if (!rider?.id) return;
+
+    setRefreshingLocation(true);
+    try {
+      const { data: riderProfile } = await supabase
+        .from("rider_profiles")
+        .select("current_lat, current_lng")
+        .eq("user_id", rider.id)
+        .maybeSingle();
+
+      if (riderProfile?.current_lat && riderProfile?.current_lng) {
+        const newRiderLocation = {
+          latitude: parseFloat(riderProfile.current_lat as any) || 0,
+          longitude: parseFloat(riderProfile.current_lng as any) || 0,
+        };
+
+        setRiderLocation((prev) => {
+          if (
+            prev?.latitude === newRiderLocation.latitude &&
+            prev?.longitude === newRiderLocation.longitude
+          ) {
+            return prev;
+          }
+          return newRiderLocation;
+        });
+
+        // Route will automatically refetch due to the useEffect
+        Alert.alert("Success", "Rider location updated");
+      } else {
+        Alert.alert("Info", "Rider location not available");
+      }
+    } catch (error) {
+      console.error("Error refreshing rider location:", error);
+      Alert.alert("Error", "Failed to refresh rider location");
+    } finally {
+      setRefreshingLocation(false);
     }
   };
 
@@ -298,6 +513,20 @@ const OrderTrackingScreen = () => {
         params: { rider_user_id: rider.id },
       });
     }
+  };
+
+  const getInitialRegion = () => {
+    if (deliveryLocation) {
+      return deliveryLocation;
+    }
+
+    // Default to a central location in the Philippines if no delivery location
+    return {
+      latitude: 14.5995,
+      longitude: 120.9842,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    };
   };
 
   if (loading) {
@@ -487,6 +716,163 @@ const OrderTrackingScreen = () => {
           )}
         </View>
 
+        {/* Map View */}
+        {deliveryLocation && (
+          <View style={styles.mapContainer}>
+            <MapView
+              provider={PROVIDER_DEFAULT}
+              style={styles.map}
+              initialRegion={getInitialRegion()}
+              showsUserLocation={false}
+              showsMyLocationButton={false}
+              showsCompass={true}
+              showsScale={true}
+              showsBuildings={false}
+              showsTraffic={false}
+              showsIndoors={false}
+              onMapReady={() => setMapReady(true)}
+            >
+              {/* Delivery location marker */}
+              {deliveryLocation && (
+                <Marker
+                  coordinate={{
+                    latitude: deliveryLocation.latitude,
+                    longitude: deliveryLocation.longitude,
+                  }}
+                  title="Delivery Location"
+                  description={order?.addresses?.full_address}
+                >
+                  <View style={styles.markerDelivery}>
+                    <Ionicons name="home" size={14} color="#fff" />
+                  </View>
+                </Marker>
+              )}
+
+              {/* REMOVED: Vendor location marker */}
+
+              {/* Rider location marker */}
+              {riderLocation && (
+                <Marker
+                  coordinate={riderLocation}
+                  title={rider?.name || "Rider"}
+                  description="Current location"
+                  tracksViewChanges={riderMarkerTracksViewChanges}
+                >
+                  <View style={styles.markerRider}>
+                    <Ionicons name="bicycle" size={14} color="#fff" />
+                  </View>
+                </Marker>
+              )}
+
+              {/* Road path between rider and delivery location */}
+              {routeCoordinates.length > 0 && mapReady && (
+                <Polyline
+                  coordinates={routeCoordinates}
+                  strokeColor="#FF0000"
+                  strokeWidth={4}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              )}
+            </MapView>
+
+            {/* Refresh location button */}
+            {rider && (
+              <TouchableOpacity
+                style={styles.refreshLocationButton}
+                onPress={refreshRiderLocation}
+                disabled={refreshingLocation}
+              >
+                {refreshingLocation ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.light.primary}
+                  />
+                ) : (
+                  <Ionicons
+                    name="refresh"
+                    size={20}
+                    color={COLORS.light.primary}
+                  />
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Route info indicator */}
+            {riderLocation && deliveryLocation && (
+              <View style={styles.routeInfoContainer}>
+                {calculatingRoute ? (
+                  <View style={styles.routeInfo}>
+                    <ActivityIndicator size="small" color="#FF0000" />
+                    <Text style={styles.routeInfoText}>
+                      Calculating route...
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.routeInfo}>
+                    {(() => {
+                      // Check if we have valid distance/duration
+                      const hasValidRoute =
+                        routeDistance !== null &&
+                        routeDuration !== null &&
+                        routeDistance > 0;
+
+                      // Check if at destination (very close or zero distance)
+                      const isAtDestination =
+                        routeDistance === 0 ||
+                        (routeDistance && routeDistance < 0.01);
+
+                      if (isAtDestination) {
+                        return (
+                          <>
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={16}
+                              color="#10b981"
+                            />
+                            <Text
+                              style={[styles.routeInfoText, styles.arrivedText]}
+                            >
+                              Arrived at destination
+                            </Text>
+                          </>
+                        );
+                      } else if (hasValidRoute) {
+                        return (
+                          <>
+                            <Ionicons name="time" size={16} color="#FF0000" />
+                            <Text style={styles.routeInfoText}>
+                              {routeDistance} km • {routeDuration} min
+                            </Text>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <Ionicons
+                              name="location"
+                              size={16}
+                              color="#f59e0b"
+                            />
+                            <Text
+                              style={[
+                                styles.routeInfoText,
+                                styles.destinationText,
+                              ]}
+                            >
+                              Destination
+                            </Text>
+                          </>
+                        );
+                      }
+                    })()}
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Order Summary Section */}
         <View style={[styles.sectionCard, { marginBottom: 20 }]}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
@@ -589,6 +975,84 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     color: "#7fffd4",
     fontSize: 14,
+  },
+  mapContainer: {
+    height: 250,
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  map: {
+    flex: 1,
+  },
+  markerDelivery: {
+    backgroundColor: "#4CAF50",
+    width: 30,
+    height: 30,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  markerRider: {
+    backgroundColor: COLORS.light.coral,
+    width: 30,
+    height: 30,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  refreshLocationButton: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 8,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  routeInfoContainer: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 8,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  routeInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  routeInfoText: {
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#333",
   },
   scrollArea: {
     paddingHorizontal: 12,
@@ -852,6 +1316,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#fff",
+  }, // Add these styles to your existing StyleSheet
+  arrivedText: {
+    color: "#10b981",
+    fontWeight: "600",
+  },
+  destinationText: {
+    color: "#f59e0b",
+    fontWeight: "500",
   },
 });
 

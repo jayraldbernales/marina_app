@@ -133,4 +133,12 @@ export const notificationStyles = StyleSheet.create({
     backgroundColor: COLORS.light.coral,
     marginLeft: 8,
   },
+  processingIndicator: {
+    position: "absolute",
+    right: 16,
+    top: "50%",
+    marginTop: -8,
+    width: 16,
+    height: 16,
+  },
 });

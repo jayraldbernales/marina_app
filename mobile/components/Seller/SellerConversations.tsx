@@ -139,9 +139,7 @@ const VendorConversationsScreen = () => {
   };
 
   const formatConversations = (convos: Conversation[]): UIConversation[] => {
-    // No need for Promise.all or await since we're not fetching avatars separately
     const formattedConvos = convos.map((conv) => {
-      // Since we're using getVendorConversations, current user is always the vendor
       let otherPartyName = "";
       let otherPartyId = "";
       let otherPartyType: "buyer" | "rider" = "buyer";
@@ -154,15 +152,13 @@ const VendorConversationsScreen = () => {
         otherPartyId = conv.buyer_id;
         otherPartyType = "buyer";
         unreadCount = conv.vendor_unread_count || 0;
-        // Use avatar from joined data - NO EXTRA FETCH
-        avatar = conv.buyer?.avatar_url;
+        avatar = conv.buyer?.avatar_url; // Avatar from profiles table
       } else if (conv.rider_id) {
-        otherPartyName = conv.rider?.profiles?.full_name || "Rider";
+        otherPartyName = conv.rider?.profiles?.full_name || "Rider"; // Get name from nested profiles
         otherPartyId = conv.rider_id;
         otherPartyType = "rider";
         unreadCount = conv.vendor_unread_count || 0;
-        // Use avatar from joined data - NO EXTRA FETCH
-        avatar = conv.rider?.profiles?.avatar_url;
+        avatar = conv.rider?.avatar_url; // Avatar from rider_profiles.avatar_url
       }
 
       const rawTime = conv.last_message_time || "";
@@ -188,13 +184,8 @@ const VendorConversationsScreen = () => {
       };
     });
 
-    // No need to sort - data already comes sorted from the database query
     return formattedConvos;
   };
-
-  // DELETE these functions entirely:
-  // - fetchBuyerAvatar()
-  // - fetchRiderAvatar()
 
   const formatTimestamp = (timestamp: string) => {
     if (!timestamp) return "";

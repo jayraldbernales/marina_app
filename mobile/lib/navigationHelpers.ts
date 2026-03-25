@@ -15,6 +15,14 @@ export const navigateToVendorFlow = (status: string, vendorNotes?: string) => {
         params: { approval_notes: vendorNotes || "" },
       } as any);
       break;
+    case "banned":
+      router.push({
+        pathname: "/registration/banned-vendor",
+        params: {
+          approval_notes: vendorNotes || "Your account has been banned.",
+        },
+      } as any);
+      break;
     default:
       router.push("/registration/welcome-vendor");
       break;
@@ -34,6 +42,14 @@ export const navigateToRiderFlow = (status: string, riderNotes?: string) => {
       router.push({
         pathname: "/registration/rejected-rider",
         params: { approval_notes: riderNotes || "" },
+      } as any);
+      break;
+    case "banned":
+      router.push({
+        pathname: "/registration/banned-rider",
+        params: {
+          approval_notes: riderNotes || "Your account has been banned.",
+        },
       } as any);
       break;
     default:

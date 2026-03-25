@@ -123,7 +123,7 @@ export default function ProductEdit() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       quality: 0.8,
-      selectionLimit: 10 - (images.length + newImages.length),
+      selectionLimit: Math.max(0, 10 - (images.length + newImages.length)),
     });
     if (!result.canceled && result.assets?.length) {
       const uris = result.assets.map((a) => a.uri);
@@ -284,7 +284,7 @@ export default function ProductEdit() {
   const handleDelete = useCallback(async () => {
     Alert.alert(
       "Delete Product",
-      "Are you sure you want to remove this product? It will be hidden from buyers but can be restored later. Note: Harvest date cannot be edited. If it's incorrect, you need to delete and recreate the product.",
+      "Are you sure you want to remove this product? ",
       [
         { text: "Cancel", style: "cancel" },
         {

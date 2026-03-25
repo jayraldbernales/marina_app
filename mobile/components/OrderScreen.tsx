@@ -1,10 +1,11 @@
 // app/buyer/orders/index.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   Image,
+  ScrollView,
   TouchableOpacity,
   SafeAreaView,
   RefreshControl,
@@ -26,10 +27,12 @@ import RatingModal from "../components/Buyer/RatingModal";
 
 type OrderStatus =
   | "pending"
+  | "finding_rider"
   | "preparing"
   | "ready-to-ship"
   | "shipped"
   | "delivered"
+  | "failed"
   | "cancelled"
   | "rejected";
 
@@ -76,8 +79,8 @@ interface DisplayOrder {
   deliveryAddress: string;
   vendorShopName?: string;
   vendorId?: string;
-  // NEW: Add rider assignment
   riderAssignment?: RiderAssignment | null;
+  failureReason?: string;
 }
 
 const fetchRiderAssignment = async (
@@ -89,10 +92,8 @@ const fetchRiderAssignment = async (
       .from("deliveries")
       .select("rider_user_id, status")
       .eq("order_id", orderId)
-      .not("rider_user_id", "is", null)
       .maybeSingle();
-
-    if (deliveryError || !delivery) {
+    if (deliveryError || !delivery || !delivery.rider_user_id) {
       return null;
     }
 
@@ -129,9 +130,11 @@ const fetchRiderAssignment = async (
             ? "Picked up"
             : delivery.status === "ready_to_pickup"
               ? "Ready to Pickup"
-              : delivery.status === "delivered"
-                ? "Delivered"
-                : delivery.status,
+              : delivery.status === "failed"
+                ? "Failed"
+                : delivery.status === "delivered"
+                  ? "Delivered"
+                  : delivery.status,
       vehicle: riderProfile?.vehicle_type || null,
     };
   } catch (error) {
@@ -139,7 +142,8 @@ const fetchRiderAssignment = async (
   }
 };
 
-// Replace your OrderDetailsModal component in app/buyer/orders/index.tsx with this:
+// Replace your OrderDetailsModal component with this updated version:
+
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -182,6 +186,13 @@ const OrderDetailsModal = ({
 
   const openProofImage = (url: string) => Linking.openURL(url);
 
+  const handleProductPress = (productId: string) => {
+    router.push({
+      pathname: "../buyer/product-details",
+      params: { product_id: productId },
+    });
+  };
+
   const S = orderStyles;
 
   if (!order) return null;
@@ -193,10 +204,12 @@ const OrderDetailsModal = ({
   const getStatusColor = (status: OrderStatus) => {
     const map: Record<string, string> = {
       pending: "#f59e0b",
+      finding_rider: COLORS.light.coral,
       preparing: "#3b82f6",
       "ready-to-ship": "#8b5cf6",
       shipped: "#10b981",
       delivered: "#10b981",
+      failed: "#ef4444",
       cancelled: "#6b7280",
       rejected: "#ef4444",
     };
@@ -206,10 +219,12 @@ const OrderDetailsModal = ({
   const getStatusText = (status: OrderStatus) => {
     const map: Record<string, string> = {
       pending: "Pending",
+      finding_rider: "Finding Rider",
       preparing: "Preparing",
       "ready-to-ship": "Ready to Ship",
       shipped: "Shipped",
       delivered: "Completed",
+      failed: "Failed",
       cancelled: "Cancelled",
       rejected: "Rejected",
     };
@@ -234,6 +249,7 @@ const OrderDetailsModal = ({
       pending_verification: "Pending Verification",
       failed: "Failed",
       cancelled: "Cancelled",
+      rejected: "Rejected",
     };
     return map[status ?? ""] ?? "Unknown";
   };
@@ -411,6 +427,53 @@ const OrderDetailsModal = ({
               </View>
             )}
 
+            {order.status === "failed" && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Failure Reason</Text>
+                <View
+                  style={{
+                    backgroundColor: "#fef2f2",
+                    borderRadius: 12,
+                    padding: 14,
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#dc2626",
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: "row", alignItems: "flex-start" }}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={20}
+                      color="#dc2626"
+                      style={{ marginRight: 10, marginTop: 2 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: "#991b1b",
+                          fontSize: 15,
+                          fontWeight: "600",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {order.failureReason || "No reason provided"}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#b91c1c",
+                          fontSize: 13,
+                          opacity: 0.9,
+                        }}
+                      >
+                        This delivery was not completed
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
+
             {/* ── Rider ── */}
             {order.riderAssignment && (
               <View style={S.modalSection}>
@@ -463,7 +526,12 @@ const OrderDetailsModal = ({
               {order.items.map((item) => {
                 const freshness = computeFreshness(item.harvested_at);
                 return (
-                  <View key={item.id} style={S.modalItemRow}>
+                  <TouchableOpacity
+                    key={item.id}
+                    style={S.modalItemRow}
+                    onPress={() => handleProductPress(item.productId)}
+                    activeOpacity={0.7}
+                  >
                     {item.image ? (
                       <Image
                         source={{ uri: item.image }}
@@ -492,7 +560,14 @@ const OrderDetailsModal = ({
                       </Text>
                       <Text style={S.modalItemQuantity}>×{item.quantity}</Text>
                     </View>
-                  </View>
+                    {/* Optional: Add a small indicator that it's clickable */}
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#ccc"
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -548,6 +623,7 @@ const OrdersScreen = () => {
     { key: "to-ship", label: "To Ship" },
     { key: "to-receive", label: "To Receive" },
     { key: "completed", label: "Completed" },
+    { key: "failed", label: "Failed" },
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
 
@@ -556,6 +632,7 @@ const OrdersScreen = () => {
     switch (dbStatus) {
       case "pending":
         return "to-pay";
+      case "finding_rider":
       case "preparing":
       case "ready-to-ship":
         return "to-ship";
@@ -563,6 +640,8 @@ const OrdersScreen = () => {
         return "to-receive";
       case "delivered":
         return "completed";
+      case "failed":
+        return "failed";
       case "cancelled":
       case "rejected":
         return "cancelled";
@@ -651,12 +730,7 @@ const OrdersScreen = () => {
       setLoading(true);
       const { data: ordersData, error: ordersError } = await supabase
         .from("orders")
-        .select(
-          `
-        *,
-        addresses!inner(full_address)
-      `,
-        )
+        .select(`*, addresses!inner(full_address)`)
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
@@ -671,80 +745,89 @@ const OrdersScreen = () => {
         return;
       }
 
-      const displayOrders: DisplayOrder[] = [];
+      // Batch fetch order items for all orders to reduce round-trips
+      const orderIds = (ordersData as any[]).map((o) => o.order_id);
+      const { data: itemsAll, error: itemsAllError } = await supabase
+        .from("order_items")
+        .select(
+          `*, products!inner(product_id, product_name, images, harvested_at, vendor_profiles!inner(shop_name, user_id)), order_id`,
+        )
+        .in("order_id", orderIds);
 
-      for (const order of ordersData as any) {
-        const { data: itemsData, error: itemsError } = await supabase
-          .from("order_items")
-          .select(
-            `
-          *,
-          products!inner(
-            product_id,
-            product_name,
-            images,
-            harvested_at,
-            vendor_profiles!inner(
-              shop_name,
-              user_id
-            )
-          )
-        `,
-          )
-          .eq("order_id", order.order_id);
-
-        if (itemsError) {
-          console.error("Error fetching order items:", itemsError);
-          continue;
-        }
-
-        const displayItems = (itemsData || []).map((item: any) => ({
-          id: item.order_item_id,
-          productId: item.product_id,
-          name: item.products.product_name,
-          price: item.unit_price,
-          quantity: item.quantity,
-          vendor: item.products.vendor_profiles?.shop_name || "Unknown Vendor",
-          vendorId: item.products.vendor_profiles?.user_id,
-          image: item.products.images?.[0] || null,
-          harvested_at: item.products.harvested_at,
-        }));
-
-        // FIX: Fetch rider assignment for this order
-        const riderAssignment = await fetchRiderAssignment(order.order_id);
-        console.log(
-          "Rider assignment for order",
-          order.order_id,
-          ":",
-          riderAssignment,
-        ); // Add this log to debug
-
-        const displayOrder: DisplayOrder = {
-          id: order.order_id,
-          orderNumber: order.order_number,
-          items: displayItems,
-          status: order.order_status,
-          totalAmount: parseFloat(order.total_amount) || 0,
-          subtotal: order.subtotal ? parseFloat(order.subtotal) : undefined,
-          deliveryFee: order.delivery_fee ? parseFloat(order.delivery_fee) : 0,
-          orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          }),
-          paymentMethod: order.payment_method,
-          paymentStatus: order.payment_status,
-          paymentProofUrl: order.payment_proof_url,
-          gcashReference: order.gcash_reference,
-          note: order.note,
-          deliveryAddress:
-            order.addresses?.full_address || "Address not specified",
-          vendorShopName: displayItems[0]?.vendor,
-          vendorId: displayItems[0]?.vendorId,
-          riderAssignment, // This was probably missing or commented out
-        };
-        displayOrders.push(displayOrder);
+      if (itemsAllError) {
+        console.error("Error fetching items for orders:", itemsAllError);
       }
+
+      // Group items by order_id
+      const itemsByOrder: Record<string, any[]> = {};
+      (itemsAll || []).forEach((it: any) => {
+        const oid = it.order_id;
+        if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+        itemsByOrder[oid].push(it);
+      });
+
+      const displayOrders: DisplayOrder[] = (ordersData as any[]).map(
+        (order) => {
+          const itemsData = itemsByOrder[order.order_id] || [];
+          const displayItems = itemsData.map((item: any) => ({
+            id: item.order_item_id,
+            productId: item.product_id,
+            name: item.products.product_name,
+            price: item.unit_price,
+            quantity: item.quantity,
+            vendor:
+              item.products.vendor_profiles?.shop_name || "Unknown Vendor",
+            vendorId: item.products.vendor_profiles?.user_id,
+            image: item.products.images?.[0] || null,
+            harvested_at: item.products.harvested_at,
+          }));
+
+          return {
+            id: order.order_id,
+            orderNumber: order.order_number,
+            items: displayItems,
+            status: order.order_status,
+            totalAmount: parseFloat(order.total_amount) || 0,
+            subtotal: order.subtotal ? parseFloat(order.subtotal) : undefined,
+            deliveryFee: order.delivery_fee
+              ? parseFloat(order.delivery_fee)
+              : 0,
+            orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }),
+            paymentMethod: order.payment_method,
+            paymentStatus: order.payment_status,
+            paymentProofUrl: order.payment_proof_url,
+            gcashReference: order.gcash_reference,
+            note: order.note,
+            deliveryAddress:
+              order.addresses?.full_address || "Address not specified",
+            vendorShopName: displayItems[0]?.vendor,
+            vendorId: displayItems[0]?.vendorId,
+            riderAssignment: null,
+          } as DisplayOrder;
+        },
+      );
+
+      // Parallelize rider assignment fetches for orders that need it
+      const riderPromises = displayOrders.map((o) => {
+        const needs = [
+          "preparing",
+          "finding_rider",
+          "ready-to-ship",
+          "shipped",
+          "delivered",
+          "failed",
+        ].includes(o.status as string);
+        return needs ? fetchRiderAssignment(o.id) : Promise.resolve(null);
+      });
+
+      const riderResults = await Promise.all(riderPromises);
+      riderResults.forEach((r, idx) => {
+        if (r) displayOrders[idx].riderAssignment = r;
+      });
 
       setOrders(displayOrders);
     } catch (error) {
@@ -780,34 +863,43 @@ const OrdersScreen = () => {
     }
   };
 
-  const filteredOrders = orders.filter((order) => {
-    const uiTab = getUITabFromDBStatus(order.status);
-    if (activeTab === "cancelled") {
-      if (order.status !== "cancelled" && order.status !== "rejected") {
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const normalizedStatus = order.status.toLowerCase();
+      const uiTab = getUITabFromDBStatus(normalizedStatus as OrderStatus);
+
+      if (activeTab === "cancelled") {
+        return (
+          normalizedStatus === "cancelled" || normalizedStatus === "rejected"
+        );
+      } else if (uiTab !== activeTab) {
         return false;
       }
-    } else if (uiTab !== activeTab) {
-      return false;
-    }
 
-    if (searchQuery.trim() === "") {
-      return true;
-    }
+      if (!searchQuery.trim()) return true;
 
-    const query = searchQuery.toLowerCase().trim();
+      const query = searchQuery.toLowerCase().trim();
 
-    if (order.orderNumber.toLowerCase().includes(query)) return true;
-    if (order.items.some((item) => item.name.toLowerCase().includes(query)))
-      return true;
-    if (order.items.some((item) => item.vendor.toLowerCase().includes(query)))
-      return true;
-    if (order.orderDate.toLowerCase().includes(query)) return true;
-    if (order.paymentMethod.toLowerCase().includes(query)) return true;
-    if (order.deliveryAddress.toLowerCase().includes(query)) return true;
-    if (order.note && order.note.toLowerCase().includes(query)) return true;
+      return (
+        order.orderNumber.toLowerCase().includes(query) ||
+        order.items.some((item) => item.name.toLowerCase().includes(query)) ||
+        order.items.some((item) => item.vendor.toLowerCase().includes(query)) ||
+        order.orderDate.toLowerCase().includes(query) ||
+        order.paymentMethod.toLowerCase().includes(query) ||
+        order.deliveryAddress.toLowerCase().includes(query) ||
+        (order.note && order.note.toLowerCase().includes(query))
+      );
+    });
+  }, [orders, activeTab, searchQuery]);
 
-    return false;
-  });
+  const renderListItem = useCallback(
+    ({ item }: { item: DisplayOrder }) => {
+      return renderOrderCard(item);
+    },
+    [
+      /* stable: relies on renderOrderCard closure */
+    ],
+  );
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
@@ -823,6 +915,8 @@ const OrdersScreen = () => {
         return "#10b981";
       case "cancelled":
         return "#6b7280";
+      case "failed":
+        return "#ef4444";
       case "rejected":
         return "#ef4444";
       default:
@@ -842,6 +936,8 @@ const OrdersScreen = () => {
         return "Shipped";
       case "delivered":
         return "Completed";
+      case "failed":
+        return "Failed";
       case "cancelled":
         return "Cancelled";
       case "rejected":
@@ -851,24 +947,28 @@ const OrdersScreen = () => {
     }
   };
 
-  const handlePayNow = async (
-    orderId: string,
-    paymentMethod: string,
-    paymentStatus: string,
-  ) => {
-    if (paymentStatus === "pending_verification") {
-      Alert.alert(
-        "Payment Pending Verification",
-        "Your payment is currently being verified. Please wait for confirmation.",
-      );
-      return;
-    }
+  const handlePayNow = (order: DisplayOrder) => {
+    // Calculate total quantity across all items
+    const totalQuantity = order.items.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
 
-    if (paymentMethod === "cod") {
-      Alert.alert("Payment", "This would redirect to payment gateway");
-    } else {
-      Alert.alert("Payment Method", "Online payments will be processed here.");
-    }
+    router.push({
+      pathname: "../buyer/payment",
+      params: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        productId: order.items[0]?.productId, // For single vendor orders
+        vendorUserId: order.vendorId,
+        quantity: totalQuantity.toString(),
+        subtotal: (order.totalAmount - order.deliveryFee).toString(),
+        deliveryFee: order.deliveryFee.toString(),
+        total: order.totalAmount.toString(),
+        specialInstructions: order.note || "",
+        addressId: "", // You'll need to add addressId to your DisplayOrder type
+      },
+    });
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -1098,20 +1198,15 @@ const OrdersScreen = () => {
                 {showPayNow && (
                   <TouchableOpacity
                     style={orderStyles.primaryButton}
-                    onPress={() =>
-                      handlePayNow(
-                        order.id,
-                        order.paymentMethod,
-                        order.paymentStatus,
-                      )
-                    }
+                    onPress={() => handlePayNow(order)}
                   >
                     <Text style={orderStyles.primaryButtonText}>Pay Now</Text>
                   </TouchableOpacity>
                 )}
               </>
             )}
-            {(order.status === "preparing" ||
+            {(order.status === "finding_rider" ||
+              order.status === "preparing" ||
               order.status === "ready-to-ship") && (
               <TouchableOpacity
                 style={[
@@ -1187,6 +1282,40 @@ const OrdersScreen = () => {
                 >
                   <Text style={orderStyles.primaryButtonText}>
                     Rate & Review
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {order.status === "failed" && (
+              <>
+                <TouchableOpacity
+                  style={orderStyles.secondaryButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: "../buyer/view-vendor",
+                      params: { vendor_user_id: order.vendorId },
+                    });
+                  }}
+                >
+                  <Text style={orderStyles.secondaryButtonText}>
+                    Contact Vendor
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {(order.status === "cancelled" || order.status === "rejected") && (
+              <>
+                <TouchableOpacity
+                  style={orderStyles.secondaryButton}
+                  onPress={() => {
+                    router.push({
+                      pathname: "../buyer/view-vendor",
+                      params: { vendor_user_id: order.vendorId },
+                    });
+                  }}
+                >
+                  <Text style={orderStyles.secondaryButtonText}>
+                    Contact Vendor
                   </Text>
                 </TouchableOpacity>
               </>
@@ -1304,28 +1433,25 @@ const OrdersScreen = () => {
       </ScrollView>
 
       {/* Orders List */}
-      <ScrollView
-        style={orderStyles.ordersContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[COLORS.light.primary]}
-          />
+      <FlatList
+        data={filteredOrders}
+        keyExtractor={(item) => item.id}
+        renderItem={renderListItem}
+        contentContainerStyle={orderStyles.ordersContainer}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        initialNumToRender={8}
+        ListHeaderComponent={
+          searchQuery.length > 0 ? (
+            <View style={orderStyles.searchResultInfo}>
+              <Text style={orderStyles.searchResultText}>
+                Found {filteredOrders.length} order
+                {filteredOrders.length !== 1 ? "s" : ""} for "{searchQuery}"
+              </Text>
+            </View>
+          ) : undefined
         }
-      >
-        {searchQuery.length > 0 && (
-          <View style={orderStyles.searchResultInfo}>
-            <Text style={orderStyles.searchResultText}>
-              Found {filteredOrders.length} order
-              {filteredOrders.length !== 1 ? "s" : ""} for "{searchQuery}"
-            </Text>
-          </View>
-        )}
-
-        {filteredOrders.length > 0 ? (
-          filteredOrders.map(renderOrderCard)
-        ) : (
+        ListEmptyComponent={() => (
           <View style={orderStyles.emptyState}>
             <Text style={orderStyles.emptyIcon}>
               {searchQuery.length > 0 ? "🔍" : "📦"}
@@ -1364,7 +1490,7 @@ const OrdersScreen = () => {
             )}
           </View>
         )}
-      </ScrollView>
+      />
 
       {/* Order Details Modal */}
       <OrderDetailsModal

@@ -26,6 +26,7 @@ import { formatHoursAgo } from "../../utils/time";
 import LoadingSpinner from "../../components/Loading";
 import { chatService } from "../../lib/chat";
 import { fetchProductRating } from "../../utils/productRatings";
+import { useCartContext } from "@/contexts/CartContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const IMAGE_HEIGHT = 375;
@@ -103,6 +104,10 @@ export default function BuyerProductDetail() {
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [chatting, setChatting] = useState(false);
+  const [originalPrice, setOriginalPrice] = useState(0);
+  const [discountedPrice, setDiscountedPrice] = useState(0);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const { updateCartCount } = useCartContext();
 
   const loadProduct = useCallback(async () => {
     if (!productId) return;
@@ -126,6 +131,7 @@ export default function BuyerProductDetail() {
           is_active,
           vendor_user_id,
           sold_quantity,
+          discount_percent,
           categories!inner(category_name)
         `,
         )
@@ -140,6 +146,15 @@ export default function BuyerProductDetail() {
 
       setProduct(productData);
       setSoldCount(productData.sold_quantity || 0);
+
+      // Calculate discounted price
+      const original = Number(productData?.price) || 0;
+      const discount = productData?.discount_percent || 0;
+      setOriginalPrice(original);
+      setDiscountPercent(discount);
+      setDiscountedPrice(
+        discount > 0 ? original * (1 - discount / 100) : original,
+      );
 
       // Reset quantity to 1 when product changes
       setSelectedQuantity(1);
@@ -358,6 +373,9 @@ export default function BuyerProductDetail() {
           ? `${selectedQuantity} item(s) added to pre-order!`
           : `${selectedQuantity} item(s) added to cart!`,
       );
+
+      updateCartCount(selectedQuantity);
+
       // Reset quantity after successful add
       setSelectedQuantity(1);
     } catch (err) {
@@ -497,7 +515,6 @@ export default function BuyerProductDetail() {
   const categoryName = product?.categories?.category_name ?? null;
   const harvestDate = formatDateForDisplay(product?.harvested_at);
   const harvestTime = formatTimeForDisplay(product?.harvested_at);
-  const price = Number(product?.price) || 0;
   const stockAvailable = product?.stock || 0;
 
   return (
@@ -567,12 +584,44 @@ export default function BuyerProductDetail() {
             <View style={styles.priceRow}>
               <View style={styles.priceLeftColumn}>
                 <View style={styles.priceRow}>
-                  <Text style={styles.currencySymbol}>₱</Text>
-                  <Text style={styles.priceAmount}>
-                    {price.toLocaleString()}
-                  </Text>
-                  <Text style={styles.priceUnit}>/{product.unit}</Text>
+                  {discountPercent > 0 ? (
+                    <>
+                      <View style={styles.priceContainer}>
+                        <Text style={styles.currencySymbol}>₱</Text>
+                        <Text style={styles.discountedPrice}>
+                          {discountedPrice.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </Text>
+                      </View>
+                      <Text style={styles.priceUnit}>/{product.unit}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.currencySymbol}>₱</Text>
+                      <Text style={styles.priceAmount}>
+                        {originalPrice.toLocaleString()}
+                      </Text>
+                      <Text style={styles.priceUnit}>/{product.unit}</Text>
+                    </>
+                  )}
                 </View>
+
+                {/* Only show original price and discount badge when there IS a discount */}
+                {discountPercent > 0 && (
+                  <View style={styles.originalPriceContainer}>
+                    <Text style={styles.originalPrice}>
+                      ₱{originalPrice.toLocaleString()}
+                    </Text>
+                    <View style={styles.discountBadge}>
+                      <Text style={styles.discountText}>
+                        -{discountPercent}%
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
                 <Text style={styles.productTitle}>{product.product_name}</Text>
               </View>
 
@@ -875,9 +924,27 @@ export default function BuyerProductDetail() {
 
             <View style={styles.modalContent}>
               <View style={styles.priceStockRow}>
-                <Text style={styles.priceText}>
-                  ₱{price.toLocaleString()}/{product?.unit}
-                </Text>
+                <View>
+                  {discountPercent > 0 ? (
+                    <View>
+                      <Text style={styles.modalPriceDiscounted}>
+                        ₱
+                        {discountedPrice.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        /{product?.unit}
+                      </Text>
+                      <Text style={styles.modalOriginalPrice}>
+                        ₱{originalPrice.toLocaleString()}/{product?.unit}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.modalPrice}>
+                      ₱{originalPrice.toLocaleString()}/{product?.unit}
+                    </Text>
+                  )}
+                </View>
                 <Text style={styles.stockText}>
                   Stock: {stockAvailable} {product?.unit}
                 </Text>
@@ -1056,7 +1123,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "flex-start",
-    marginBottom: 12,
   },
   priceLeftColumn: {
     flex: 1,
@@ -1064,6 +1130,7 @@ const styles = StyleSheet.create({
   },
   priceRightColumn: {
     alignItems: "flex-end",
+    marginTop: 8,
   },
   currencySymbol: {
     fontSize: 20,
@@ -1076,6 +1143,37 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.light.coral,
     marginLeft: 4,
+  },
+  discountedPrice: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+    marginLeft: 4,
+  },
+  priceContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  originalPriceContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 8,
+    gap: 4,
+  },
+  originalPrice: {
+    fontSize: 16,
+    color: "#999",
+    textDecorationLine: "line-through",
+  },
+  discountBadge: {
+    backgroundColor: "#FF6B6B",
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  discountText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
   priceUnit: {
     fontSize: 16,
@@ -1434,10 +1532,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  priceText: {
+  modalPrice: {
     fontSize: 18,
     fontWeight: "700",
     color: COLORS.light.coral,
+  },
+  modalPriceDiscounted: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.light.coral,
+  },
+  modalOriginalPrice: {
+    fontSize: 14,
+    color: "#999",
+    textDecorationLine: "line-through",
   },
   stockText: {
     fontSize: 14,

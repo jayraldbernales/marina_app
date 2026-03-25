@@ -345,7 +345,57 @@ class DeliveryService {
       throw error;
     }
   }
+  // Add this method to your DeliveryService class
+  async failDelivery(
+    deliveryId: string,
+    orderId: string,
+    riderId: string,
+    reason: string,
+  ) {
+    try {
+      console.log(`Failing delivery ${deliveryId} with reason: ${reason}`);
 
+      // Update deliveries table to failed status
+      const { error: deliveryError } = await supabase
+        .from("deliveries")
+        .update({
+          status: "failed",
+          failure_reason: reason,
+          failure_time: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("delivery_id", deliveryId);
+
+      if (deliveryError) throw deliveryError;
+
+      // Update order status to failed
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          order_status: "failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("order_id", orderId);
+
+      if (orderError) throw orderError;
+
+      // Set rider back to AVAILABLE
+      const { error: riderError } = await supabase
+        .from("rider_profiles")
+        .update({
+          is_available: true,
+        })
+        .eq("user_id", riderId);
+
+      if (riderError) throw riderError;
+
+      console.log(`Delivery ${deliveryId} marked as failed`);
+      return { success: true };
+    } catch (error) {
+      console.error("Error failing delivery:", error);
+      throw error;
+    }
+  }
   // Update delivery status - kept for backward compatibility
   async updateDeliveryStatus(
     deliveryId: string,

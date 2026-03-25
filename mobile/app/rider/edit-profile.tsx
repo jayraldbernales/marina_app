@@ -1,5 +1,5 @@
-import AccountInformationScreen from "../../components/Profile/AccountInformation";
+import EditRiderProfile from "../../components/Rider/EditRiderProfile ";
 
-export default function AccountInformation() {
-  return <AccountInformationScreen />;
+export default function EditRider() {
+  return <EditRiderProfile />;
 }

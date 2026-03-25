@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
-import type { Rider } from "@/types";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,163 +33,48 @@ import {
   Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Local interface to avoid type issues
-interface RiderWithBan extends Rider {
-  riderBanned?: boolean;
-}
+import {
+  useRiders,
+  useRiderDetails,
+  useBanRider,
+  type RiderWithBan,
+} from "@/hooks/useRiders";
 
 const RiderManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [riders, setRiders] = useState<RiderWithBan[]>([]);
-  const [loading, setLoading] = useState(true);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedRider, setSelectedRider] = useState<RiderWithBan | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Fetch riders with their ban status from rider_profiles
-  const fetchRiders = async () => {
-    try {
-      setLoading(true);
+  // React Query hooks
+  const { data: riders = [], isLoading, error } = useRiders();
 
-      // First get all rider profiles
-      const { data: riderData, error: riderError } = await supabase
-        .from("rider_profiles")
-        .select(
-          `
-          user_id,
-          vehicle_type,
-          license_plate,
-          approval_status,
-          is_available,
-          banned,
-          created_at
-        `,
-        )
-        .order("created_at", { ascending: false });
+  const { data: selectedRiderDetails, isLoading: loadingDetails } =
+    useRiderDetails(selectedRiderId);
 
-      if (riderError) throw riderError;
+  const banRiderMutation = useBanRider();
 
-      if (!riderData || riderData.length === 0) {
-        setRiders([]);
-        setLoading(false);
-        return;
-      }
-
-      // Get user profile data separately
-      const userIds = riderData.map((r) => r.user_id);
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("user_id, email, full_name, mobile_number")
-        .in("user_id", userIds);
-
-      if (profileError) throw profileError;
-
-      // Create a map of profiles by user_id
-      const profileMap = new Map();
-      profileData?.forEach((profile) => {
-        profileMap.set(profile.user_id, profile);
-      });
-
-      // Get delivery counts for each rider
-      const deliveryCounts = new Map();
-
-      if (userIds.length > 0) {
-        const { data: deliveries } = await supabase
-          .from("deliveries")
-          .select("rider_user_id")
-          .in("rider_user_id", userIds)
-          .eq("status", "delivered");
-
-        deliveries?.forEach((d) => {
-          deliveryCounts.set(
-            d.rider_user_id,
-            (deliveryCounts.get(d.rider_user_id) || 0) + 1,
-          );
-        });
-      }
-
-      const mappedRiders: RiderWithBan[] = riderData.map((rider: any) => {
-        const profile = profileMap.get(rider.user_id) || {};
-
-        // Determine status
-        let status: "active" | "pending" | "banned" = "pending";
-        if (rider.banned) {
-          status = "banned";
-        } else if (rider.approval_status === "approved") {
-          status = "active";
-        }
-
-        return {
-          id: rider.user_id,
-          name: profile?.full_name || "Unnamed Rider",
-          email: profile?.email || "",
-          mobileNumber: profile?.mobile_number,
-          status,
-          vehicleType: rider.vehicle_type || "Not specified",
-          licensePlate: rider.license_plate || "Not specified",
-          isAvailable: rider.is_available || false,
-          joinedDate: rider.created_at
-            ? new Date(rider.created_at).toLocaleDateString()
-            : "",
-          deliveryCount: deliveryCounts.get(rider.user_id) || 0,
-          totalEarnings: 0, // Set a default value
-          riderBanned: rider.banned,
-        };
-      });
-
-      setRiders(mappedRiders);
-    } catch (error: any) {
-      console.error("Error fetching riders:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load riders",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
+  const handleViewRider = (rider: RiderWithBan) => {
+    setSelectedRider(rider);
+    setSelectedRiderId(rider.id);
+    setViewDialogOpen(true);
   };
-
-  useEffect(() => {
-    fetchRiders();
-  }, []);
 
   const handleBanRider = async () => {
     if (!selectedRider) return;
 
-    setIsUpdating(true);
     try {
-      const newBanStatus = !selectedRider.riderBanned;
-
-      const { error } = await supabase
-        .from("rider_profiles")
-        .update({ banned: newBanStatus })
-        .eq("user_id", selectedRider.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setRiders(
-        riders.map((r) => {
-          if (r.id === selectedRider.id) {
-            const newStatus = newBanStatus ? "banned" : "active";
-            return {
-              ...r,
-              status: newStatus,
-              riderBanned: newBanStatus,
-            };
-          }
-          return r;
-        }),
-      );
+      await banRiderMutation.mutateAsync({
+        riderId: selectedRider.id,
+        banned: !selectedRider.riderBanned,
+      });
 
       toast({
-        title: newBanStatus ? "Rider Banned" : "Rider Unbanned",
-        description: `${selectedRider.name} has been ${newBanStatus ? "banned" : "unbanned"} from delivering.`,
+        title: selectedRider.riderBanned ? "Rider Unbanned" : "Rider Banned",
+        description: `${selectedRider.name} has been ${selectedRider.riderBanned ? "unbanned" : "banned"} from delivering.`,
       });
 
       setBanDialogOpen(false);
@@ -203,14 +86,7 @@ const RiderManagement = () => {
         description: error.message || "Failed to update rider status",
         variant: "destructive",
       });
-    } finally {
-      setIsUpdating(false);
     }
-  };
-
-  const handleViewRider = (rider: RiderWithBan) => {
-    setSelectedRider(rider);
-    setViewDialogOpen(true);
   };
 
   const filteredRiders = riders.filter((rider) => {
@@ -232,10 +108,22 @@ const RiderManagement = () => {
     available: riders.filter((r) => r.isAvailable).length,
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6 bg-card rounded-xl border border-border shadow-card">
+          <p className="text-center text-destructive">
+            Failed to load riders. Please try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -413,6 +301,7 @@ const RiderManagement = () => {
                   setSelectedRider(rider);
                   setBanDialogOpen(true);
                 }}
+                disabled={banRiderMutation.isPending}
               >
                 {rider.status === "banned" ? (
                   <>
@@ -451,33 +340,33 @@ const RiderManagement = () => {
 
       {/* View Rider Details Modal */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] md:max-w-[550px] bg-white p-0 gap-0">
+        <DialogContent className="sm:max-w-125 md:max-w-137 bg-white p-0 gap-0">
           {/* Header with subtle gradient */}
-          <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
+          <div className="bg-linear-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-gray-900">
                 <Bike className="w-5 h-5 text-primary" />
                 <span>Rider Details</span>
-                {selectedRider && (
+                {selectedRiderDetails && (
                   <Badge
                     variant="outline"
                     className={cn(
                       "ml-auto capitalize",
-                      selectedRider.status === "active"
+                      selectedRiderDetails.status === "active"
                         ? "bg-green-100 text-green-700 border-green-200"
-                        : selectedRider.status === "pending"
+                        : selectedRiderDetails.status === "pending"
                           ? "bg-amber-100 text-amber-700 border-amber-200"
                           : "bg-red-100 text-red-700 border-red-200",
                     )}
                   >
-                    {selectedRider.status === "active" ? (
+                    {selectedRiderDetails.status === "active" ? (
                       <CheckCircle className="w-3 h-3 mr-1" />
-                    ) : selectedRider.status === "pending" ? (
+                    ) : selectedRiderDetails.status === "pending" ? (
                       <Clock className="w-3 h-3 mr-1" />
                     ) : (
                       <Ban className="w-3 h-3 mr-1" />
                     )}
-                    {selectedRider.status}
+                    {selectedRiderDetails.status}
                   </Badge>
                 )}
               </DialogTitle>
@@ -485,7 +374,11 @@ const RiderManagement = () => {
           </div>
 
           {/* Content - Compact spacing */}
-          {selectedRider && (
+          {loadingDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : selectedRiderDetails ? (
             <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Quick Info Row */}
               <div className="flex items-center gap-3 text-sm bg-primary/5 p-2 rounded-lg">
@@ -495,19 +388,21 @@ const RiderManagement = () => {
                     variant="outline"
                     className={cn(
                       "mt-1",
-                      selectedRider.isAvailable
+                      selectedRiderDetails.isAvailable
                         ? "bg-green-100 text-green-700 border-green-200"
                         : "bg-gray-100 text-gray-700 border-gray-200",
                     )}
                   >
-                    {selectedRider.isAvailable ? "Available" : "On Delivery"}
+                    {selectedRiderDetails.isAvailable
+                      ? "Available"
+                      : "On Delivery"}
                   </Badge>
                 </div>
                 <div className="w-px h-8 bg-gray-200" />
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-500">Joined</p>
                   <p className="font-medium text-gray-900">
-                    {selectedRider.joinedDate}
+                    {selectedRiderDetails.joinedDate}
                   </p>
                 </div>
               </div>
@@ -522,19 +417,19 @@ const RiderManagement = () => {
                   <div className="col-span-2">
                     <p className="text-gray-500 text-xs">Full Name</p>
                     <p className="font-medium text-gray-900">
-                      {selectedRider.name}
+                      {selectedRiderDetails.name}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Email</p>
                     <p className="font-medium text-gray-900 text-xs truncate">
-                      {selectedRider.email}
+                      {selectedRiderDetails.email}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Mobile</p>
                     <p className="font-medium text-gray-900 text-xs">
-                      {selectedRider.mobileNumber || "N/A"}
+                      {selectedRiderDetails.mobileNumber || "N/A"}
                     </p>
                   </div>
                 </div>
@@ -550,19 +445,19 @@ const RiderManagement = () => {
                   <div>
                     <p className="text-gray-500 text-xs">Vehicle Type</p>
                     <p className="font-medium text-gray-900">
-                      {selectedRider.vehicleType}
+                      {selectedRiderDetails.vehicleType}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">License Plate</p>
                     <p className="font-medium text-gray-900">
-                      {selectedRider.licensePlate}
+                      {selectedRiderDetails.licensePlate}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Stats - Using Bike icon instead of TrendingUp */}
+              {/* Stats */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-primary/5 rounded-lg p-3 flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
@@ -571,7 +466,7 @@ const RiderManagement = () => {
                   <div>
                     <p className="text-xs text-gray-500">Deliveries</p>
                     <p className="text-lg font-bold text-gray-900">
-                      {selectedRider.deliveryCount}
+                      {selectedRiderDetails.deliveryCount}
                     </p>
                   </div>
                 </div>
@@ -582,13 +477,13 @@ const RiderManagement = () => {
                   <div>
                     <p className="text-xs text-gray-500">Earnings</p>
                     <p className="text-lg font-bold text-gray-900">
-                      {selectedRider.totalEarnings.toLocaleString()}
+                      {selectedRiderDetails.totalEarnings.toLocaleString()}
                     </p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Footer */}
           <DialogFooter className="px-6 py-3 bg-gray-50 border-t rounded-b-lg">
@@ -632,9 +527,9 @@ const RiderManagement = () => {
                 selectedRider?.status === "banned" ? "default" : "destructive"
               }
               onClick={handleBanRider}
-              disabled={isUpdating}
+              disabled={banRiderMutation.isPending}
             >
-              {isUpdating ? (
+              {banRiderMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Updating...

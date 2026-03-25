@@ -17,20 +17,24 @@ export default function VendorApplications() {
   const queryClient = useQueryClient();
 
   // Fetch all vendor applications
-  const { data: allApplications = [], isLoading: isLoadingAll } = useQuery({
+  const {
+    data: allApplications = [],
+    isLoading: isLoadingAll,
+    error,
+  } = useQuery({
     queryKey: ["vendor-applications"],
     queryFn: async () => {
       try {
         return await fetchVendorApplications();
       } catch (error) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to fetch vendor applications",
-        });
-        return [];
+        console.error("Error fetching vendor applications:", error);
+        throw error;
       }
     },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
   // Filter applications based on active tab
@@ -50,6 +54,9 @@ export default function VendorApplications() {
       });
       queryClient.invalidateQueries({
         queryKey: ["vendor-applications"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["vendors"],
       });
     },
     onError: (error: any) => {
@@ -96,14 +103,22 @@ export default function VendorApplications() {
 
   if (isLoadingAll) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-100">
+        <p className="text-destructive">Failed to load vendor applications</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-slide-in">
       {/* Page Header */}
       <div className="flex items-center gap-3">
         <div className="p-2 bg-primary/10 rounded-lg">
@@ -188,125 +203,36 @@ export default function VendorApplications() {
               </TabsTrigger>
             </TabsList>
 
-            {/* All Tab */}
-            <TabsContent value="all" className="space-y-4 mt-4">
-              {applications.length > 0 ? (
-                <div className="grid gap-4">
-                  {applications.map((app) => (
-                    <ApplicationCard
-                      key={app.user_id}
-                      application={app}
-                      type="vendor"
-                      onApprove={(userId, notes) =>
-                        approveMutation.mutateAsync({ userId, notes })
-                      }
-                      onReject={(userId, notes) =>
-                        rejectMutation.mutateAsync({ userId, notes })
-                      }
-                      isLoading={
-                        approveMutation.isPending || rejectMutation.isPending
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    No vendor applications found
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-
-            {/* Pending Tab */}
-            <TabsContent value="pending" className="space-y-4 mt-4">
-              {applications.length > 0 ? (
-                <div className="grid gap-4">
-                  {applications.map((app) => (
-                    <ApplicationCard
-                      key={app.user_id}
-                      application={app}
-                      type="vendor"
-                      onApprove={(userId, notes) =>
-                        approveMutation.mutateAsync({ userId, notes })
-                      }
-                      onReject={(userId, notes) =>
-                        rejectMutation.mutateAsync({ userId, notes })
-                      }
-                      isLoading={
-                        approveMutation.isPending || rejectMutation.isPending
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    No pending vendor applications
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-
-            {/* Approved Tab */}
-            <TabsContent value="approved" className="space-y-4 mt-4">
-              {applications.length > 0 ? (
-                <div className="grid gap-4">
-                  {applications.map((app) => (
-                    <ApplicationCard
-                      key={app.user_id}
-                      application={app}
-                      type="vendor"
-                      onApprove={(userId, notes) =>
-                        approveMutation.mutateAsync({ userId, notes })
-                      }
-                      onReject={(userId, notes) =>
-                        rejectMutation.mutateAsync({ userId, notes })
-                      }
-                      isLoading={
-                        approveMutation.isPending || rejectMutation.isPending
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    No approved vendor applications
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-
-            {/* Rejected Tab */}
-            <TabsContent value="rejected" className="space-y-4 mt-4">
-              {applications.length > 0 ? (
-                <div className="grid gap-4">
-                  {applications.map((app) => (
-                    <ApplicationCard
-                      key={app.user_id}
-                      application={app}
-                      type="vendor"
-                      onApprove={(userId, notes) =>
-                        approveMutation.mutateAsync({ userId, notes })
-                      }
-                      onReject={(userId, notes) =>
-                        rejectMutation.mutateAsync({ userId, notes })
-                      }
-                      isLoading={
-                        approveMutation.isPending || rejectMutation.isPending
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    No rejected vendor applications
-                  </p>
-                </div>
-              )}
-            </TabsContent>
+            {["all", "pending", "approved", "rejected"].map((tab) => (
+              <TabsContent key={tab} value={tab} className="space-y-4 mt-4">
+                {applications.length > 0 ? (
+                  <div className="grid gap-4">
+                    {applications.map((app) => (
+                      <ApplicationCard
+                        key={app.user_id}
+                        application={app}
+                        type="vendor"
+                        onApprove={(userId, notes) =>
+                          approveMutation.mutateAsync({ userId, notes })
+                        }
+                        onReject={(userId, notes) =>
+                          rejectMutation.mutateAsync({ userId, notes })
+                        }
+                        isLoading={
+                          approveMutation.isPending || rejectMutation.isPending
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">
+                      No {tab === "all" ? "" : tab} vendor applications found
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+            ))}
           </Tabs>
         </CardContent>
       </Card>

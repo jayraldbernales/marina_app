@@ -19,6 +19,7 @@ import { useUserStore } from "@/store/userStore";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type PaymentParams = {
   orderId?: string;
@@ -184,7 +185,6 @@ const GcashPaymentScreen = () => {
     router.back();
   };
 
-  // Submit GCash payment proof
   const handleSubmitPayment = async () => {
     if (!gcashReference.trim()) {
       Alert.alert("Error", "Please enter GCash reference number");
@@ -207,6 +207,7 @@ const GcashPaymentScreen = () => {
         const { error } = await supabase
           .from("orders")
           .update({
+            payment_method: "gcash",
             payment_proof_url: screenshotUrl,
             gcash_reference: gcashReference,
             payment_status: "pending_verification",
@@ -215,6 +216,58 @@ const GcashPaymentScreen = () => {
           .eq("order_id", orderId);
 
         if (error) throw error;
+
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          const { data: orderData } = await supabase
+            .from("orders")
+            .select("order_number, total_amount, vendor_user_id")
+            .eq("order_id", orderId)
+            .maybeSingle();
+
+          if (orderData) {
+            // Notify vendor
+            await createNotificationWithPush(
+              {
+                userId: orderData.vendor_user_id,
+                userType: "vendor",
+                type: "payment_received",
+                title: "💵 Payment Received!",
+                message: `Order #${orderData.order_number} - ₱${orderData.total_amount.toLocaleString()} payment received via GCash`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderData.order_number,
+                  total: orderData.total_amount,
+                },
+                relatedId: orderId,
+              },
+              true,
+            );
+
+            // Notify buyer
+            if (user?.id) {
+              await createNotificationWithPush(
+                {
+                  userId: user.id,
+                  userType: "buyer",
+                  type: "payment_submitted",
+                  title: "✅ Payment Submitted!",
+                  message: `Your payment for order #${orderData.order_number} has been submitted and pending verification.`,
+                  metadata: {
+                    order_id: orderId,
+                    order_number: orderData.order_number,
+                  },
+                  relatedId: orderId,
+                },
+                true,
+              );
+            }
+            console.log("✅ Push notifications sent for payment");
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
 
         Alert.alert(
           "Payment Submitted Successfully!",
@@ -258,6 +311,58 @@ const GcashPaymentScreen = () => {
         );
 
         if (rpcError) throw rpcError;
+
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          const { data: orderData } = await supabase
+            .from("orders")
+            .select("order_number, total_amount")
+            .eq("order_id", newOrderId)
+            .maybeSingle();
+
+          if (orderData) {
+            // Notify vendor
+            await createNotificationWithPush(
+              {
+                userId: vendorUserId,
+                userType: "vendor",
+                type: "order_paid",
+                title: "🛒 New Order with GCash Payment!",
+                message: `Order #${orderData.order_number} - ₱${orderData.total_amount.toLocaleString()} (GCash payment)`,
+                metadata: {
+                  order_id: newOrderId,
+                  order_number: orderData.order_number,
+                  total: orderData.total_amount,
+                },
+                relatedId: newOrderId,
+              },
+              true,
+            );
+
+            // Notify buyer
+            if (user?.id) {
+              await createNotificationWithPush(
+                {
+                  userId: user.id,
+                  userType: "buyer",
+                  type: "order_placed",
+                  title: "✅ Order Placed with GCash!",
+                  message: `Your order #${orderData.order_number} has been placed. Payment is pending verification.`,
+                  metadata: {
+                    order_id: newOrderId,
+                    order_number: orderData.order_number,
+                  },
+                  relatedId: newOrderId,
+                },
+                true,
+              );
+            }
+            console.log("✅ Push notifications sent for new order with GCash");
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
 
         Alert.alert(
           "Order Placed Successfully!",
@@ -402,18 +507,6 @@ const GcashPaymentScreen = () => {
               </View>
             )}
           </TouchableOpacity>
-        </View>
-
-        {/* Verification Note */}
-        <View style={styles.noteBox}>
-          <Ionicons
-            name="time-outline"
-            size={18}
-            color={COLORS.light.primary}
-          />
-          <Text style={styles.noteText}>
-            Vendor verifies payment (15-30 mins)
-          </Text>
         </View>
 
         {/* Submit Button */}

@@ -1,6 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
-import type { Vendor } from "@/types";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,155 +33,44 @@ import {
   MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  useVendors,
+  useVendorDetails,
+  useBanVendor,
+  type VendorWithBan,
+} from "@/hooks/useVendors";
 
 const VendorManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [loading, setLoading] = useState(true);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [selectedVendor, setSelectedVendor] = useState<VendorWithBan | null>(
+    null,
+  );
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Fetch vendors with their ban status from vendor_profiles
-  const fetchVendors = async () => {
-    try {
-      setLoading(true);
+  // React Query hooks
+  const { data: vendors = [], isLoading, error } = useVendors();
 
-      // Get all vendor profiles with their associated user profile data
-      const { data, error } = await supabase
-        .from("vendor_profiles")
-        .select(
-          `
-          user_id,
-          shop_name,
-          banned,
-          created_at,
-          profiles!vendor_profiles_user_id_fkey (
-            email,
-            full_name,
-            mobile_number
-          )
-        `,
-        )
-        .order("created_at", { ascending: false });
+  const { data: selectedVendorDetails, isLoading: loadingDetails } =
+    useVendorDetails(selectedVendorId);
 
-      if (error) throw error;
-
-      // Get product counts for each vendor
-      const vendorIds = data?.map((v) => v.user_id) || [];
-      let productCounts = new Map();
-
-      if (vendorIds.length > 0) {
-        const { data: products } = await supabase
-          .from("products")
-          .select("vendor_user_id")
-          .in("vendor_user_id", vendorIds);
-
-        products?.forEach((p) => {
-          productCounts.set(
-            p.vendor_user_id,
-            (productCounts.get(p.vendor_user_id) || 0) + 1,
-          );
-        });
-      }
-
-      // Get sales data for each vendor (only delivered orders)
-      const { data: sales } = await supabase
-        .from("orders")
-        .select("vendor_user_id, total_amount")
-        .eq("order_status", "delivered")
-        .in("vendor_user_id", vendorIds);
-
-      const salesMap = new Map();
-      sales?.forEach((order) => {
-        salesMap.set(
-          order.vendor_user_id,
-          (salesMap.get(order.vendor_user_id) || 0) +
-            Number(order.total_amount || 0),
-        );
-      });
-
-      // Get business addresses for each vendor
-      const addressesMap = new Map();
-      if (vendorIds.length > 0) {
-        const { data: addresses } = await supabase
-          .from("addresses")
-          .select("user_id, full_address")
-          .in("user_id", vendorIds)
-          .eq("address_type", "business");
-
-        addresses?.forEach((addr) => {
-          addressesMap.set(addr.user_id, addr.full_address);
-        });
-      }
-
-      const mappedVendors: Vendor[] = (data || []).map((vendor: any) => ({
-        id: vendor.user_id,
-        name: vendor.shop_name || "Unnamed Shop",
-        email: vendor.profiles?.email || "",
-        mobileNumber: vendor.profiles?.mobile_number,
-        ownerName: vendor.profiles?.full_name,
-        status: vendor.banned ? "banned" : "active",
-        productCount: productCounts.get(vendor.user_id) || 0,
-        joinedDate: vendor.created_at
-          ? new Date(vendor.created_at).toLocaleDateString()
-          : "",
-        totalSales: salesMap.get(vendor.user_id) || 0,
-        shopBanned: vendor.banned,
-        businessAddress:
-          addressesMap.get(vendor.user_id) || "No business address set",
-      }));
-
-      setVendors(mappedVendors);
-    } catch (error: any) {
-      console.error("Error fetching vendors:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load vendors",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchVendors();
-  }, []);
+  const banVendorMutation = useBanVendor();
 
   const handleBanVendor = async () => {
     if (!selectedVendor) return;
 
-    setIsUpdating(true);
     try {
-      const newBanStatus = !selectedVendor.shopBanned;
-
-      const { error } = await supabase
-        .from("vendor_profiles")
-        .update({ banned: newBanStatus })
-        .eq("user_id", selectedVendor.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setVendors(
-        vendors.map((v) =>
-          v.id === selectedVendor.id
-            ? {
-                ...v,
-                status: newBanStatus ? "banned" : "active",
-                shopBanned: newBanStatus,
-              }
-            : v,
-        ),
-      );
+      await banVendorMutation.mutateAsync({
+        vendorId: selectedVendor.id,
+        banned: !selectedVendor.shopBanned,
+      });
 
       toast({
-        title: newBanStatus ? "Shop Banned" : "Shop Unbanned",
-        description: `${selectedVendor.name} has been ${newBanStatus ? "banned" : "unbanned"} from selling.`,
+        title: selectedVendor.shopBanned ? "Shop Unbanned" : "Shop Banned",
+        description: `${selectedVendor.name} has been ${selectedVendor.shopBanned ? "unbanned" : "banned"} from selling.`,
       });
 
       setBanDialogOpen(false);
@@ -195,13 +82,12 @@ const VendorManagement = () => {
         description: error.message || "Failed to update shop status",
         variant: "destructive",
       });
-    } finally {
-      setIsUpdating(false);
     }
   };
 
-  const handleViewVendor = (vendor: Vendor) => {
+  const handleViewVendor = (vendor: VendorWithBan) => {
     setSelectedVendor(vendor);
+    setSelectedVendorId(vendor.id);
     setViewDialogOpen(true);
   };
 
@@ -222,10 +108,22 @@ const VendorManagement = () => {
     totalProducts: vendors.reduce((acc, v) => acc + v.productCount, 0),
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 animate-slide-in">
+        <div className="p-6 bg-card rounded-xl border border-border shadow-card">
+          <p className="text-center text-destructive">
+            Failed to load vendors. Please try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -380,6 +278,7 @@ const VendorManagement = () => {
                   setSelectedVendor(vendor);
                   setBanDialogOpen(true);
                 }}
+                disabled={banVendorMutation.isPending}
               >
                 {vendor.status === "banned" ? (
                   <>
@@ -416,30 +315,30 @@ const VendorManagement = () => {
         </div>
       )}
 
-      {/* View Vendor Details Modal - Improved width and compact */}
+      {/* View Vendor Details Modal */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] md:max-w-[550px] bg-white p-0 gap-0">
+        <DialogContent className="sm:max-w-125 md:max-w-137 bg-white p-0 gap-0">
           {/* Header with subtle gradient */}
-          <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
+          <div className="bg-linear-to-r from-gray-50 to-white px-6 py-4 border-b rounded-t-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-gray-900">
                 <Store className="w-5 h-5 text-primary" />
                 <span>Vendor Details</span>
-                {selectedVendor && (
+                {selectedVendorDetails && (
                   <Badge
                     className={cn(
                       "ml-auto capitalize",
-                      selectedVendor.status === "active"
+                      selectedVendorDetails.status === "active"
                         ? "bg-green-100 text-green-700 border-green-200"
                         : "bg-red-100 text-red-700 border-red-200",
                     )}
                   >
-                    {selectedVendor.status === "active" ? (
+                    {selectedVendorDetails.status === "active" ? (
                       <CheckCircle className="w-3 h-3 mr-1" />
                     ) : (
                       <Ban className="w-3 h-3 mr-1" />
                     )}
-                    {selectedVendor.status}
+                    {selectedVendorDetails.status}
                   </Badge>
                 )}
               </DialogTitle>
@@ -447,21 +346,25 @@ const VendorManagement = () => {
           </div>
 
           {/* Content - Compact spacing */}
-          {selectedVendor && (
+          {loadingDetails ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : selectedVendorDetails ? (
             <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Quick Info Row - Compact */}
               <div className="flex items-center gap-3 text-sm bg-primary/5 p-2 rounded-lg">
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-500">Shop Name</p>
                   <p className="font-medium text-gray-900 truncate">
-                    {selectedVendor.name}
+                    {selectedVendorDetails.name}
                   </p>
                 </div>
                 <div className="w-px h-8 bg-gray-200" />
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-500">Joined</p>
                   <p className="font-medium text-gray-900">
-                    {selectedVendor.joinedDate}
+                    {selectedVendorDetails.joinedDate}
                   </p>
                 </div>
               </div>
@@ -476,19 +379,19 @@ const VendorManagement = () => {
                   <div className="col-span-2">
                     <p className="text-gray-500 text-xs">Full Name</p>
                     <p className="font-medium text-gray-900">
-                      {selectedVendor.ownerName || "N/A"}
+                      {selectedVendorDetails.ownerName || "N/A"}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Email</p>
                     <p className="font-medium text-gray-900 text-xs truncate">
-                      {selectedVendor.email}
+                      {selectedVendorDetails.email}
                     </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Mobile</p>
                     <p className="font-medium text-gray-900 text-xs">
-                      {selectedVendor.mobileNumber || "N/A"}
+                      {selectedVendorDetails.mobileNumber || "N/A"}
                     </p>
                   </div>
                 </div>
@@ -500,8 +403,8 @@ const VendorManagement = () => {
                   <MapPin className="w-3.5 h-3.5" />
                   Business Address
                 </h4>
-                <p className="text-sm text-gray-700 break-words">
-                  {selectedVendor.businessAddress}
+                <p className="text-sm text-gray-700 wrap-break-words">
+                  {selectedVendorDetails.businessAddress}
                 </p>
               </div>
 
@@ -514,7 +417,7 @@ const VendorManagement = () => {
                   <div>
                     <p className="text-xs text-gray-500">Products</p>
                     <p className="text-lg font-bold text-gray-900">
-                      {selectedVendor.productCount}
+                      {selectedVendorDetails.productCount}
                     </p>
                   </div>
                 </div>
@@ -525,13 +428,13 @@ const VendorManagement = () => {
                   <div>
                     <p className="text-xs text-gray-500">Sales</p>
                     <p className="text-lg font-bold text-gray-900">
-                      ₱{selectedVendor.totalSales.toLocaleString()}
+                      ₱{selectedVendorDetails.totalSales.toLocaleString()}
                     </p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Footer - Simple */}
           <DialogFooter className="px-6 py-3 bg-gray-50 border-t rounded-b-lg">
@@ -545,7 +448,8 @@ const VendorManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Ban Confirmation Dialog - Keep existing styling */}
+
+      {/* Ban Confirmation Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -574,9 +478,9 @@ const VendorManagement = () => {
                 selectedVendor?.status === "banned" ? "default" : "destructive"
               }
               onClick={handleBanVendor}
-              disabled={isUpdating}
+              disabled={banVendorMutation.isPending}
             >
-              {isUpdating ? (
+              {banVendorMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Updating...

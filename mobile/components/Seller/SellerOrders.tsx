@@ -1,26 +1,30 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
+  FlatList,
   ScrollView,
   Image,
   TouchableOpacity,
   SafeAreaView,
   ImageSourcePropType,
   ActivityIndicator,
-  RefreshControl,
   Alert,
   Modal,
   Linking,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, router } from "expo-router";
 import { COLORS } from "@/constants";
 import { sellerOrderStyles } from "./styles/sellerOrderStyles";
 import { supabase } from "@/lib/supabase";
+import { chatService } from "@/lib/chat";
 import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { dispatchService } from "@/services/dispatchService";
+import { useVendorOrderContext } from "@/contexts/VendorOrderContext";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type OrderStatus =
   | "pending"
@@ -28,6 +32,7 @@ type OrderStatus =
   | "ready-to-ship"
   | "shipped"
   | "delivered"
+  | "failed"
   | "cancelled"
   | "rejected"
   | "finding_rider"
@@ -71,12 +76,13 @@ type DisplayOrder = {
   gcashReference?: string;
   deliveryAddress?: string;
   customerName?: string;
+  customerId?: string;
   specialInstructions?: string;
   riderAssignment?: RiderAssignment | null;
+  failureReason?: string;
 };
 
-// Replace your OrderDetailsModal component with this:
-
+// OrderDetailsModal component (keep as is from your original code)
 const OrderDetailsModal = ({
   visible,
   onClose,
@@ -164,6 +170,7 @@ const OrderDetailsModal = ({
       delivered: "#10b981",
       cancelled: "#6b7280",
       rejected: "#ef4444",
+      failed: "#ef4444",
       finding_rider: "#f97316",
       dispatch_failed: "#ef4444",
     };
@@ -177,6 +184,7 @@ const OrderDetailsModal = ({
       "ready-to-ship": "Ready to Ship",
       shipped: "Shipped",
       delivered: "Delivered",
+      failed: "Failed",
       cancelled: "Cancelled",
       rejected: "Rejected",
       finding_rider: "Finding Rider",
@@ -442,7 +450,53 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             )}
-
+            {/* ── Failure Reason (for failed orders) ── */}
+            {order.status === "failed" && (
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Failure Reason</Text>
+                <View
+                  style={{
+                    backgroundColor: "#fef2f2",
+                    borderRadius: 12,
+                    padding: 14,
+                    borderLeftWidth: 4,
+                    borderLeftColor: "#dc2626",
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: "row", alignItems: "flex-start" }}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={20}
+                      color="#dc2626"
+                      style={{ marginRight: 10, marginTop: 2 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: "#991b1b",
+                          fontSize: 15,
+                          fontWeight: "600",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {order.failureReason || "No reason provided"}
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#b91c1c",
+                          fontSize: 13,
+                          opacity: 0.9,
+                        }}
+                      >
+                        This delivery was not completed
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
             {/* ── Rider ── */}
             {order.riderAssignment && (
               <View style={S.modalSection}>
@@ -451,7 +505,7 @@ const OrderDetailsModal = ({
                   style={S.modalRiderCard}
                   onPress={() =>
                     router.push({
-                      pathname: "../buyer/view-rider",
+                      pathname: "../seller/view-rider",
                       params: { rider_user_id: order.riderAssignment?.id },
                     })
                   }
@@ -555,6 +609,7 @@ const OrderDetailsModal = ({
     </Modal>
   );
 };
+
 const SellerOrders = () => {
   const [activeTab, setActiveTab] = useState<OrderStatus | "finding_rider">(
     "pending",
@@ -565,6 +620,12 @@ const SellerOrders = () => {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<DisplayOrder | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const { refreshPendingOrders } = useVendorOrderContext();
+
+  // NEW: Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+
   const navigation = useNavigation();
   const user = useUserStore((s) => s.user);
 
@@ -574,13 +635,51 @@ const SellerOrders = () => {
     { key: "ready-to-ship", label: "Ready to Ship" },
     { key: "shipped", label: "Shipped" },
     { key: "delivered", label: "Delivered" },
+    { key: "failed", label: "Failed" },
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
-
+  // Send notification to buyer about order status
+  const notifyBuyerOrderUpdate = async (
+    buyerUserId: string,
+    orderId: string,
+    orderNumber: string,
+    status: string,
+    message: string,
+  ) => {
+    try {
+      await createNotificationWithPush(
+        {
+          userId: buyerUserId,
+          userType: "buyer",
+          type: "order_update",
+          title: `📦 Order ${status}`,
+          message: message,
+          metadata: {
+            order_id: orderId,
+            order_number: orderNumber,
+            status: status,
+          },
+          relatedId: orderId,
+        },
+        true,
+      );
+      console.log(`✅ Push notification sent to buyer for order ${status}`);
+    } catch (error) {
+      console.error(`Error sending buyer notification:`, error);
+    }
+  };
   // Handle order card press
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
     setModalVisible(true);
+  };
+
+  // NEW: Toggle search visibility
+  const toggleSearch = () => {
+    setIsSearchVisible(!isSearchVisible);
+    if (isSearchVisible) {
+      setSearchQuery("");
+    }
   };
 
   // Handle Find Rider (retry dispatch)
@@ -633,7 +732,6 @@ const SellerOrders = () => {
     ]);
   };
 
-  // Handle verify payment
   const handleVerifyPayment = async (orderId: string) => {
     Alert.alert(
       "Verify Payment",
@@ -675,6 +773,18 @@ const SellerOrders = () => {
                 );
               }
 
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Payment Verified",
+                  `Your payment for order #${order.orderNumber} has been verified!`,
+                );
+              }
+
               Alert.alert("Success", "Payment has been verified successfully");
             } catch (error: any) {
               console.error("Verify payment error:", error);
@@ -688,7 +798,6 @@ const SellerOrders = () => {
     );
   };
 
-  // Handle reject payment
   const handleRejectPayment = async (orderId: string) => {
     Alert.alert(
       "Reject Payment",
@@ -702,7 +811,6 @@ const SellerOrders = () => {
             try {
               setUpdatingOrderId(orderId);
 
-              // Call the database function to reject payment and restore stock
               const { error } = await supabase.rpc(
                 "reject_payment_with_restock",
                 {
@@ -713,7 +821,6 @@ const SellerOrders = () => {
 
               if (error) throw error;
 
-              // Update local state
               setOrders((prevOrders) =>
                 prevOrders.map((order) =>
                   order.id === orderId
@@ -726,7 +833,6 @@ const SellerOrders = () => {
                 ),
               );
 
-              // Update selected order if modal is open
               if (selectedOrder?.id === orderId) {
                 setSelectedOrder((prev) =>
                   prev
@@ -736,6 +842,18 @@ const SellerOrders = () => {
                         status: "rejected" as OrderStatus,
                       }
                     : null,
+                );
+              }
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Payment Rejected",
+                  `Your payment for order #${order.orderNumber} was rejected.`,
                 );
               }
 
@@ -754,7 +872,6 @@ const SellerOrders = () => {
       ],
     );
   };
-
   // Fetch rider assignment for an order
   const fetchRiderAssignment = async (orderId: string) => {
     try {
@@ -779,7 +896,9 @@ const SellerOrders = () => {
                           ? "Picked up"
                           : assignment.status === "ready_to_pickup"
                             ? "Ready to Pickup"
-                            : assignment.status,
+                            : assignment.status === "failed"
+                              ? "Failed"
+                              : assignment.status,
                     vehicle: assignment.vehicle,
                   },
                 }
@@ -833,6 +952,8 @@ const SellerOrders = () => {
         return "#10b981";
       case "cancelled":
         return "#6b7280";
+      case "failed":
+        return "#ef4444";
       case "rejected":
         return "#ef4444";
       case "finding_rider":
@@ -855,7 +976,7 @@ const SellerOrders = () => {
       const { data: ordersData, error: ordersError } = await supabase
         .from("orders")
         .select(
-          `*, addresses:addresses(full_address), profiles:profiles(full_name)`,
+          `*, user_id, addresses:addresses(full_address), profiles:profiles(full_name)`,
         )
         .eq("vendor_user_id", user.id)
         .order("created_at", { ascending: false });
@@ -872,23 +993,41 @@ const SellerOrders = () => {
         return;
       }
 
-      const displayOrders: DisplayOrder[] = [];
+      // Batch-fetch order items for all orders
+      const orderIds = (ordersData as any[]).map((o) => o.order_id);
+      const { data: itemsAll, error: itemsAllError } = await supabase
+        .from("order_items")
+        .select(
+          `*, products:products(product_id, product_name, images, harvested_at), order_id`,
+        )
+        .in("order_id", orderIds);
 
-      for (const order of ordersData as any) {
-        const { data: itemsData, error: itemsError } = await supabase
-          .from("order_items")
-          .select(
-            `*, products:products(product_id, product_name, images, harvested_at)`,
-          )
-          .eq("order_id", order.order_id);
+      if (itemsAllError) {
+        console.error("Error fetching order items:", itemsAllError);
+      }
 
-        if (itemsError) {
-          console.error("Error fetching order items:", itemsError);
-          continue;
-        }
+      // Batch-fetch delivery info (for failure reasons and rider ids)
+      const { data: deliveriesAll } = await supabase
+        .from("deliveries")
+        .select("order_id, failure_reason, rider_user_id, status")
+        .in("order_id", orderIds);
 
-        const displayItems: OrderItem[] = (itemsData || []).map(
-          (item: any) => ({
+      const itemsByOrder: Record<string, any[]> = {};
+      (itemsAll || []).forEach((it: any) => {
+        const oid = it.order_id;
+        if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
+        itemsByOrder[oid].push(it);
+      });
+
+      const deliveriesByOrder: Record<string, any> = {};
+      (deliveriesAll || []).forEach((d: any) => {
+        if (d?.order_id) deliveriesByOrder[d.order_id] = d;
+      });
+
+      const displayOrders: DisplayOrder[] = (ordersData as any[]).map(
+        (order) => {
+          const itemsData = itemsByOrder[order.order_id] || [];
+          const displayItems: OrderItem[] = itemsData.map((item: any) => ({
             id: item.order_item_id,
             productId: item.product_id,
             name: item.products?.product_name || "Unknown",
@@ -896,45 +1035,62 @@ const SellerOrders = () => {
             quantity: item.quantity,
             image: item.products?.images?.[0] || null,
             harvested_at: item.products?.harvested_at,
-          }),
-        );
+          }));
 
-        displayOrders.push({
-          id: order.order_id,
-          orderNumber: order.order_number,
-          items: displayItems,
-          status: order.order_status as OrderStatus,
-          totalAmount: parseFloat(order.total_amount) || 0,
-          orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          }),
-          paymentMethod: order.payment_method,
-          paymentStatus: order.payment_status,
-          paymentProofUrl: order.payment_proof_url,
-          gcashReference: order.gcash_reference,
-          deliveryAddress: order.addresses?.full_address,
-          customerName: order.profiles?.full_name,
-          specialInstructions: order.note,
-          riderAssignment: null,
-        });
-      }
+          const deliveryInfo = deliveriesByOrder[order.order_id];
+          const failureReason = deliveryInfo?.failure_reason;
+
+          return {
+            id: order.order_id,
+            orderNumber: order.order_number,
+            items: displayItems,
+            status: order.order_status as OrderStatus,
+            totalAmount: parseFloat(order.total_amount) || 0,
+            orderDate: new Date(order.created_at).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }),
+            paymentMethod: order.payment_method,
+            paymentStatus: order.payment_status,
+            paymentProofUrl: order.payment_proof_url,
+            gcashReference: order.gcash_reference,
+            deliveryAddress: order.addresses?.full_address,
+            customerName: order.profiles?.full_name,
+            customerId: order.user_id,
+            specialInstructions: order.note,
+            riderAssignment: null,
+            failureReason,
+          };
+        },
+      );
 
       setOrders(displayOrders);
 
-      // Fetch rider assignments for orders that might have riders
-      for (const order of displayOrders) {
-        if (
-          order.status === "preparing" ||
-          order.status === "ready-to-ship" ||
-          order.status === "shipped" ||
-          order.status === "delivered" ||
-          order.status === "finding_rider"
-        ) {
-          await fetchRiderAssignment(order.id);
+      // Parallelize rider assignment fetching for relevant orders
+      const riderPromises = displayOrders.map((order) => {
+        const needs = [
+          "preparing",
+          "ready-to-ship",
+          "shipped",
+          "delivered",
+          "failed",
+          "finding_rider",
+        ].includes(order.status as string);
+        return needs ? fetchRiderAssignment(order.id) : Promise.resolve(null);
+      });
+
+      const riderResults = await Promise.all(riderPromises);
+      riderResults.forEach((assignment, idx) => {
+        if (assignment) {
+          setOrders((prev) => {
+            const copy = [...prev];
+            const i = copy.findIndex((o) => o.id === displayOrders[idx].id);
+            if (i >= 0) copy[i] = { ...copy[i], riderAssignment: assignment };
+            return copy;
+          });
         }
-      }
+      });
     } catch (error) {
       console.error("Unexpected error fetching vendor orders:", error);
       Alert.alert("Error", "An unexpected error occurred");
@@ -958,21 +1114,18 @@ const SellerOrders = () => {
           table: "deliveries",
         },
         async (payload) => {
-          // Safely get the delivery_id from new or old
           const deliveryId =
             (payload.new as any)?.delivery_id ||
             (payload.old as any)?.delivery_id;
 
           if (!deliveryId) return;
 
-          // Find which order this delivery belongs to
           const { data: order } = await supabase
             .from("orders")
             .select("order_id, vendor_user_id")
             .eq("delivery_id", deliveryId)
             .single();
 
-          // Only update if it's this vendor's order
           if (order?.vendor_user_id === user.id) {
             await fetchRiderAssignment(order.order_id);
           }
@@ -1069,7 +1222,7 @@ const SellerOrders = () => {
             : order,
         ),
       );
-
+      refreshPendingOrders();
       Alert.alert(
         "Success",
         "Order has been rejected and stock has been restored",
@@ -1122,8 +1275,7 @@ const SellerOrders = () => {
           order.id === orderId ? { ...order, status: newStatus } : order,
         ),
       );
-
-      // If moving to preparing, start dispatch
+      refreshPendingOrders();
       if (newStatus === "preparing") {
         dispatchService
           .handleOrderAcceptance(orderId, user?.id!)
@@ -1132,7 +1284,6 @@ const SellerOrders = () => {
               console.log(
                 `✅ Dispatch started: ${result.riderCount} riders found`,
               );
-              // Refresh orders to show updated status
               fetchOrders();
             } else if (result.reason === "no_riders") {
               Alert.alert(
@@ -1140,7 +1291,7 @@ const SellerOrders = () => {
                 "No riders are currently available in your area. The order will be placed in 'finding rider' status.",
                 [{ text: "OK" }],
               );
-              fetchOrders(); // Refresh to show "finding_rider" status
+              fetchOrders();
             }
           })
           .catch((error) => {
@@ -1150,7 +1301,7 @@ const SellerOrders = () => {
               "There was an error finding a rider. Please try again or contact support.",
               [{ text: "OK" }],
             );
-            fetchOrders(); // Refresh to show error status
+            fetchOrders();
           });
       }
 
@@ -1163,7 +1314,6 @@ const SellerOrders = () => {
     }
   };
 
-  // Handle Accept Order with stock check
   const handleAcceptOrder = async (orderId: string) => {
     const hasStock = await checkStockAvailability(orderId);
     if (!hasStock) return;
@@ -1172,24 +1322,113 @@ const SellerOrders = () => {
       { text: "Cancel", style: "cancel" },
       {
         text: "Accept",
-        onPress: () => updateOrderStatus(orderId, "preparing"),
+        onPress: async () => {
+          await updateOrderStatus(orderId, "preparing");
+
+          // Send notification to buyer
+          const order = orders.find((o) => o.id === orderId);
+          if (order && order.customerId) {
+            await notifyBuyerOrderUpdate(
+              order.customerId,
+              orderId,
+              order.orderNumber,
+              "Accepted",
+              `Your order #${order.orderNumber} has been accepted and is being prepared!`,
+            );
+          }
+        },
       },
     ]);
   };
 
-  // Handle Reject Order
   const handleRejectOrder = (orderId: string) => {
     Alert.alert("Reject Order", "Are you sure you want to reject this order?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Reject",
         style: "destructive",
-        onPress: () => updateOrderStatus(orderId, "rejected"),
+        onPress: async () => {
+          await updateOrderStatus(orderId, "rejected");
+
+          // Send notification to buyer
+          const order = orders.find((o) => o.id === orderId);
+          if (order && order.customerId) {
+            await notifyBuyerOrderUpdate(
+              order.customerId,
+              orderId,
+              order.orderNumber,
+              "Rejected",
+              `Your order #${order.orderNumber} has been rejected by the vendor.`,
+            );
+          }
+        },
       },
     ]);
   };
 
-  // Handle Mark Ready to Ship
+  const handleCancelOrder = (orderId: string) => {
+    Alert.alert(
+      "Cancel Order",
+      "Are you sure you want to cancel this order? This action cannot be undone and will restore stock.",
+      [
+        { text: "No", style: "cancel" },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setUpdatingOrderId(orderId);
+
+              const { error } = await supabase.rpc("vendor_cancel_order", {
+                p_order_id: orderId,
+                p_vendor_user_id: user?.id,
+              });
+
+              if (error) throw error;
+
+              setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                  order.id === orderId
+                    ? { ...order, status: "cancelled" as OrderStatus }
+                    : order,
+                ),
+              );
+
+              if (selectedOrder?.id === orderId) {
+                setSelectedOrder((prev) =>
+                  prev ? { ...prev, status: "cancelled" as OrderStatus } : null,
+                );
+              }
+              refreshPendingOrders();
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Cancelled",
+                  `Your order #${order.orderNumber} has been cancelled.`,
+                );
+              }
+
+              Alert.alert(
+                "Success",
+                "Order has been cancelled and stock restored",
+              );
+            } catch (error: any) {
+              console.error("Cancel order error:", error);
+              Alert.alert("Error", error.message || "Failed to cancel order");
+            } finally {
+              setUpdatingOrderId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleMarkReadyToShip = (orderId: string) => {
     Alert.alert(
       "Mark Ready to Ship",
@@ -1200,10 +1439,8 @@ const SellerOrders = () => {
           text: "Yes, Ready",
           onPress: async () => {
             try {
-              // First update order status
               await updateOrderStatus(orderId, "ready-to-ship");
 
-              // Then update delivery status to notify rider
               const { data: delivery } = await supabase
                 .from("deliveries")
                 .select("delivery_id")
@@ -1227,6 +1464,18 @@ const SellerOrders = () => {
                   );
                 }
               }
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Ready for Pickup",
+                  `Your order #${order.orderNumber} is ready for pickup by the rider!`,
+                );
+              }
             } catch (error) {
               console.error("Error in mark ready to ship:", error);
             }
@@ -1235,7 +1484,6 @@ const SellerOrders = () => {
       ],
     );
   };
-
   // Handle Mark as Shipped
   const handleMarkAsShipped = (orderId: string) => {
     Alert.alert(
@@ -1251,15 +1499,102 @@ const SellerOrders = () => {
     );
   };
 
-  const filteredOrders = orders.filter((o) => {
-    if (activeTab === "cancelled") {
-      return o.status === "cancelled" || o.status === "rejected";
-    }
-    if (activeTab === "preparing") {
-      return o.status === "preparing" || o.status === "finding_rider";
-    }
-    return o.status === activeTab;
-  });
+  // Handle Process Payment
+  const handleProcessPayment = async (orderId: string) => {
+    Alert.alert(
+      "Process Payment",
+      "Have you received the cash payment for this order?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Payment Received",
+          onPress: async () => {
+            try {
+              setUpdatingOrderId(orderId);
+
+              const { error } = await supabase
+                .from("orders")
+                .update({
+                  payment_status: "paid",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("order_id", orderId)
+                .eq("vendor_user_id", user?.id);
+
+              if (error) throw error;
+
+              setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                  order.id === orderId
+                    ? { ...order, paymentStatus: "paid" as PaymentStatus }
+                    : order,
+                ),
+              );
+
+              if (selectedOrder?.id === orderId) {
+                setSelectedOrder((prev) =>
+                  prev
+                    ? { ...prev, paymentStatus: "paid" as PaymentStatus }
+                    : null,
+                );
+              }
+
+              Alert.alert("Success", "Payment has been processed successfully");
+            } catch (error: any) {
+              console.error("Process payment error:", error);
+              Alert.alert(
+                "Error",
+                error.message || "Failed to process payment",
+              );
+            } finally {
+              setUpdatingOrderId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // NEW: Filter orders based on search query (memoized)
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      // First filter by tab
+      let tabMatch = false;
+      if (activeTab === "cancelled") {
+        tabMatch = order.status === "cancelled" || order.status === "rejected";
+      } else if (activeTab === "preparing") {
+        tabMatch =
+          order.status === "preparing" || order.status === "finding_rider";
+      } else {
+        tabMatch = order.status === activeTab;
+      }
+
+      if (!tabMatch) return false;
+
+      // Then filter by search query if present
+      if (!searchQuery.trim()) return true;
+
+      const query = searchQuery.toLowerCase().trim();
+
+      return (
+        order.orderNumber.toLowerCase().includes(query) ||
+        order.customerName?.toLowerCase().includes(query) ||
+        order.items.some((item) => item.name.toLowerCase().includes(query)) ||
+        order.deliveryAddress?.toLowerCase().includes(query) ||
+        (order.paymentMethod &&
+          order.paymentMethod.toLowerCase().includes(query)) ||
+        (order.specialInstructions &&
+          order.specialInstructions.toLowerCase().includes(query))
+      );
+    });
+  }, [orders, activeTab, searchQuery]);
+
+  const renderListItem = useCallback(
+    ({ item }: { item: DisplayOrder }) => {
+      return renderOrderCard(item);
+    },
+    [updatingOrderId, selectedOrder],
+  );
 
   const renderOrderCard = (order: DisplayOrder) => {
     const isUpdating = updatingOrderId === order.id;
@@ -1292,10 +1627,12 @@ const SellerOrders = () => {
                   ? "Cancelled"
                   : order.status === "finding_rider"
                     ? "Finding Rider"
-                    : order.status === "dispatch_failed"
-                      ? "Dispatch Failed"
-                      : tabs.find((t) => t.key === order.status)?.label ||
-                        order.status}
+                    : order.status === "failed"
+                      ? "Failed"
+                      : order.status === "dispatch_failed"
+                        ? "Dispatch Failed"
+                        : tabs.find((t) => t.key === order.status)?.label ||
+                          order.status}
             </Text>
           </View>
         </View>
@@ -1395,60 +1732,137 @@ const SellerOrders = () => {
               </>
             )}
             {order.status === "preparing" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleMarkReadyToShip(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Mark Ready to Ship
-                  </Text>
-                )}
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleMarkReadyToShip(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Mark Ready to Ship
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+            {order.status === "ready-to-ship" && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleMarkAsShipped(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Mark as Shipped
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
             {order.status === "finding_rider" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleFindRider(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      Cancel Order
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleFindRider(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
                     <Text style={sellerOrderStyles.primaryButtonText}>
                       Find Rider
                     </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
-            {order.status === "ready-to-ship" && (
-              <TouchableOpacity
-                style={[
-                  sellerOrderStyles.primaryButton,
-                  isUpdating && { opacity: 0.5 },
-                ]}
-                onPress={() => handleMarkAsShipped(order.id)}
-                disabled={isUpdating}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Mark as Shipped
-                  </Text>
-                )}
-              </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
             {order.status === "shipped" && (
               <TouchableOpacity
@@ -1470,17 +1884,96 @@ const SellerOrders = () => {
             )}
             {order.status === "delivered" && (
               <>
-                <TouchableOpacity style={sellerOrderStyles.secondaryButton}>
-                  <Text style={sellerOrderStyles.secondaryButtonText}>
-                    View Invoice
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={sellerOrderStyles.primaryButton}>
-                  <Text style={sellerOrderStyles.primaryButtonText}>
-                    Process Payment
-                  </Text>
-                </TouchableOpacity>
+                {order.paymentMethod === "cod" &&
+                  order.paymentStatus !== "paid" && (
+                    <TouchableOpacity
+                      style={sellerOrderStyles.primaryButton}
+                      onPress={() => handleProcessPayment(order.id)}
+                      disabled={isUpdating}
+                    >
+                      {isUpdating ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={sellerOrderStyles.primaryButtonText}>
+                          Process Payment
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
               </>
+            )}
+            {(order.status === "cancelled" || order.status === "rejected") && (
+              <TouchableOpacity
+                style={sellerOrderStyles.secondaryButton}
+                onPress={async () => {
+                  if (!order.customerId) {
+                    Alert.alert("Error", "Customer information not available");
+                    return;
+                  }
+
+                  try {
+                    // Get current user
+                    const {
+                      data: { user },
+                    } = await supabase.auth.getUser();
+
+                    if (!user) {
+                      Alert.alert(
+                        "Error",
+                        "Please login to chat with customers",
+                      );
+                      return;
+                    }
+
+                    // Fetch buyer's avatar first
+                    const { data: buyerProfile } = await supabase
+                      .from("profiles")
+                      .select("avatar_url")
+                      .eq("user_id", order.customerId)
+                      .single();
+
+                    // Use chatService to get or create conversation
+                    const { data: conversation, error } =
+                      await chatService.getOrCreateConversation({
+                        vendorId: user.id,
+                        buyerId: order.customerId,
+                      });
+
+                    if (error) {
+                      console.error("Error creating conversation:", error);
+                      Alert.alert("Error", "Failed to start chat");
+                      return;
+                    }
+
+                    // Navigate to chat screen with avatar
+                    router.push({
+                      pathname: "/buyer/chat",
+                      params: {
+                        conversationId: conversation.id,
+                        otherPartyName: order.customerName || "Customer",
+                        otherPartyId: order.customerId,
+                        otherPartyType: "buyer",
+                        otherPartyAvatar: buyerProfile?.avatar_url || "", // Add this line
+                      },
+                    });
+                  } catch (error) {
+                    console.error("Error starting chat:", error);
+                    Alert.alert("Error", "Something went wrong");
+                  }
+                }}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.light.primary}
+                  />
+                ) : (
+                  <Text style={sellerOrderStyles.secondaryButtonText}>
+                    Contact Buyer
+                  </Text>
+                )}
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1525,7 +2018,7 @@ const SellerOrders = () => {
 
   return (
     <SafeAreaView style={sellerOrderStyles.container}>
-      {/* Header */}
+      {/* Header with Search Button */}
       <View style={sellerOrderStyles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1534,8 +2027,51 @@ const SellerOrders = () => {
           <Ionicons name="arrow-back" size={24} color={COLORS.light.primary} />
         </TouchableOpacity>
         <Text style={sellerOrderStyles.headerTitle}>Orders</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={toggleSearch} style={{ padding: 8 }}>
+          <Ionicons
+            name={isSearchVisible ? "close" : "search"}
+            size={24}
+            color={COLORS.light.primary}
+          />
+        </TouchableOpacity>
       </View>
+
+      {/* Search Bar */}
+      {isSearchVisible && (
+        <View
+          style={{
+            backgroundColor: "#FFFFFF",
+            paddingHorizontal: 16,
+            paddingBottom: 8,
+          }}
+        >
+          <View style={sellerOrderStyles.searchContainer}>
+            <Ionicons
+              name="search"
+              size={20}
+              color="#666"
+              style={sellerOrderStyles.searchIcon}
+            />
+            <TextInput
+              style={sellerOrderStyles.searchInput}
+              placeholder="Search by order #, customer, product..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={true}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                style={sellerOrderStyles.clearButton}
+              >
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Tabs */}
       <ScrollView
@@ -1566,28 +2102,27 @@ const SellerOrders = () => {
       </ScrollView>
 
       {/* Orders List */}
-      <ScrollView
-        style={sellerOrderStyles.ordersContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[COLORS.light.primary]}
-          />
-        }
-      >
-        {filteredOrders.length > 0 ? (
-          filteredOrders.map(renderOrderCard)
-        ) : (
+      <FlatList
+        data={filteredOrders}
+        keyExtractor={(item) => item.id}
+        renderItem={renderListItem}
+        contentContainerStyle={sellerOrderStyles.ordersContainer}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        initialNumToRender={6}
+        ListEmptyComponent={() => (
           <View style={sellerOrderStyles.emptyState}>
-            <Text style={sellerOrderStyles.emptyIcon}>📦</Text>
-            <Text style={sellerOrderStyles.emptyTitle}>No orders found</Text>
-            <Text style={sellerOrderStyles.emptyDescription}>
-              You don't have any orders in this category yet
+            <Text style={sellerOrderStyles.emptyIcon}>
+              {searchQuery.length > 0 ? "🔍" : "📦"}
+            </Text>
+            <Text style={sellerOrderStyles.emptyTitle}>
+              {searchQuery.length > 0
+                ? "No matching orders"
+                : "No orders found"}
             </Text>
           </View>
         )}
-      </ScrollView>
+      />
 
       {/* Order Details Modal */}
       <OrderDetailsModal

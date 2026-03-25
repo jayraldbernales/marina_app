@@ -8,7 +8,6 @@ import {
   StyleSheet,
   FlatList,
   TextInput,
-  Platform,
   Keyboard,
   ActivityIndicator,
   Alert,
@@ -19,6 +18,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { COLORS } from "../../constants";
 import { supabase } from "../../lib/supabase";
 import { chatService } from "../../lib/chat";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 // Type definitions
 interface Message {
@@ -132,8 +132,48 @@ const ChatScreen = () => {
     }
   };
 
-  // REMOVED: fetchOtherPartyAvatar function - no longer needed
+  // Send push notification for new message
+  const sendMessagePushNotification = async (
+    recipientId: string,
+    senderName: string,
+    messageText: string,
+    conversationId: string,
+  ) => {
+    try {
+      // Truncate message if too long
+      const truncatedMessage =
+        messageText.length > 100
+          ? messageText.substring(0, 97) + "..."
+          : messageText;
 
+      await createNotificationWithPush(
+        {
+          userId: recipientId,
+          userType:
+            otherPartyType === "vendor"
+              ? "vendor"
+              : otherPartyType === "rider"
+                ? "rider"
+                : "buyer",
+          type: "message",
+          title: `New message from ${senderName}`,
+          message: truncatedMessage,
+          metadata: {
+            conversation_id: conversationId,
+            sender_name: senderName,
+            sender_id: currentUserId,
+          },
+          relatedId: conversationId,
+        },
+        true,
+      );
+      console.log(
+        `✅ Push notification sent to ${recipientId} for new message`,
+      );
+    } catch (error) {
+      console.error("Error sending push notification:", error);
+    }
+  };
   const loadMessages = async () => {
     setLoading(true);
     const { data, error } = await chatService.getMessages(conversationId);
@@ -232,7 +272,29 @@ const ChatScreen = () => {
       Alert.alert("Error", "Failed to send message");
       // Optionally remove the optimistic message
       setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+      setSending(false);
+      return;
     }
+
+    // ========== SEND PUSH NOTIFICATION TO RECIPIENT ==========
+    if (data && otherPartyId) {
+      // Get current user's name for the notification
+      const { data: userData } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("user_id", currentUserId)
+        .single();
+
+      const senderName = userData?.full_name || "Someone";
+
+      await sendMessagePushNotification(
+        otherPartyId,
+        senderName,
+        newMessage.text,
+        conversationId,
+      );
+    }
+    // ========== END PUSH NOTIFICATIONS ==========
 
     setSending(false);
   };
@@ -391,18 +453,28 @@ const ChatScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Messages List */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messagesList}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }}
-      />
+      {/* Messages List - ADDED EMPTY STATE MESSAGE */}
+      {messages.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="chatbubble-ellipses-outline" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>No messages yet</Text>
+          <Text style={styles.emptySubtext}>
+            Send a message to start the conversation
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }}
+        />
+      )}
 
       {/* Input Area */}
       <View style={styles.inputContainer}>
@@ -520,6 +592,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     paddingBottom: 16,
+  },
+  // ADDED: Empty state styles
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#666",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
   },
   messageContainer: {
     flexDirection: "row",

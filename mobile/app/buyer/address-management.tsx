@@ -11,11 +11,13 @@ import {
   Modal,
   TextInput,
   FlatList,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { COLORS } from "../../constants";
+import * as Location from "expo-location";
 
 // Import your existing AddressForm component
 import AddressForm from "../../components/registration/AddressForm";
@@ -31,8 +33,8 @@ type Address = {
   address_type: string;
   is_default: boolean;
   created_at: string;
-  latitude?: number | null; // NEW
-  longitude?: number | null; // NEW
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 // Real data for Mabini, Bohol
@@ -70,6 +72,7 @@ const AddressManagement = () => {
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [addressType, setAddressType] = useState<"home" | "work">("home");
   const [isDefault, setIsDefault] = useState(false);
+  const [useCurrentLocation, setUseCurrentLocation] = useState(false);
   const [formErrors, setFormErrors] = useState({
     municipality: false,
     barangay: false,
@@ -82,7 +85,7 @@ const AddressManagement = () => {
   const [purok, setPurok] = useState("");
   const [address, setAddress] = useState("");
 
-  // NEW: Coordinate state
+  // Coordinate state
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
 
@@ -131,12 +134,13 @@ const AddressManagement = () => {
   const resetForm = () => {
     setAddressType("home");
     setIsDefault(false);
+    setUseCurrentLocation(false);
     setMunicipality("Mabini, Bohol");
     setBarangay("");
     setPurok("");
     setAddress("");
-    setLatitude(null); // NEW
-    setLongitude(null); // NEW
+    setLatitude(null);
+    setLongitude(null);
     setFormErrors({ municipality: false, barangay: false, purok: false });
     setEditingAddress(null);
   };
@@ -158,6 +162,66 @@ const AddressManagement = () => {
     return true;
   };
 
+  const getCurrentLocation = async () => {
+    try {
+      // Request permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Denied",
+          "Location permission is needed to use this feature. You can enable it in your device settings.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Settings",
+              onPress: () => Linking.openSettings(),
+            },
+          ],
+        );
+        setUseCurrentLocation(false);
+        return;
+      }
+
+      setSaving(true);
+
+      // Get current location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const { latitude, longitude } = location.coords;
+
+      setLatitude(latitude);
+      setLongitude(longitude);
+      setUseCurrentLocation(true);
+
+      Alert.alert("Success", "Current location coordinates saved!");
+    } catch (error) {
+      console.error("Error getting location:", error);
+      Alert.alert(
+        "Error",
+        "Failed to get your current location. Please check your GPS connection.",
+      );
+      setUseCurrentLocation(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle checkbox toggle
+  const handleLocationCheckboxToggle = async () => {
+    if (!useCurrentLocation) {
+      // Trying to check - get location
+      await getCurrentLocation();
+    } else {
+      // Unchecking - clear coordinates
+      setLatitude(null);
+      setLongitude(null);
+      setUseCurrentLocation(false);
+    }
+  };
+
   const handleSaveAddress = async () => {
     if (!validateForm()) {
       return;
@@ -175,7 +239,7 @@ const AddressManagement = () => {
         return;
       }
 
-      // Prepare address data with coordinates
+      // Prepare address data with coordinates (if useCurrentLocation is checked)
       const addressData: any = {
         user_id: session.user.id,
         full_address: address,
@@ -184,8 +248,8 @@ const AddressManagement = () => {
         municipality,
         address_type: addressType,
         is_default: isDefault,
-        latitude: latitude, // NEW: Add coordinates
-        longitude: longitude, // NEW: Add coordinates
+        latitude: latitude || null,
+        longitude: longitude || null,
       };
 
       let result;
@@ -232,7 +296,7 @@ const AddressManagement = () => {
 
       resetForm();
       setShowAddForm(false);
-      loadAddresses(); // Refresh the list
+      loadAddresses();
     } catch (error: any) {
       console.error("Error saving address:", error);
       Alert.alert("Error", error.message || "Failed to save address");
@@ -245,12 +309,13 @@ const AddressManagement = () => {
     setEditingAddress(addr);
     setAddressType(addr.address_type as "home" | "work");
     setIsDefault(addr.is_default);
+    setUseCurrentLocation(!!addr.latitude && !!addr.longitude);
     setMunicipality(addr.municipality);
     setBarangay(addr.barangay);
     setPurok(addr.purok);
     setAddress(addr.full_address);
-    setLatitude(addr.latitude || null); // NEW
-    setLongitude(addr.longitude || null); // NEW
+    setLatitude(addr.latitude || null);
+    setLongitude(addr.longitude || null);
     setShowAddForm(true);
   };
 
@@ -279,7 +344,7 @@ const AddressManagement = () => {
       if (error) throw error;
 
       Alert.alert("Success", "Address deleted successfully");
-      loadAddresses(); // Refresh the list
+      loadAddresses();
     } catch (error) {
       console.error("Error deleting address:", error);
       Alert.alert("Error", "Failed to delete address");
@@ -309,7 +374,7 @@ const AddressManagement = () => {
       if (error) throw error;
 
       Alert.alert("Success", "Default address updated");
-      loadAddresses(); // Refresh the list
+      loadAddresses();
     } catch (error) {
       console.error("Error setting default address:", error);
       Alert.alert("Error", "Failed to update default address");
@@ -325,7 +390,6 @@ const AddressManagement = () => {
   const handleSelectBarangay = (item: string) => {
     setBarangay(item);
     setBarangayModalVisible(false);
-    // Update form errors
     setFormErrors((prev) => ({ ...prev, barangay: false }));
   };
 
@@ -461,7 +525,7 @@ const AddressManagement = () => {
                 </View>
                 <Text style={styles.addressText}>{formatAddress(addr)}</Text>
 
-                {/* NEW: Show coordinates badge if available */}
+                {/* Show coordinates badge if available */}
                 {addr.latitude && addr.longitude && (
                   <View style={styles.coordinatesBadge}>
                     <Ionicons
@@ -585,7 +649,6 @@ const AddressManagement = () => {
                     setPurok(newPurok);
                   }}
                   onMunicipalityChange={setMunicipality}
-                  // NEW: Add coordinate props
                   onCoordinatesChange={(lat, lng) => {
                     setLatitude(lat);
                     setLongitude(lng);
@@ -594,6 +657,54 @@ const AddressManagement = () => {
                   initialLongitude={editingAddress?.longitude}
                 />
               </View>
+
+              {/* Use Current Location Checkbox - HIDE DURING EDIT */}
+              {!editingAddress && (
+                <View style={styles.locationCheckboxContainer}>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={handleLocationCheckboxToggle}
+                    disabled={saving}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        useCurrentLocation && styles.checkboxChecked,
+                      ]}
+                    >
+                      {useCurrentLocation && (
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      )}
+                    </View>
+                    <Text style={styles.checkboxLabel}>
+                      Use current location
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.locationHelperText}>
+                    When checked, your exact coordinates will be saved to help
+                    riders deliver more accurately
+                  </Text>
+
+                  {saving && useCurrentLocation && (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.primary}
+                      style={styles.locationLoader}
+                    />
+                  )}
+
+                  {useCurrentLocation && latitude && longitude && !saving && (
+                    <View style={styles.coordinatesPreview}>
+                      <Ionicons name="locate" size={14} color="#10b981" />
+                      <Text style={styles.coordinatesPreviewText}>
+                        Coordinates ready
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* Set as Default Option */}
               <View style={styles.defaultContainer}>
@@ -930,10 +1041,55 @@ const styles = StyleSheet.create({
   typeOptionTextSelected: {
     color: "#fff",
   },
+  // Location Checkbox
+  locationCheckboxContainer: {
+    backgroundColor: COLORS.common.white,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  locationHelperText: {
+    fontSize: 12,
+    color: "#999",
+    fontStyle: "italic",
+    marginLeft: 36,
+  },
+  locationLoader: {
+    marginTop: 8,
+    alignSelf: "center",
+  },
+  coordinatesPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#e8f5e9",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    gap: 6,
+    marginTop: 8,
+  },
+  coordinatesPreviewText: {
+    fontSize: 12,
+    color: "#10b981",
+    fontWeight: "500",
+  },
   // Default Address Option
   defaultContainer: {
     backgroundColor: COLORS.common.white,
     marginHorizontal: 16,
+    marginTop: 16,
     borderRadius: 12,
     padding: 16,
     shadowColor: "#000",
@@ -946,7 +1102,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: 8,
   },
   checkbox: {
     width: 24,
@@ -972,6 +1127,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#999",
     fontStyle: "italic",
+    marginLeft: 36,
+    marginTop: 8,
   },
   // Save Button
   saveButton: {
@@ -1004,6 +1161,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginHorizontal: 16,
     marginTop: 12,
+    marginBottom: 20,
     backgroundColor: "transparent",
     paddingVertical: 14,
     borderRadius: 8,

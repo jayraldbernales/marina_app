@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   Image,
   TouchableOpacity,
   SafeAreaView,
   Alert,
   AppState,
-  AppStateStatus,
   Modal,
   ActivityIndicator,
   RefreshControl,
@@ -27,8 +27,9 @@ import {
 } from "@/services/deliveryService";
 import { locationService } from "@/services/locationService";
 import { dispatchService } from "@/services/dispatchService";
+import { useRiderDeliveryContext } from "@/contexts/RiderDeliveryContext";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 // Map database status to UI tabs
 const statusToTab = (status: DatabaseDeliveryStatus): UITabStatus => {
@@ -53,6 +54,39 @@ const tabToStatuses: Record<UITabStatus, DatabaseDeliveryStatus[]> = {
   failed: ["failed"],
   canceled: ["cancelled", "rejected"],
 };
+
+// Memoized Tracking Indicator Component
+const TrackingIndicator = React.memo(
+  ({ isTracking }: { isTracking: boolean }) => (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        backgroundColor: isTracking ? "#e8f5e9" : "#ffebee",
+      }}
+    >
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: isTracking ? "#4caf50" : "#f44336",
+          marginRight: 8,
+        }}
+      />
+      <Text
+        style={{
+          fontSize: 12,
+          color: isTracking ? "#2e7d32" : "#c62828",
+        }}
+      >
+        {isTracking ? "Location tracking active" : "Location tracking off"}
+      </Text>
+    </View>
+  ),
+);
 
 // Receipt Modal Component
 const ReceiptModal = ({
@@ -325,7 +359,86 @@ const ReceiptModal = ({
   );
 };
 
-// Delivery Details Modal Component (View-Only)
+// Send notification to vendor about delivery status
+const notifyVendorDeliveryUpdate = async (
+  vendorUserId: string,
+  deliveryId: string,
+  orderNumber: string,
+  status: string,
+  message: string,
+) => {
+  try {
+    await createNotificationWithPush(
+      {
+        userId: vendorUserId,
+        userType: "vendor",
+        type: "delivery_update",
+        title: `Delivery ${status}`,
+        message: message,
+        metadata: {
+          delivery_id: deliveryId,
+          order_number: orderNumber,
+          status: status,
+        },
+        relatedId: deliveryId,
+      },
+      true,
+    );
+    console.log(`✅ Push notification sent to vendor for delivery ${status}`);
+  } catch (error) {
+    console.error(`Error sending vendor notification:`, error);
+  }
+};
+
+// Send notification to buyer about delivery status
+const notifyBuyerDeliveryUpdate = async (
+  buyerUserId: string,
+  deliveryId: string,
+  orderNumber: string,
+  status: string,
+  message: string,
+) => {
+  try {
+    await createNotificationWithPush(
+      {
+        userId: buyerUserId,
+        userType: "buyer",
+        type: "delivery_update",
+        title: `Delivery ${status}`,
+        message: message,
+        metadata: {
+          delivery_id: deliveryId,
+          order_number: orderNumber,
+          status: status,
+        },
+        relatedId: deliveryId,
+      },
+      true,
+    );
+    console.log(`✅ Push notification sent to buyer for delivery ${status}`);
+  } catch (error) {
+    console.error(`Error sending buyer notification:`, error);
+  }
+};
+
+// Get vendor and buyer user IDs from order
+const getOrderUsers = async (orderId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("user_id, vendor_user_id")
+      .eq("order_id", orderId)
+      .single();
+
+    if (error) throw error;
+    return { buyerId: data.user_id, vendorId: data.vendor_user_id };
+  } catch (error) {
+    console.error("Error getting order users:", error);
+    return null;
+  }
+};
+
+// Delivery Details Modal Component (View-Only) - UPDATED with proof photos as buttons
 const DeliveryDetailsModal = ({
   visible,
   onClose,
@@ -347,7 +460,186 @@ const DeliveryDetailsModal = ({
 
   const openProofImage = (url: string) => Linking.openURL(url);
 
-  // ─── Reusable Contact Card ─────────────────────────────────────────────────
+  const handleTrackOrder = () => {
+    router.push({
+      pathname: "/rider/rider-order-tracking",
+      params: {
+        orderId: delivery.order_id,
+        orderNumber: delivery.order_number,
+      },
+    });
+  };
+
+  // Handle chat with vendor
+  const handleChatWithVendor = async () => {
+    if (!delivery?.vendor_name) {
+      Alert.alert("Error", "Vendor information not available");
+      return;
+    }
+
+    try {
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat");
+        return;
+      }
+
+      // Get vendor user ID and avatar from vendor_profiles
+      const { data: vendorProfile } = await supabase
+        .from("vendor_profiles")
+        .select("user_id, avatar_url")
+        .eq("shop_name", delivery.vendor_name)
+        .single();
+
+      if (!vendorProfile) {
+        Alert.alert("Error", "Vendor not found");
+        return;
+      }
+
+      // Get or create conversation
+      const { data: conversation, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("rider_id", user.id)
+        .eq("vendor_id", vendorProfile.user_id)
+        .single();
+
+      let conversationId;
+
+      if (error || !conversation) {
+        // Create new conversation
+        const { data: newConversation, error: createError } = await supabase
+          .from("conversations")
+          .insert({
+            rider_id: user.id,
+            vendor_id: vendorProfile.user_id,
+            last_message: null,
+            last_message_time: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error("Error creating conversation:", createError);
+          Alert.alert("Error", "Failed to start chat");
+          return;
+        }
+
+        conversationId = newConversation.id;
+      } else {
+        conversationId = conversation.id;
+      }
+
+      // Navigate to chat screen with vendor avatar
+      router.push({
+        pathname: "/buyer/chat",
+        params: {
+          conversationId: conversationId,
+          otherPartyName: delivery.vendor_name,
+          otherPartyId: vendorProfile.user_id,
+          otherPartyType: "vendor",
+          otherPartyAvatar: vendorProfile?.avatar_url || "",
+        },
+      });
+    } catch (error) {
+      console.error("Error starting chat with vendor:", error);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
+  // Handle chat with buyer/customer
+  const handleChatWithBuyer = async () => {
+    if (!delivery?.customer_name) {
+      Alert.alert("Error", "Customer information not available");
+      return;
+    }
+
+    try {
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert("Error", "Please login to chat");
+        return;
+      }
+
+      // Get customer user ID from the order
+      const { data: order } = await supabase
+        .from("orders")
+        .select("user_id")
+        .eq("order_id", delivery.order_id)
+        .single();
+
+      if (!order) {
+        Alert.alert("Error", "Order not found");
+        return;
+      }
+
+      // Get customer avatar from profiles
+      const { data: customerProfile } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("user_id", order.user_id)
+        .single();
+
+      // Get or create conversation
+      const { data: conversation, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("rider_id", user.id)
+        .eq("buyer_id", order.user_id)
+        .single();
+
+      let conversationId;
+
+      if (error || !conversation) {
+        // Create new conversation
+        const { data: newConversation, error: createError } = await supabase
+          .from("conversations")
+          .insert({
+            rider_id: user.id,
+            buyer_id: order.user_id,
+            last_message: null,
+            last_message_time: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error("Error creating conversation:", createError);
+          Alert.alert("Error", "Failed to start chat");
+          return;
+        }
+
+        conversationId = newConversation.id;
+      } else {
+        conversationId = conversation.id;
+      }
+
+      // Navigate to chat screen with customer avatar
+      router.push({
+        pathname: "/buyer/chat",
+        params: {
+          conversationId: conversationId,
+          otherPartyName: delivery.customer_name,
+          otherPartyId: order.user_id,
+          otherPartyType: "buyer",
+          otherPartyAvatar: customerProfile?.avatar_url || "",
+        },
+      });
+    } catch (error) {
+      console.error("Error starting chat with buyer:", error);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
+  // ─── Contact Card component ─────────────────────
   const ContactCard = ({
     role,
     name,
@@ -362,7 +654,6 @@ const DeliveryDetailsModal = ({
     isVendor?: boolean;
   }) => (
     <View style={S.modalContactCard}>
-      {/* Avatar + name */}
       <View style={S.modalContactTopRow}>
         <View
           style={[S.modalContactAvatar, isVendor && S.modalContactAvatarVendor]}
@@ -377,20 +668,10 @@ const DeliveryDetailsModal = ({
           <Text style={S.modalContactName}>{name}</Text>
           <Text style={S.modalContactRole}>{role}</Text>
         </View>
-        {/* Call button */}
-        {phone && phone !== "No phone" && (
-          <TouchableOpacity
-            onPress={() => makePhoneCall(phone)}
-            style={S.modalCallButton}
-          >
-            <Ionicons name="call" size={16} color="#fff" />
-          </TouchableOpacity>
-        )}
       </View>
 
       <View style={S.modalContactDivider} />
 
-      {/* Phone */}
       {phone && phone !== "No phone" && (
         <View style={S.modalContactPhoneRow}>
           <Ionicons
@@ -403,7 +684,6 @@ const DeliveryDetailsModal = ({
         </View>
       )}
 
-      {/* Address */}
       {address && (
         <View style={S.modalContactAddressRow}>
           <Ionicons
@@ -450,7 +730,7 @@ const DeliveryDetailsModal = ({
               </View>
             </View>
 
-            {/* ── Customer ── */}
+            {/* ── Customer Info ── */}
             <View style={S.modalSection}>
               <Text style={S.modalSectionTitle}>Customer</Text>
               <ContactCard
@@ -459,9 +739,44 @@ const DeliveryDetailsModal = ({
                 phone={delivery.customer_phone}
                 address={delivery.delivery_address}
               />
+
+              {/* Customer Action Buttons */}
+              {delivery.customer_phone &&
+                delivery.customer_phone !== "No phone" && (
+                  <View style={S.modalActionButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        S.modalSecondaryButton,
+                        { flex: 1, marginRight: 4 },
+                      ]}
+                      onPress={handleChatWithBuyer}
+                    >
+                      <Ionicons
+                        name="chatbubble"
+                        size={18}
+                        color={COLORS.light.primary}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalSecondaryButtonText}>Chat</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[S.modalPrimaryButton, { flex: 1, marginLeft: 4 }]}
+                      onPress={() => makePhoneCall(delivery.customer_phone!)}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={18}
+                        color="#fff"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalPrimaryButtonText}>Call</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
             </View>
 
-            {/* ── Vendor ── */}
+            {/* ── Vendor Info ── */}
             <View style={S.modalSection}>
               <Text style={S.modalSectionTitle}>Vendor</Text>
               <ContactCard
@@ -471,76 +786,110 @@ const DeliveryDetailsModal = ({
                 address={delivery.vendor_address}
                 isVendor
               />
+
+              {/* Vendor Action Buttons */}
+              {delivery.vendor_phone &&
+                delivery.vendor_phone !== "No phone" && (
+                  <View style={S.modalActionButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        S.modalSecondaryButton,
+                        { flex: 1, marginRight: 4 },
+                      ]}
+                      onPress={handleChatWithVendor}
+                    >
+                      <Ionicons
+                        name="chatbubble"
+                        size={18}
+                        color={COLORS.light.primary}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalSecondaryButtonText}>Chat</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[S.modalPrimaryButton, { flex: 1, marginLeft: 4 }]}
+                      onPress={() => makePhoneCall(delivery.vendor_phone!)}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={18}
+                        color="#fff"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={S.modalPrimaryButtonText}>Call</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
             </View>
 
-            {/* ── Proof Photos ── */}
+            {/* Track Order Button - Only show if status is picked_up (in transit) */}
+            {delivery.status === "picked_up" && (
+              <View style={[S.modalSection, { marginTop: 0 }]}>
+                <Text style={S.trackLabel}>Track Location</Text>
+                <TouchableOpacity
+                  style={S.trackOrderButton}
+                  onPress={handleTrackOrder}
+                >
+                  <Image
+                    source={require("../../assets/img/ridermap.png")}
+                    style={S.trackOrderImage}
+                    resizeMode="cover"
+                  />
+                  <View style={S.proofOverlay}>
+                    <Ionicons name="expand-outline" size={22} color="#fff" />
+                    <Text style={S.proofOverlayText}>Tap to view</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+            {/* ── Proof Photos — View buttons only (UPDATED) ── */}
             {(delivery.pickup_proof_url || delivery.delivered_proof_url) && (
-              <View style={S.proofSection}>
-                <Text style={S.proofLabel}>Proof Photos</Text>
-
-                {delivery.pickup_proof_url && (
-                  <>
-                    <Text
+              <View style={S.modalSection}>
+                <Text style={S.modalSectionTitle}>Delivery Proof</Text>
+                <View style={S.modalPaymentCard}>
+                  {delivery.pickup_proof_url && (
+                    <View
                       style={[
-                        S.modalSectionTitle,
-                        { marginBottom: 6, fontSize: 12 },
+                        S.proofRow,
+                        { marginBottom: delivery.delivered_proof_url ? 10 : 0 },
                       ]}
                     >
-                      Pickup
-                    </Text>
-                    <TouchableOpacity
-                      style={S.proofImageContainer}
-                      onPress={() => openProofImage(delivery.pickup_proof_url!)}
-                    >
-                      <Image
-                        source={{ uri: delivery.pickup_proof_url }}
-                        style={S.proofImage}
-                        resizeMode="cover"
-                      />
-                      <View style={S.proofOverlay}>
+                      <Text style={S.proofRowLabel}>Pickup Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() =>
+                          openProofImage(delivery.pickup_proof_url!)
+                        }
+                      >
                         <Ionicons
-                          name="expand-outline"
-                          size={22}
-                          color="#fff"
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
                         />
-                        <Text style={S.proofOverlayText}>Tap to view</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                {delivery.delivered_proof_url && (
-                  <>
-                    <Text
-                      style={[
-                        S.modalSectionTitle,
-                        { marginBottom: 6, fontSize: 12 },
-                      ]}
-                    >
-                      Delivery
-                    </Text>
-                    <TouchableOpacity
-                      style={S.proofImageContainer}
-                      onPress={() =>
-                        openProofImage(delivery.delivered_proof_url!)
-                      }
-                    >
-                      <Image
-                        source={{ uri: delivery.delivered_proof_url }}
-                        style={S.proofImage}
-                        resizeMode="cover"
-                      />
-                      <View style={S.proofOverlay}>
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {delivery.delivered_proof_url && (
+                    <View style={S.proofRow}>
+                      <Text style={S.proofRowLabel}>Delivery Proof</Text>
+                      <TouchableOpacity
+                        style={S.viewProofButton}
+                        onPress={() =>
+                          openProofImage(delivery.delivered_proof_url!)
+                        }
+                      >
                         <Ionicons
-                          name="expand-outline"
-                          size={22}
-                          color="#fff"
+                          name="eye-outline"
+                          size={14}
+                          color={COLORS.light.primary}
                         />
-                        <Text style={S.proofOverlayText}>Tap to view</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </>
-                )}
+                        <Text style={S.viewProofButtonText}>View Proof</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               </View>
             )}
 
@@ -604,7 +953,6 @@ const DeliveryDetailsModal = ({
     </Modal>
   );
 };
-
 // Alias for brevity inside the component
 const S = RiderDeliveryStyles;
 const RiderDelivery = () => {
@@ -623,6 +971,17 @@ const RiderDelivery = () => {
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [selectedReceiptDelivery, setSelectedReceiptDelivery] =
     useState<Delivery | null>(null);
+  const [failModalVisible, setFailModalVisible] = useState(false);
+  const [failDeliveryData, setFailDeliveryData] = useState<{
+    delivery: Delivery | null;
+    reason: string;
+  }>({ delivery: null, reason: "" });
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const { refreshPendingDeliveries } = useRiderDeliveryContext();
+
+  // Use a ref to track if location tracking has been initialized
+  const locationInitialized = useRef(false);
 
   const navigation = useNavigation();
 
@@ -643,6 +1002,7 @@ const RiderDelivery = () => {
     setSelectedReceiptDelivery(delivery);
     setReceiptModalVisible(true);
   };
+
   // Get current rider ID
   useEffect(() => {
     const getCurrentRider = async () => {
@@ -656,37 +1016,75 @@ const RiderDelivery = () => {
     getCurrentRider();
   }, []);
 
-  // Start/stop location tracking based on app state
+  // Start/stop location tracking based on app state - OPTIMIZED VERSION
   useEffect(() => {
     if (!riderId) return;
 
-    const subscription = AppState.addEventListener(
+    // Only initialize once
+    if (locationInitialized.current) {
+      console.log("Location tracking already initialized, skipping...");
+      return;
+    }
+
+    let isMounted = true;
+    let appStateSubscription: any = null;
+
+    const initializeLocationTracking = async () => {
+      try {
+        console.log("Initializing location tracking for rider:", riderId);
+
+        // Start tracking immediately
+        await locationService.startTracking(riderId);
+
+        if (isMounted) {
+          setIsTracking(true);
+          locationInitialized.current = true;
+        }
+      } catch (error) {
+        console.error("Failed to start location tracking:", error);
+      }
+    };
+
+    // Initialize tracking
+    initializeLocationTracking();
+
+    // Listen for app state changes (but don't re-initialize)
+    appStateSubscription = AppState.addEventListener(
       "change",
-      (nextAppState: AppStateStatus) => {
+      (nextAppState) => {
+        console.log("App state changed to:", nextAppState);
+
         if (nextAppState === "active") {
-          locationService
-            .startTracking(riderId)
-            .then(() => {
-              setIsTracking(true);
-            })
-            .catch(console.error);
+          // App came to foreground - resume tracking if not already tracking
+          if (!locationService.isTrackingActive() && riderId) {
+            console.log("App active, resuming location tracking");
+            locationService
+              .startTracking(riderId)
+              .then(() => {
+                if (isMounted) setIsTracking(true);
+              })
+              .catch(console.error);
+          }
         } else if (nextAppState === "background") {
+          // App went to background - stop tracking to save battery
+          console.log("App background, stopping location tracking");
           locationService.stopTracking();
-          setIsTracking(false);
+          if (isMounted) setIsTracking(false);
         }
       },
     );
 
-    locationService
-      .startTracking(riderId)
-      .then(() => {
-        setIsTracking(true);
-      })
-      .catch(console.error);
-
+    // Cleanup when component unmounts
     return () => {
-      subscription.remove();
+      console.log("Cleaning up location tracking");
+      isMounted = false;
+
+      if (appStateSubscription) {
+        appStateSubscription.remove();
+      }
+
       locationService.stopTracking();
+      locationInitialized.current = false;
     };
   }, [riderId]);
 
@@ -727,10 +1125,10 @@ const RiderDelivery = () => {
     await loadDeliveries();
   };
 
-  // Handle accepting a delivery offer
   const handleAcceptDelivery = async (deliveryId: string) => {
     if (!riderId) return;
 
+    setAcceptingId(deliveryId);
     try {
       // Clear timeout first
       await dispatchService.clearDeliveryTimeout(deliveryId);
@@ -740,15 +1138,40 @@ const RiderDelivery = () => {
         riderId,
         true,
       );
+
+      // Get order details for notifications
+      const delivery = deliveries.find((d) => d.id === deliveryId);
+      if (delivery) {
+        const orderUsers = await getOrderUsers(delivery.order_id);
+        if (orderUsers) {
+          await notifyVendorDeliveryUpdate(
+            orderUsers.vendorId,
+            deliveryId,
+            delivery.order_number,
+            "Accepted",
+            `Rider has accepted delivery #${delivery.order_number}`,
+          );
+          await notifyBuyerDeliveryUpdate(
+            orderUsers.buyerId,
+            deliveryId,
+            delivery.order_number,
+            "Accepted",
+            `Your delivery #${delivery.order_number} has been accepted by a rider`,
+          );
+        }
+      }
+
       Alert.alert("Success", "You have accepted this delivery!");
+      refreshPendingDeliveries();
       loadDeliveries();
     } catch (error: any) {
       console.error("Error accepting delivery:", error);
       Alert.alert("Error", error.message || "Failed to accept delivery");
+    } finally {
+      setAcceptingId(null);
     }
   };
 
-  // Handle rejecting a delivery
   const handleRejectDelivery = async (deliveryId: string) => {
     if (!riderId) return;
 
@@ -761,16 +1184,35 @@ const RiderDelivery = () => {
           text: "Reject",
           style: "destructive",
           onPress: async () => {
+            setRejectingId(deliveryId);
             try {
-              // Clear timeout first
               await dispatchService.clearDeliveryTimeout(deliveryId);
 
               await deliveryService.respondToOffer(deliveryId, riderId, false);
+
+              // Get order details for notifications
+              const delivery = deliveries.find((d) => d.id === deliveryId);
+              if (delivery) {
+                const orderUsers = await getOrderUsers(delivery.order_id);
+                if (orderUsers) {
+                  await notifyVendorDeliveryUpdate(
+                    orderUsers.vendorId,
+                    deliveryId,
+                    delivery.order_number,
+                    "Rejected",
+                    `Rider rejected delivery #${delivery.order_number}`,
+                  );
+                }
+              }
+
               Alert.alert("Success", "Delivery rejected");
+              refreshPendingDeliveries();
               loadDeliveries();
             } catch (error) {
               console.error("Error rejecting delivery:", error);
               Alert.alert("Error", "Failed to reject delivery");
+            } finally {
+              setRejectingId(null);
             }
           },
         },
@@ -778,10 +1220,8 @@ const RiderDelivery = () => {
     );
   };
 
-  // Handle pickup with photo proof
   const handlePickupWithProof = async (delivery: Delivery) => {
     try {
-      // Request camera permission
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
@@ -791,7 +1231,6 @@ const RiderDelivery = () => {
         return;
       }
 
-      // Open camera
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
@@ -802,7 +1241,6 @@ const RiderDelivery = () => {
         setUploadingId(delivery.id);
         const imageUri = result.assets[0].uri;
 
-        // Upload image and update status
         const imageUrl = await deliveryService.uploadProofImage(
           imageUri,
           delivery.id,
@@ -816,6 +1254,25 @@ const RiderDelivery = () => {
           imageUrl,
         );
 
+        // Send notifications
+        const orderUsers = await getOrderUsers(delivery.order_id);
+        if (orderUsers) {
+          await notifyVendorDeliveryUpdate(
+            orderUsers.vendorId,
+            delivery.id,
+            delivery.order_number,
+            "Picked Up",
+            `Order #${delivery.order_number} has been picked up by rider`,
+          );
+          await notifyBuyerDeliveryUpdate(
+            orderUsers.buyerId,
+            delivery.id,
+            delivery.order_number,
+            "Picked Up",
+            `Your order #${delivery.order_number} has been picked up and is on the way!`,
+          );
+        }
+
         Alert.alert("Success", "Pickup confirmed with proof photo!");
         loadDeliveries();
       }
@@ -827,10 +1284,8 @@ const RiderDelivery = () => {
     }
   };
 
-  // Handle delivery with photo proof
   const handleDeliveredWithProof = async (delivery: Delivery) => {
     try {
-      // Request camera permission
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
@@ -840,7 +1295,6 @@ const RiderDelivery = () => {
         return;
       }
 
-      // Open camera
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
@@ -851,7 +1305,6 @@ const RiderDelivery = () => {
         setUploadingId(delivery.id);
         const imageUri = result.assets[0].uri;
 
-        // Upload image and update status
         const imageUrl = await deliveryService.uploadProofImage(
           imageUri,
           delivery.id,
@@ -866,6 +1319,25 @@ const RiderDelivery = () => {
           imageUrl,
         );
 
+        // Send notifications
+        const orderUsers = await getOrderUsers(delivery.order_id);
+        if (orderUsers) {
+          await notifyVendorDeliveryUpdate(
+            orderUsers.vendorId,
+            delivery.id,
+            delivery.order_number,
+            "Delivered",
+            `Order #${delivery.order_number} has been delivered successfully!`,
+          );
+          await notifyBuyerDeliveryUpdate(
+            orderUsers.buyerId,
+            delivery.id,
+            delivery.order_number,
+            "Delivered",
+            `Your order #${delivery.order_number} has been delivered! Thank you for ordering!`,
+          );
+        }
+
         Alert.alert("Success", "Delivery completed with proof photo!");
         loadDeliveries();
       }
@@ -876,7 +1348,6 @@ const RiderDelivery = () => {
       setUploadingId(null);
     }
   };
-
   // Make phone call
   const makePhoneCall = (phoneNumber: string) => {
     if (phoneNumber && phoneNumber !== "No phone") {
@@ -1010,20 +1481,55 @@ const RiderDelivery = () => {
                 <TouchableOpacity
                   style={RiderDeliveryStyles.secondaryButton}
                   onPress={() => handleRejectDelivery(delivery.id)}
-                  disabled={isUploading}
+                  disabled={
+                    acceptingId === delivery.id || rejectingId === delivery.id
+                  }
                 >
-                  <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                    Reject
-                  </Text>
+                  {rejectingId === delivery.id ? (
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <ActivityIndicator
+                        size="small"
+                        color="#666"
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                        Rejecting...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={RiderDeliveryStyles.secondaryButtonText}>
+                      Reject Order
+                    </Text>
+                  )}
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={RiderDeliveryStyles.primaryButton}
                   onPress={() => handleAcceptDelivery(delivery.id)}
-                  disabled={isUploading}
+                  disabled={
+                    acceptingId === delivery.id || rejectingId === delivery.id
+                  }
                 >
-                  <Text style={RiderDeliveryStyles.primaryButtonText}>
-                    Accept
-                  </Text>
+                  {acceptingId === delivery.id ? (
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <ActivityIndicator
+                        size="small"
+                        color="#fff"
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={RiderDeliveryStyles.primaryButtonText}>
+                        Accepting...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={RiderDeliveryStyles.primaryButtonText}>
+                      Accept Order
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </>
             )}
@@ -1071,25 +1577,25 @@ const RiderDelivery = () => {
               </>
             )}
 
-            {/* STAGE 4: Picked up - En route to customer */}
+            {/* STAGE 4: Picked up - En route to customer - REPLACED Contact Customer with Report Issue */}
             {delivery.status === "picked_up" && (
               <>
                 <TouchableOpacity
-                  style={RiderDeliveryStyles.secondaryButton}
+                  style={RiderDeliveryStyles.reportButton}
                   onPress={() => {
-                    if (
-                      delivery.customer_phone &&
-                      delivery.customer_phone !== "No phone"
-                    ) {
-                      makePhoneCall(delivery.customer_phone);
-                    } else {
-                      Alert.alert("Error", "No customer phone available");
-                    }
+                    setFailDeliveryData({ delivery, reason: "" });
+                    setFailModalVisible(true);
                   }}
                   disabled={isUploading}
                 >
-                  <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                    Contact Customer
+                  <Ionicons
+                    name="warning-outline"
+                    size={16}
+                    color="#ef4444"
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={RiderDeliveryStyles.reportButtonText}>
+                    Report Issue
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1121,61 +1627,11 @@ const RiderDelivery = () => {
                 </Text>
               </TouchableOpacity>
             )}
-
-            {/* Failed deliveries */}
-            {delivery.status === "failed" && (
-              <TouchableOpacity style={RiderDeliveryStyles.primaryButton}>
-                <Text style={RiderDeliveryStyles.primaryButtonText}>
-                  Report
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Cancelled/Rejected deliveries */}
-            {(delivery.status === "cancelled" ||
-              delivery.status === "rejected") && (
-              <TouchableOpacity style={RiderDeliveryStyles.secondaryButton}>
-                <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                  Details
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         </View>
       </TouchableOpacity>
     );
   };
-
-  // Show tracking status indicator
-  const renderTrackingIndicator = () => (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        backgroundColor: isTracking ? "#e8f5e9" : "#ffebee",
-      }}
-    >
-      <View
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: isTracking ? "#4caf50" : "#f44336",
-          marginRight: 8,
-        }}
-      />
-      <Text
-        style={{
-          fontSize: 12,
-          color: isTracking ? "#2e7d32" : "#c62828",
-        }}
-      >
-        {isTracking ? "Location tracking active" : "Location tracking off"}
-      </Text>
-    </View>
-  );
 
   if (loading && !refreshing) {
     return (
@@ -1206,8 +1662,8 @@ const RiderDelivery = () => {
 
   return (
     <SafeAreaView style={RiderDeliveryStyles.container}>
-      {/* Tracking Status Indicator */}
-      {renderTrackingIndicator()}
+      {/* Tracking Status Indicator - Using memoized component */}
+      <TrackingIndicator isTracking={isTracking} />
 
       {/* Header */}
       <View style={RiderDeliveryStyles.header}>
@@ -1249,7 +1705,10 @@ const RiderDelivery = () => {
       </ScrollView>
 
       {/* Deliveries List */}
-      <ScrollView
+      <FlatList
+        data={filteredDeliveries}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => renderDeliveryCard(item)}
         style={RiderDeliveryStyles.ordersContainer}
         refreshControl={
           <RefreshControl
@@ -1258,10 +1717,7 @@ const RiderDelivery = () => {
             colors={[COLORS.light.primary]}
           />
         }
-      >
-        {filteredDeliveries.length > 0 ? (
-          filteredDeliveries.map(renderDeliveryCard)
-        ) : (
+        ListEmptyComponent={
           <View style={RiderDeliveryStyles.emptyState}>
             <Text style={RiderDeliveryStyles.emptyIcon}>📦</Text>
             <Text style={RiderDeliveryStyles.emptyTitle}>
@@ -1271,8 +1727,8 @@ const RiderDelivery = () => {
               You don't have any deliveries in this category yet
             </Text>
           </View>
-        )}
-      </ScrollView>
+        }
+      />
 
       {/* Delivery Details Modal (View-Only) */}
       <DeliveryDetailsModal
@@ -1292,6 +1748,141 @@ const RiderDelivery = () => {
         delivery={selectedReceiptDelivery}
         riderId={riderId}
       />
+
+      {/* Fail Delivery Modal */}
+      <Modal
+        visible={failModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFailModalVisible(false)}
+      >
+        <View style={S.modalOverlay}>
+          <View style={[S.modalContent, { maxHeight: "50%" }]}>
+            <View style={S.modalHeader}>
+              <Text style={S.modalTitle}>Report Issue</Text>
+              <TouchableOpacity
+                style={S.modalCloseButton}
+                onPress={() => setFailModalVisible(false)}
+              >
+                <Ionicons name="close" size={16} color="#555" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={S.modalBody}>
+              <Text style={RiderDeliveryStyles.failInstruction}>
+                Please select a reason for reporting this delivery issue:
+              </Text>
+
+              {[
+                "Customer not available",
+                "Wrong address",
+                "Customer refused delivery",
+                "Unable to locate address",
+                "Delivery area unsafe",
+                "Vehicle issue",
+                "Other",
+              ].map((reason) => (
+                <TouchableOpacity
+                  key={reason}
+                  style={[
+                    RiderDeliveryStyles.failReasonOption,
+                    failDeliveryData.reason === reason &&
+                      RiderDeliveryStyles.failReasonSelected,
+                  ]}
+                  onPress={() =>
+                    setFailDeliveryData((prev) => ({ ...prev, reason }))
+                  }
+                >
+                  <Text
+                    style={[
+                      RiderDeliveryStyles.failReasonText,
+                      failDeliveryData.reason === reason &&
+                        RiderDeliveryStyles.failReasonTextSelected,
+                    ]}
+                  >
+                    {reason}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              <View style={RiderDeliveryStyles.failActionButtons}>
+                <TouchableOpacity
+                  style={RiderDeliveryStyles.failCancelButton}
+                  onPress={() => setFailModalVisible(false)}
+                >
+                  <Text style={RiderDeliveryStyles.failCancelButtonText}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    RiderDeliveryStyles.failConfirmButton,
+                    (!failDeliveryData.reason || uploadingId) &&
+                      RiderDeliveryStyles.disabledButton,
+                  ]}
+                  // Inside the fail modal's confirm button onPress
+                  onPress={async () => {
+                    if (!failDeliveryData.delivery || !failDeliveryData.reason)
+                      return;
+
+                    setUploadingId(failDeliveryData.delivery.id);
+                    try {
+                      await deliveryService.failDelivery(
+                        failDeliveryData.delivery.id,
+                        failDeliveryData.delivery.order_id,
+                        riderId!,
+                        failDeliveryData.reason,
+                      );
+
+                      // Send notifications
+                      const orderUsers = await getOrderUsers(
+                        failDeliveryData.delivery.order_id,
+                      );
+                      if (orderUsers) {
+                        await notifyVendorDeliveryUpdate(
+                          orderUsers.vendorId,
+                          failDeliveryData.delivery.id,
+                          failDeliveryData.delivery.order_number,
+                          "Failed",
+                          `Delivery #${failDeliveryData.delivery.order_number} failed: ${failDeliveryData.reason}`,
+                        );
+                        await notifyBuyerDeliveryUpdate(
+                          orderUsers.buyerId,
+                          failDeliveryData.delivery.id,
+                          failDeliveryData.delivery.order_number,
+                          "Failed",
+                          `Delivery #${failDeliveryData.delivery.order_number} could not be completed: ${failDeliveryData.reason}`,
+                        );
+                      }
+
+                      Alert.alert("Success", "Issue reported successfully");
+                      setFailModalVisible(false);
+                      setFailDeliveryData({ delivery: null, reason: "" });
+                      loadDeliveries();
+                    } catch (error: any) {
+                      Alert.alert(
+                        "Error",
+                        error.message || "Failed to report issue",
+                      );
+                    } finally {
+                      setUploadingId(null);
+                    }
+                  }}
+                  disabled={!failDeliveryData.reason || !!uploadingId}
+                >
+                  {uploadingId === failDeliveryData.delivery?.id ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={RiderDeliveryStyles.failConfirmButtonText}>
+                      Confirm
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

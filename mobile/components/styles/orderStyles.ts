@@ -25,6 +25,7 @@ export const orderStyles = StyleSheet.create({
   tabsContainer: {
     backgroundColor: COLORS.common.white,
     maxHeight: 60,
+    flexShrink: 0,
   },
   tabsContent: {
     paddingHorizontal: 16,
@@ -175,7 +176,6 @@ export const orderStyles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 160,
   },
   emptyIcon: {
     fontSize: 60,
@@ -950,5 +950,21 @@ export const orderStyles = StyleSheet.create({
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
+  }, // Add these to your orderStyles
+  productRatingContainer: {
+    marginBottom: 16,
+  },
+  productRatingStars: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+
+  starIcon: {
+    marginRight: 8,
+  },
+
+  productCommentContainer: {
+    marginTop: 8,
+    marginBottom: 16,
   },
 });

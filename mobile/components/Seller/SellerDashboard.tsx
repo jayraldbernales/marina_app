@@ -23,6 +23,7 @@ type OrderStatus =
   | "shipped"
   | "rejected"
   | "delivered"
+  | "failed"
   | "cancelled";
 interface RecentOrder {
   id: string;
@@ -322,19 +323,21 @@ const SellerDashboard = () => {
     const getStatusColor = (status: OrderStatus): string => {
       switch (status) {
         case "pending":
-          return "#f59e0b";
+          return "#f59e0b"; // Orange
         case "preparing":
-          return "#3b82f6";
+          return "#3b82f6"; // Blue
         case "ready-to-ship":
-          return "#8b5cf6";
+          return "#8b5cf6"; // Purple
         case "shipped":
-          return "#10b981";
+          return "#10b981"; // Green
         case "delivered":
-          return "#10b981";
+          return "#10b981"; // Green
         case "cancelled":
-          return "#6b7280";
+          return "#6b7280"; // Gray
         case "rejected":
-          return "#ef4444";
+          return "#ef4444"; // Red
+        case "failed":
+          return "#dc2626"; // Darker red for failed
         default:
           return COLORS.light.primary;
       }

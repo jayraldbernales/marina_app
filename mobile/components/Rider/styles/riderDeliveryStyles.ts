@@ -465,23 +465,51 @@ export const RiderDeliveryStyles = StyleSheet.create({
     flex: 1,
     lineHeight: 19,
   },
-  // Call button inside the card
-  modalCallButton: {
+
+  // Add these to your RiderDeliveryStyles
+  modalActionButtonsContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.light.primary,
-    padding: 8,
-    borderRadius: 20,
-    alignSelf: "flex-start",
-    gap: 5,
-  },
-  modalCallButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.1,
+    gap: 4,
   },
 
+  modalPrimaryButton: {
+    backgroundColor: COLORS.light.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+
+  modalPrimaryButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  modalSecondaryButton: {
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.light.primary,
+  },
+
+  modalSecondaryButtonText: {
+    color: COLORS.light.primary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   // ─── Legacy aliases kept for backward compat ──────────────────────────────
   modalCustomerName: {
     fontSize: 15,
@@ -904,5 +932,137 @@ export const RiderDeliveryStyles = StyleSheet.create({
     color: "#999",
     marginTop: 4,
     marginBottom: 12,
+  }, // Add these to your RiderDeliveryStyles object
+  reportButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fee2e2",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    marginRight: 8,
+  },
+  reportButtonText: {
+    fontSize: 14,
+    color: "#ef4444",
+    fontWeight: "500",
+  },
+  failInstruction: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  failReasonOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  failReasonSelected: {
+    backgroundColor: COLORS.light.primary + "10",
+    borderColor: COLORS.light.primary,
+  },
+  failReasonText: {
+    fontSize: 14,
+    color: "#333",
+  },
+  failReasonTextSelected: {
+    color: COLORS.common.white,
+    fontWeight: "600",
+  },
+  failActionButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  failCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    marginRight: 8,
+    alignItems: "center",
+  },
+  failCancelButtonText: {
+    fontSize: 14,
+    color: "#666",
+    fontWeight: "600",
+  },
+  failConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    backgroundColor: "#ef4444",
+    borderRadius: 8,
+    marginLeft: 8,
+    alignItems: "center",
+  },
+  failConfirmButtonText: {
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "600",
+  },
+  disabledButton: {
+    opacity: 0.5,
+  }, // ─── Track Order Button Styles ───────────────────────────────────────────
+  trackOrderButton: {
+    width: "100%",
+    height: 180,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 16,
+    backgroundColor: COLORS.light.primary + "10",
+  },
+  trackOrderImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: COLORS.light.primary,
+  },
+  trackLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginVertical: 8,
+    paddingHorizontal: 2,
+  }, // Add these to your RiderDeliveryStyles
+  proofRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  proofRowLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  viewProofButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  viewProofButtonText: {
+    fontSize: 14,
+    color: COLORS.light.primary,
+    fontWeight: "500",
+  },
+  modalPaymentCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
   },
 });

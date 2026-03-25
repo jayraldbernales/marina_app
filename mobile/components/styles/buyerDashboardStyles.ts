@@ -185,7 +185,7 @@ export const buyerDashboardStyles = StyleSheet.create({
     position: "absolute" as "absolute",
     top: -5,
     right: -1,
-    backgroundColor: "#ff4444",
+    backgroundColor: COLORS.light.coral,
     borderRadius: 10,
     minWidth: 18,
     height: 18,
@@ -199,5 +199,23 @@ export const buyerDashboardStyles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "bold" as "bold",
+  },
+  discountBadge: {
+    backgroundColor: "hsla(14, 85%, 60%, 0.2)",
+    paddingHorizontal: 6,
+    marginRight: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  discountText: {
+    color: COLORS.light.coral,
+    fontSize: 8,
+    fontWeight: "bold",
+  },
+  discountedPrice: {
+    fontWeight: "bold",
+    color: COLORS.light.coral,
+    fontSize: 14,
+    marginRight: 4,
   },
 });

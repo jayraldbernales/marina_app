@@ -109,7 +109,7 @@ const Settings = () => {
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+          {/* <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
             <View style={styles.settingIconContainer}>
               <Ionicons
                 name="lock-closed-outline"
@@ -124,7 +124,7 @@ const Settings = () => {
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
         {/* Notifications
@@ -302,7 +302,7 @@ const Settings = () => {
         </View>
 
         {/* Danger Zone */}
-        <View style={styles.card}>
+        {/* <View style={styles.card}>
           <Text style={styles.cardTitle}>Account Actions</Text>
 
           <TouchableOpacity
@@ -323,7 +323,7 @@ const Settings = () => {
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
-        </View>
+        </View> */}
 
         {/* App Version */}
         <View style={styles.versionContainer}>

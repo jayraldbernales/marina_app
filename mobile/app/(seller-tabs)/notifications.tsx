@@ -1,3 +1,6 @@
-import SellerNotification from "@/components/Seller/SellerNotification";
+import React from "react";
+import VendorNotificationScreen from "@/components/notifications/VendorNotificationScreen";
 
-export default SellerNotification;
+export default function VendorNotificationsTab() {
+  return <VendorNotificationScreen />;
+}
