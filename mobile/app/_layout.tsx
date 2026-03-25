@@ -1,8 +1,8 @@
 import * as WebBrowser from "expo-web-browser";
 import Toast from "react-native-toast-message";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
-import { useEffect, useState } from "react";
+import { View, StyleSheet, ActivityIndicator, Platform } from "react-native";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useUserStore } from "../store/userStore";
 import { COLORS } from "../constants";
@@ -12,8 +12,21 @@ import { NotificationProvider } from "../contexts/NotificationContext";
 import { CartProvider } from "../contexts/CartContext";
 import { VendorOrderProvider } from "../contexts/VendorOrderContext";
 import { RiderDeliveryProvider } from "../contexts/RiderDeliveryContext";
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
 
 WebBrowser.maybeCompleteAuthSession();
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export default function Layout() {
   const router = useRouter();
@@ -22,6 +35,10 @@ export default function Layout() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasSeenWelcome, setHasSeenWelcome] = useState(false);
   const { user, setUser } = useUserStore();
+
+  const notificationListener = useRef<any>(null);
+  const responseListener = useRef<any>(null);
+
   useEffect(() => {
     const handleDeepLink = async (url: string) => {
       if (!url.includes("type=recovery") && !url.includes("reset-password"))
@@ -46,27 +63,23 @@ export default function Layout() {
       }
     };
 
-    // App already open when link clicked
     const subscription = Linking.addEventListener("url", ({ url }) => {
       handleDeepLink(url);
     });
 
-    // App opened cold from the link
     Linking.getInitialURL().then((url) => {
       if (url) handleDeepLink(url);
     });
 
     return () => subscription.remove();
   }, []);
-  // Initialize auth session and welcome flag on app launch
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Load welcome flag
         const seenWelcome = await AsyncStorage.getItem("hasSeenWelcome");
         setHasSeenWelcome(seenWelcome === "true");
 
-        // Get current session
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -88,7 +101,6 @@ export default function Layout() {
 
     initializeAuth();
 
-    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -109,6 +121,82 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
+    const registerForPushNotifications = async () => {
+      if (!user?.id) return;
+
+      try {
+        const { status: existingStatus } =
+          await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+
+        if (finalStatus !== "granted") {
+          console.log("Failed to get push token permissions");
+          return;
+        }
+
+        const token = await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        });
+
+        console.log("Push token:", token.data);
+        await AsyncStorage.setItem("expoPushToken", token.data);
+
+        // ========== SAVE TO DATABASE ==========
+        const { error: upsertError } = await supabase
+          .from("user_push_tokens")
+          .upsert(
+            {
+              user_id: user.id,
+              expo_push_token: token.data,
+              device_type: Platform.OS,
+              updated_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "expo_push_token",
+            },
+          );
+
+        if (upsertError) {
+          console.error("Error saving push token to database:", upsertError);
+        } else {
+          console.log("✅ Push token saved to database for user:", user.id);
+        }
+        // ========== END SAVE ==========
+      } catch (error) {
+        console.error("Error registering for push notifications:", error);
+      }
+    };
+
+    registerForPushNotifications();
+
+    notificationListener.current =
+      Notifications.addNotificationReceivedListener((notification) => {
+        console.log("Notification received:", notification);
+      });
+
+    responseListener.current =
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        console.log("Notification tapped:", response);
+      });
+
+    return () => {
+      if (notificationListener.current) {
+        Notifications.removeNotificationSubscription(
+          notificationListener.current,
+        );
+      }
+      if (responseListener.current) {
+        Notifications.removeNotificationSubscription(responseListener.current);
+      }
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!isReady || !(segments.length > 0)) return;
 
     const currentSegment = segments[0] as string;
@@ -122,7 +210,6 @@ export default function Layout() {
     ];
     const isAuthScreen = authScreens.includes(currentSegment);
 
-    // If welcome already seen and user lands on index, skip it
     if (currentSegment === "index" && hasSeenWelcome) {
       router.replace("/login");
       return;
@@ -134,7 +221,7 @@ export default function Layout() {
       router.replace("/(tabs)");
     }
   }, [user, isReady, segments, hasSeenWelcome]);
-  // Show loading screen during auth initialization
+
   if (isLoading) {
     return (
       <View
@@ -156,7 +243,6 @@ export default function Layout() {
         <Toast topOffset={60} />
       </View>
 
-      {/* WRAP YOUR STACK WITH NOTIFICATION PROVIDER */}
       <NotificationProvider>
         <CartProvider>
           <VendorOrderProvider>

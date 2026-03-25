@@ -9,7 +9,6 @@ import {
   SafeAreaView,
   ImageSourcePropType,
   ActivityIndicator,
-  RefreshControl,
   Alert,
   Modal,
   Linking,
@@ -25,6 +24,7 @@ import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { dispatchService } from "@/services/dispatchService";
 import { useVendorOrderContext } from "@/contexts/VendorOrderContext";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type OrderStatus =
   | "pending"
@@ -638,7 +638,36 @@ const SellerOrders = () => {
     { key: "failed", label: "Failed" },
     { key: "cancelled", label: "Cancelled / Rejected" },
   ];
-
+  // Send notification to buyer about order status
+  const notifyBuyerOrderUpdate = async (
+    buyerUserId: string,
+    orderId: string,
+    orderNumber: string,
+    status: string,
+    message: string,
+  ) => {
+    try {
+      await createNotificationWithPush(
+        {
+          userId: buyerUserId,
+          userType: "buyer",
+          type: "order_update",
+          title: `📦 Order ${status}`,
+          message: message,
+          metadata: {
+            order_id: orderId,
+            order_number: orderNumber,
+            status: status,
+          },
+          relatedId: orderId,
+        },
+        true,
+      );
+      console.log(`✅ Push notification sent to buyer for order ${status}`);
+    } catch (error) {
+      console.error(`Error sending buyer notification:`, error);
+    }
+  };
   // Handle order card press
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
@@ -703,7 +732,6 @@ const SellerOrders = () => {
     ]);
   };
 
-  // Handle verify payment
   const handleVerifyPayment = async (orderId: string) => {
     Alert.alert(
       "Verify Payment",
@@ -745,6 +773,18 @@ const SellerOrders = () => {
                 );
               }
 
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Payment Verified",
+                  `Your payment for order #${order.orderNumber} has been verified!`,
+                );
+              }
+
               Alert.alert("Success", "Payment has been verified successfully");
             } catch (error: any) {
               console.error("Verify payment error:", error);
@@ -758,7 +798,6 @@ const SellerOrders = () => {
     );
   };
 
-  // Handle reject payment
   const handleRejectPayment = async (orderId: string) => {
     Alert.alert(
       "Reject Payment",
@@ -772,7 +811,6 @@ const SellerOrders = () => {
             try {
               setUpdatingOrderId(orderId);
 
-              // Call the database function to reject payment and restore stock
               const { error } = await supabase.rpc(
                 "reject_payment_with_restock",
                 {
@@ -783,7 +821,6 @@ const SellerOrders = () => {
 
               if (error) throw error;
 
-              // Update local state
               setOrders((prevOrders) =>
                 prevOrders.map((order) =>
                   order.id === orderId
@@ -796,7 +833,6 @@ const SellerOrders = () => {
                 ),
               );
 
-              // Update selected order if modal is open
               if (selectedOrder?.id === orderId) {
                 setSelectedOrder((prev) =>
                   prev
@@ -806,6 +842,18 @@ const SellerOrders = () => {
                         status: "rejected" as OrderStatus,
                       }
                     : null,
+                );
+              }
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Payment Rejected",
+                  `Your payment for order #${order.orderNumber} was rejected.`,
                 );
               }
 
@@ -824,7 +872,6 @@ const SellerOrders = () => {
       ],
     );
   };
-
   // Fetch rider assignment for an order
   const fetchRiderAssignment = async (orderId: string) => {
     try {
@@ -1267,7 +1314,6 @@ const SellerOrders = () => {
     }
   };
 
-  // Handle Accept Order with stock check
   const handleAcceptOrder = async (orderId: string) => {
     const hasStock = await checkStockAvailability(orderId);
     if (!hasStock) return;
@@ -1276,24 +1322,50 @@ const SellerOrders = () => {
       { text: "Cancel", style: "cancel" },
       {
         text: "Accept",
-        onPress: () => updateOrderStatus(orderId, "preparing"),
+        onPress: async () => {
+          await updateOrderStatus(orderId, "preparing");
+
+          // Send notification to buyer
+          const order = orders.find((o) => o.id === orderId);
+          if (order && order.customerId) {
+            await notifyBuyerOrderUpdate(
+              order.customerId,
+              orderId,
+              order.orderNumber,
+              "Accepted",
+              `Your order #${order.orderNumber} has been accepted and is being prepared!`,
+            );
+          }
+        },
       },
     ]);
   };
 
-  // Handle Reject Order
   const handleRejectOrder = (orderId: string) => {
     Alert.alert("Reject Order", "Are you sure you want to reject this order?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Reject",
         style: "destructive",
-        onPress: () => updateOrderStatus(orderId, "rejected"),
+        onPress: async () => {
+          await updateOrderStatus(orderId, "rejected");
+
+          // Send notification to buyer
+          const order = orders.find((o) => o.id === orderId);
+          if (order && order.customerId) {
+            await notifyBuyerOrderUpdate(
+              order.customerId,
+              orderId,
+              order.orderNumber,
+              "Rejected",
+              `Your order #${order.orderNumber} has been rejected by the vendor.`,
+            );
+          }
+        },
       },
     ]);
   };
 
-  // Handle Cancel Order (for finding_rider, preparing, ready-to-ship)
   const handleCancelOrder = (orderId: string) => {
     Alert.alert(
       "Cancel Order",
@@ -1328,6 +1400,19 @@ const SellerOrders = () => {
                 );
               }
               refreshPendingOrders();
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Cancelled",
+                  `Your order #${order.orderNumber} has been cancelled.`,
+                );
+              }
+
               Alert.alert(
                 "Success",
                 "Order has been cancelled and stock restored",
@@ -1344,7 +1429,6 @@ const SellerOrders = () => {
     );
   };
 
-  // Handle Mark Ready to Ship
   const handleMarkReadyToShip = (orderId: string) => {
     Alert.alert(
       "Mark Ready to Ship",
@@ -1380,6 +1464,18 @@ const SellerOrders = () => {
                   );
                 }
               }
+
+              // Send notification to buyer
+              const order = orders.find((o) => o.id === orderId);
+              if (order && order.customerId) {
+                await notifyBuyerOrderUpdate(
+                  order.customerId,
+                  orderId,
+                  order.orderNumber,
+                  "Ready for Pickup",
+                  `Your order #${order.orderNumber} is ready for pickup by the rider!`,
+                );
+              }
             } catch (error) {
               console.error("Error in mark ready to ship:", error);
             }
@@ -1388,7 +1484,6 @@ const SellerOrders = () => {
       ],
     );
   };
-
   // Handle Mark as Shipped
   const handleMarkAsShipped = (orderId: string) => {
     Alert.alert(

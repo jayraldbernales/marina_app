@@ -19,6 +19,7 @@ import { useUserStore } from "@/store/userStore";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type VendorPayment = {
   vendorUserId: string;
@@ -179,10 +180,12 @@ const MultiVendorGcashPaymentScreen = () => {
       const screenshotUrl = await uploadScreenshot(gcashScreenshot);
 
       // Create order for this vendor with payment proof
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
       const { data: newOrderId, error: rpcError } = await supabase.rpc(
         "place_cart_order",
         {
-          p_order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          p_order_number: orderNumber,
           p_user_id: user?.id,
           p_vendor_user_id: currentVendor.vendorUserId,
           p_address_id: addressId,
@@ -201,9 +204,60 @@ const MultiVendorGcashPaymentScreen = () => {
       // Get order number
       const { data: orderData } = await supabase
         .from("orders")
-        .select("order_number")
+        .select("order_number, total_amount")
         .eq("order_id", newOrderId)
         .single();
+
+      // ========== SEND PUSH NOTIFICATIONS ==========
+      try {
+        // Notify vendor
+        await createNotificationWithPush(
+          {
+            userId: currentVendor.vendorUserId,
+            userType: "vendor",
+            type: "order_paid",
+            title: "🛒 New Order with GCash Payment!",
+            message: `Order #${orderData?.order_number} - ₱${currentVendor.total.toLocaleString()} (GCash payment)`,
+            metadata: {
+              order_id: newOrderId,
+              order_number: orderData?.order_number,
+              total: currentVendor.total,
+              shop_name: currentVendor.shopName,
+            },
+            relatedId: newOrderId,
+          },
+          true,
+        );
+        console.log(
+          `✅ Push notification sent to vendor ${currentVendor.shopName}`,
+        );
+
+        // Notify buyer
+        if (user?.id) {
+          await createNotificationWithPush(
+            {
+              userId: user.id,
+              userType: "buyer",
+              type: "order_placed",
+              title: "✅ Order Placed with GCash!",
+              message: `Your order for ${currentVendor.shopName} (${orderData?.order_number}) has been placed. Payment pending verification.`,
+              metadata: {
+                order_id: newOrderId,
+                order_number: orderData?.order_number,
+                shop_name: currentVendor.shopName,
+                total: currentVendor.total,
+              },
+              relatedId: newOrderId,
+            },
+            true,
+          );
+          console.log("✅ Push notification sent to buyer");
+        }
+      } catch (pushError) {
+        console.error("Error sending push notifications:", pushError);
+        // Don't block the payment flow if push fails
+      }
+      // ========== END PUSH NOTIFICATIONS ==========
 
       // Update state
       const updatedPayments = [...vendorPayments];

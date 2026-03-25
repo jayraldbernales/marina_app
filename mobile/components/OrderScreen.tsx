@@ -27,6 +27,7 @@ import RatingModal from "../components/Buyer/RatingModal";
 
 type OrderStatus =
   | "pending"
+  | "finding_rider"
   | "preparing"
   | "ready-to-ship"
   | "shipped"
@@ -203,6 +204,7 @@ const OrderDetailsModal = ({
   const getStatusColor = (status: OrderStatus) => {
     const map: Record<string, string> = {
       pending: "#f59e0b",
+      finding_rider: COLORS.light.coral,
       preparing: "#3b82f6",
       "ready-to-ship": "#8b5cf6",
       shipped: "#10b981",
@@ -217,6 +219,7 @@ const OrderDetailsModal = ({
   const getStatusText = (status: OrderStatus) => {
     const map: Record<string, string> = {
       pending: "Pending",
+      finding_rider: "Finding Rider",
       preparing: "Preparing",
       "ready-to-ship": "Ready to Ship",
       shipped: "Shipped",
@@ -629,6 +632,7 @@ const OrdersScreen = () => {
     switch (dbStatus) {
       case "pending":
         return "to-pay";
+      case "finding_rider":
       case "preparing":
       case "ready-to-ship":
         return "to-ship";
@@ -811,6 +815,7 @@ const OrdersScreen = () => {
       const riderPromises = displayOrders.map((o) => {
         const needs = [
           "preparing",
+          "finding_rider",
           "ready-to-ship",
           "shipped",
           "delivered",
@@ -1200,7 +1205,8 @@ const OrdersScreen = () => {
                 )}
               </>
             )}
-            {(order.status === "preparing" ||
+            {(order.status === "finding_rider" ||
+              order.status === "preparing" ||
               order.status === "ready-to-ship") && (
               <TouchableOpacity
                 style={[
