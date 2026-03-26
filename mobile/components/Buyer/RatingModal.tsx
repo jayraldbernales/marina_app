@@ -19,6 +19,7 @@ import { useUserStore } from "@/store/userStore";
 // Types
 type OrderStatus =
   | "pending"
+  | "finding_rider"
   | "preparing"
   | "ready-to-ship"
   | "shipped"

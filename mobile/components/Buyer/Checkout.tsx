@@ -27,6 +27,7 @@ import { supabase } from "@/lib/supabase";
 import { useUserStore } from "@/store/userStore";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type RootStackParamList = {
   OrderTracking: undefined;
@@ -477,6 +478,54 @@ const DirectOrderScreen = () => {
 
         if (orderFetchError) throw orderFetchError;
         if (!orderData) throw new Error("Failed to get order details");
+
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          // Send notification to VENDOR
+          if (product?.vendor_user_id) {
+            await createNotificationWithPush(
+              {
+                userId: product.vendor_user_id,
+                userType: "vendor",
+                type: "order",
+                title: "🛒 New Order Received!",
+                message: `Order #${orderData.order_number} - ₱${orderData.total_amount.toLocaleString()}`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderData.order_number,
+                  total: orderData.total_amount,
+                },
+                relatedId: orderId,
+              },
+              true,
+            );
+            console.log("✅ Push notification sent to vendor");
+          }
+
+          // Send notification to BUYER (current user)
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Order Placed Successfully!",
+                message: `Your order #${orderData.order_number} has been placed.`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderData.order_number,
+                  total: orderData.total_amount,
+                },
+                relatedId: orderId,
+              },
+              true,
+            );
+            console.log("✅ Push notification sent to buyer");
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
 
         setProduct((prev: any) => ({
           ...prev,

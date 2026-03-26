@@ -261,7 +261,7 @@ export function useNotifications(userId: string | null) {
   const [buyerUnreadCount, setBuyerUnreadCount] = useState(0);
   const [vendorUnreadCount, setVendorUnreadCount] = useState(0);
   const [riderUnreadCount, setRiderUnreadCount] = useState(0);
-  const [messageUnreadCount, setMessageUnreadCount] = useState(0); // ADD THIS for chat messages
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // Define loadNotifications outside useEffect so it can be called from refetch
@@ -286,8 +286,6 @@ export function useNotifications(userId: string | null) {
       const riderUnread = notifsData.filter(
         (n) => n.user_type === "rider" && !n.is_read,
       ).length;
-
-      // ADD THIS - count unread messages (type = 'message')
       const messageUnread = notifsData.filter(
         (n) => n.type === "message" && !n.is_read,
       ).length;
@@ -296,7 +294,7 @@ export function useNotifications(userId: string | null) {
       setBuyerUnreadCount(buyerUnread);
       setVendorUnreadCount(vendorUnread);
       setRiderUnreadCount(riderUnread);
-      setMessageUnreadCount(messageUnread); // ADD THIS
+      setMessageUnreadCount(messageUnread);
     } catch (error) {
       console.error("Error loading notifications:", error);
     } finally {
@@ -311,7 +309,7 @@ export function useNotifications(userId: string | null) {
       setBuyerUnreadCount(0);
       setVendorUnreadCount(0);
       setRiderUnreadCount(0);
-      setMessageUnreadCount(0); // ADD THIS
+      setMessageUnreadCount(0);
       setLoading(false);
       return;
     }
@@ -341,8 +339,6 @@ export function useNotifications(userId: string | null) {
           const riderUnread = notifsData.filter(
             (n) => n.user_type === "rider" && !n.is_read,
           ).length;
-
-          // ADD THIS
           const messageUnread = notifsData.filter(
             (n) => n.type === "message" && !n.is_read,
           ).length;
@@ -351,7 +347,7 @@ export function useNotifications(userId: string | null) {
           setBuyerUnreadCount(buyerUnread);
           setVendorUnreadCount(vendorUnread);
           setRiderUnreadCount(riderUnread);
-          setMessageUnreadCount(messageUnread); // ADD THIS
+          setMessageUnreadCount(messageUnread);
         }
       } catch (error) {
         console.error("Error loading notifications:", error);
@@ -368,7 +364,6 @@ export function useNotifications(userId: string | null) {
         console.log("🆕 New notification received:", newNotification);
         if (isMounted) {
           setNotifications((prev) => {
-            // Check if notification already exists
             if (
               prev.some(
                 (n) => n.notification_id === newNotification.notification_id,
@@ -382,7 +377,6 @@ export function useNotifications(userId: string | null) {
           if (!newNotification.is_read) {
             setUnreadCount((prev) => prev + 1);
 
-            // Update user_type specific counts
             if (newNotification.user_type === "buyer") {
               setBuyerUnreadCount((prev) => prev + 1);
             } else if (newNotification.user_type === "vendor") {
@@ -391,7 +385,6 @@ export function useNotifications(userId: string | null) {
               setRiderUnreadCount((prev) => prev + 1);
             }
 
-            // ADD THIS - update message count for chat messages
             if (newNotification.type === "message") {
               setMessageUnreadCount((prev) => prev + 1);
             }
@@ -414,7 +407,6 @@ export function useNotifications(userId: string | null) {
             if (wasUnread && isNowRead) {
               setUnreadCount((prev) => Math.max(0, prev - 1));
 
-              // Update user_type specific counts
               if (updatedNotification.user_type === "buyer") {
                 setBuyerUnreadCount((prev) => Math.max(0, prev - 1));
               } else if (updatedNotification.user_type === "vendor") {
@@ -423,7 +415,6 @@ export function useNotifications(userId: string | null) {
                 setRiderUnreadCount((prev) => Math.max(0, prev - 1));
               }
 
-              // ADD THIS - update message count for chat messages
               if (updatedNotification.type === "message") {
                 setMessageUnreadCount((prev) => Math.max(0, prev - 1));
               }
@@ -446,7 +437,6 @@ export function useNotifications(userId: string | null) {
             if (wasUnread) {
               setUnreadCount((prev) => Math.max(0, prev - 1));
 
-              // Update user_type specific counts
               if (deletedNotification.user_type === "buyer") {
                 setBuyerUnreadCount((prev) => Math.max(0, prev - 1));
               } else if (deletedNotification.user_type === "vendor") {
@@ -455,7 +445,6 @@ export function useNotifications(userId: string | null) {
                 setRiderUnreadCount((prev) => Math.max(0, prev - 1));
               }
 
-              // ADD THIS - update message count for chat messages
               if (deletedNotification.type === "message") {
                 setMessageUnreadCount((prev) => Math.max(0, prev - 1));
               }
@@ -485,12 +474,6 @@ export function useNotifications(userId: string | null) {
       await markAsRead(notificationId);
 
       setNotifications((prev) => {
-        // Find the notification being marked as read to check its type
-        const notification = prev.find(
-          (n) => n.notification_id === notificationId,
-        );
-        const isMessage = notification?.type === "message";
-
         const updated = prev.map((n) =>
           n.notification_id === notificationId ? { ...n, is_read: true } : n,
         );
@@ -505,8 +488,6 @@ export function useNotifications(userId: string | null) {
         const newRiderUnread = updated.filter(
           (n) => n.user_type === "rider" && !n.is_read,
         ).length;
-
-        // ADD THIS - update message count
         const newMessageUnread = updated.filter(
           (n) => n.type === "message" && !n.is_read,
         ).length;
@@ -515,7 +496,7 @@ export function useNotifications(userId: string | null) {
         setBuyerUnreadCount(newBuyerUnread);
         setVendorUnreadCount(newVendorUnread);
         setRiderUnreadCount(newRiderUnread);
-        setMessageUnreadCount(newMessageUnread); // ADD THIS
+        setMessageUnreadCount(newMessageUnread);
 
         return updated;
       });
@@ -536,7 +517,7 @@ export function useNotifications(userId: string | null) {
         setBuyerUnreadCount(0);
         setVendorUnreadCount(0);
         setRiderUnreadCount(0);
-        setMessageUnreadCount(0); // ADD THIS
+        setMessageUnreadCount(0);
 
         return updated;
       });
@@ -551,10 +532,206 @@ export function useNotifications(userId: string | null) {
     buyerUnreadCount,
     vendorUnreadCount,
     riderUnreadCount,
-    messageUnreadCount, // ADD THIS
+    messageUnreadCount,
     loading,
     markAsRead: handleMarkAsRead,
     markAllAsRead: handleMarkAllAsRead,
     refetch: loadNotifications,
   };
+}
+
+// ========== PUSH NOTIFICATION FUNCTIONS (ADDED) ==========
+
+// Get user's push token from database
+export async function getUserPushToken(userId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("user_push_tokens")
+      .select("expo_push_token")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error fetching push token:", error);
+      return null;
+    }
+
+    return data?.expo_push_token || null;
+  } catch (error) {
+    console.error("Error:", error);
+    return null;
+  }
+}
+
+// Send push notification to a specific user
+export async function sendPushToUser(
+  userId: string,
+  title: string,
+  body: string,
+  data?: Record<string, any>,
+): Promise<boolean> {
+  try {
+    const pushToken = await getUserPushToken(userId);
+
+    if (!pushToken) {
+      console.log(`No push token found for user: ${userId}`);
+      return false;
+    }
+
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: pushToken,
+        sound: "default",
+        title: title,
+        body: body,
+        data: data || {},
+        priority: "high",
+      }),
+    });
+
+    const result = await response.json();
+
+    if (result.data?.status === "ok") {
+      console.log(`✅ Push sent to user ${userId}`);
+      return true;
+    } else {
+      console.log(`❌ Push failed for user ${userId}:`, result);
+
+      // If token is invalid, delete it from database
+      if (
+        result.data?.status === "error" &&
+        (result.data?.message?.includes("DeviceNotRegistered") ||
+          result.data?.message?.includes("InvalidCredentials"))
+      ) {
+        await supabase
+          .from("user_push_tokens")
+          .delete()
+          .eq("expo_push_token", pushToken);
+        console.log(`🗑️ Removed invalid token for user ${userId}`);
+      }
+
+      return false;
+    }
+  } catch (error) {
+    console.error("Error sending push notification:", error);
+    return false;
+  }
+}
+
+// Send notification to multiple users
+export async function sendPushToMultipleUsers(
+  userIds: string[],
+  title: string,
+  body: string,
+  data?: Record<string, any>,
+): Promise<{ success: number; failed: number }> {
+  let success = 0;
+  let failed = 0;
+
+  for (const userId of userIds) {
+    const result = await sendPushToUser(userId, title, body, data);
+    if (result) {
+      success++;
+    } else {
+      failed++;
+    }
+  }
+
+  return { success, failed };
+}
+
+// Save or update push token for current user
+export async function savePushToken(
+  userId: string,
+  expoPushToken: string,
+  deviceType: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase.from("user_push_tokens").upsert(
+      {
+        user_id: userId,
+        expo_push_token: expoPushToken,
+        device_type: deviceType,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "expo_push_token",
+      },
+    );
+
+    if (error) {
+      console.error("Error saving push token:", error);
+      throw error;
+    }
+
+    console.log(`✅ Push token saved for user ${userId}`);
+  } catch (error) {
+    console.error("Error saving push token:", error);
+  }
+}
+
+// Replace your createNotificationWithPush with this simpler version
+export async function createNotificationWithPush(
+  params: CreateNotificationParams,
+  sendPush: boolean = true,
+): Promise<Notification | null> {
+  try {
+    // Create notification using the function that bypasses RLS
+    const { data: notificationId, error: functionError } = await supabase.rpc(
+      "insert_notification_for_user",
+      {
+        p_user_id: params.userId,
+        p_user_type: params.userType,
+        p_type: params.type,
+        p_title: params.title,
+        p_message: params.message || null,
+        p_metadata: params.metadata || {},
+        p_related_id: params.relatedId || null,
+      },
+    );
+
+    if (functionError) {
+      console.error("Error creating notification:", functionError);
+      return null;
+    }
+
+    console.log("✅ Notification created with ID:", notificationId);
+
+    // Send push notification if requested
+    if (sendPush) {
+      await sendPushToUser(
+        params.userId,
+        params.title,
+        params.message || params.title,
+        {
+          type: params.type,
+          notification_id: notificationId,
+          related_id: params.relatedId,
+          ...params.metadata,
+        },
+      );
+    }
+
+    // Return a minimal notification object (optional)
+    return {
+      notification_id: notificationId,
+      user_id: params.userId,
+      user_type: params.userType,
+      type: params.type,
+      title: params.title,
+      message: params.message || null,
+      metadata: params.metadata || {},
+      is_read: false,
+      created_at: new Date().toISOString(),
+      related_id: params.relatedId || null,
+    } as Notification;
+  } catch (error) {
+    console.error("Error in createNotificationWithPush:", error);
+    return null;
+  }
 }
