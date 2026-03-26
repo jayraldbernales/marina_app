@@ -675,7 +675,7 @@ export async function savePushToken(
   }
 }
 
-// Replace your createNotificationWithPush with this simpler version
+// Enhanced createNotification that also sends push notifications
 export async function createNotificationWithPush(
   params: CreateNotificationParams,
   sendPush: boolean = true,
