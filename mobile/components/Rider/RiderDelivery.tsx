@@ -30,21 +30,7 @@ import { dispatchService } from "@/services/dispatchService";
 import { useRiderDeliveryContext } from "@/contexts/RiderDeliveryContext";
 import * as ImagePicker from "expo-image-picker";
 import { createNotificationWithPush } from "@/services/notificationService";
-
-// Map database status to UI tabs
-const statusToTab = (status: DatabaseDeliveryStatus): UITabStatus => {
-  const map: Record<DatabaseDeliveryStatus, UITabStatus> = {
-    assigned: "to-pickup",
-    ready_to_pickup: "to-pickup",
-    picked_up: "in-transit",
-    delivered: "delivered",
-    failed: "failed",
-    cancelled: "canceled",
-    rejected: "canceled",
-    pending: "to-pickup", // fallback
-  };
-  return map[status] || "to-pickup";
-};
+import { ReportModal } from "@/components/ReportModal";
 
 // Map UI tabs to database statuses (for filtering)
 const tabToStatuses: Record<UITabStatus, DatabaseDeliveryStatus[]> = {
@@ -101,16 +87,6 @@ const ReceiptModal = ({
   riderId: string | null;
 }) => {
   if (!delivery) return null;
-
-  const generateReceiptPDF = async () => {
-    // Optional: Generate PDF receipt
-    Alert.alert("Info", "PDF generation coming soon");
-  };
-
-  const shareReceipt = async () => {
-    // Optional: Share receipt via messaging/email
-    Alert.alert("Info", "Sharing feature coming soon");
-  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -443,10 +419,18 @@ const DeliveryDetailsModal = ({
   visible,
   onClose,
   delivery,
+  onReportBuyer,
+  onReportSeller,
 }: {
   visible: boolean;
   onClose: () => void;
   delivery: Delivery | null;
+  onReportBuyer?: (orderId: string, buyerId: string, buyerName: string) => void;
+  onReportSeller?: (
+    orderId: string,
+    sellerId: string,
+    sellerName: string,
+  ) => void;
 }) => {
   if (!delivery) return null;
 
@@ -947,6 +931,48 @@ const DeliveryDetailsModal = ({
                 </View>
               </View>
             </View>
+
+            {/* Report Buttons - Only show for failed deliveries */}
+            {delivery.status === "failed" && (
+              <>
+                {/* Report Buyer Button */}
+                {delivery.customer_id && delivery.customer_name && (
+                  <TouchableOpacity
+                    style={[S.reportButton]}
+                    onPress={() =>
+                      onReportBuyer?.(
+                        delivery.order_id,
+                        delivery.customer_id!,
+                        delivery.customer_name!,
+                      )
+                    }
+                  >
+                    <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                    <Text style={S.reportButtonText}>Report Buyer</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Report Seller Button */}
+                {delivery.vendor_id && delivery.vendor_name && (
+                  <TouchableOpacity
+                    style={[
+                      S.reportButton,
+                      { marginTop: 12, marginBottom: 24 },
+                    ]}
+                    onPress={() =>
+                      onReportSeller?.(
+                        delivery.order_id,
+                        delivery.vendor_id!,
+                        delivery.vendor_name!,
+                      )
+                    }
+                  >
+                    <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                    <Text style={S.reportButtonText}>Report Seller</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -979,6 +1005,13 @@ const RiderDelivery = () => {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const { refreshPendingDeliveries } = useRiderDeliveryContext();
+  // NEW: Report modal state
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    id: string;
+    name: string;
+    type: "buyer" | "seller" | "rider" | "order";
+  } | null>(null);
 
   // Use a ref to track if location tracking has been initialized
   const locationInitialized = useRef(false);
@@ -993,6 +1026,15 @@ const RiderDelivery = () => {
     { key: "canceled", label: "Canceled" },
   ];
 
+  const handleReport = (
+    targetId: string,
+    targetName: string,
+    type: "buyer" | "seller" | "rider" | "order",
+    orderId?: string,
+  ) => {
+    setReportTarget({ id: targetId, name: targetName, type });
+    setReportModalVisible(true);
+  };
   // Handle delivery card press
   const handleDeliveryPress = (delivery: Delivery) => {
     setSelectedDelivery(delivery);
@@ -1130,6 +1172,9 @@ const RiderDelivery = () => {
 
     setAcceptingId(deliveryId);
     try {
+      // Find the delivery to get vendor info
+      const delivery = deliveries.find((d) => d.id === deliveryId);
+
       // Clear timeout first
       await dispatchService.clearDeliveryTimeout(deliveryId);
 
@@ -1139,27 +1184,24 @@ const RiderDelivery = () => {
         true,
       );
 
-      // Get order details for notifications
-      const delivery = deliveries.find((d) => d.id === deliveryId);
+      // ========== SEND NOTIFICATION ==========
       if (delivery) {
-        const orderUsers = await getOrderUsers(delivery.order_id);
-        if (orderUsers) {
-          await notifyVendorDeliveryUpdate(
-            orderUsers.vendorId,
-            deliveryId,
-            delivery.order_number,
-            "Accepted",
-            `Rider has accepted delivery #${delivery.order_number}`,
-          );
-          await notifyBuyerDeliveryUpdate(
-            orderUsers.buyerId,
-            deliveryId,
-            delivery.order_number,
-            "Accepted",
-            `Your delivery #${delivery.order_number} has been accepted by a rider`,
+        // Get vendor ID from the order
+        const { data: order } = await supabase
+          .from("orders")
+          .select("vendor_user_id")
+          .eq("order_id", delivery.order_id)
+          .single();
+
+        if (order?.vendor_user_id) {
+          await sendDeliveryResponseNotification(
+            delivery,
+            true,
+            order.vendor_user_id,
           );
         }
       }
+      // ========== END NOTIFICATION ==========
 
       Alert.alert("Success", "You have accepted this delivery!");
       refreshPendingDeliveries();
@@ -1186,24 +1228,31 @@ const RiderDelivery = () => {
           onPress: async () => {
             setRejectingId(deliveryId);
             try {
+              // Find the delivery to get vendor info
+              const delivery = deliveries.find((d) => d.id === deliveryId);
+
+              // Clear timeout first
               await dispatchService.clearDeliveryTimeout(deliveryId);
 
               await deliveryService.respondToOffer(deliveryId, riderId, false);
 
-              // Get order details for notifications
-              const delivery = deliveries.find((d) => d.id === deliveryId);
+              // ========== SEND NOTIFICATION ==========
               if (delivery) {
-                const orderUsers = await getOrderUsers(delivery.order_id);
-                if (orderUsers) {
-                  await notifyVendorDeliveryUpdate(
-                    orderUsers.vendorId,
-                    deliveryId,
-                    delivery.order_number,
-                    "Rejected",
-                    `Rider rejected delivery #${delivery.order_number}`,
+                const { data: order } = await supabase
+                  .from("orders")
+                  .select("vendor_user_id")
+                  .eq("order_id", delivery.order_id)
+                  .single();
+
+                if (order?.vendor_user_id) {
+                  await sendDeliveryResponseNotification(
+                    delivery,
+                    false,
+                    order.vendor_user_id,
                   );
                 }
               }
+              // ========== END NOTIFICATION ==========
 
               Alert.alert("Success", "Delivery rejected");
               refreshPendingDeliveries();
@@ -1254,24 +1303,22 @@ const RiderDelivery = () => {
           imageUrl,
         );
 
-        // Send notifications
-        const orderUsers = await getOrderUsers(delivery.order_id);
-        if (orderUsers) {
-          await notifyVendorDeliveryUpdate(
-            orderUsers.vendorId,
-            delivery.id,
-            delivery.order_number,
-            "Picked Up",
-            `Order #${delivery.order_number} has been picked up by rider`,
-          );
-          await notifyBuyerDeliveryUpdate(
-            orderUsers.buyerId,
-            delivery.id,
-            delivery.order_number,
-            "Picked Up",
-            `Your order #${delivery.order_number} has been picked up and is on the way!`,
+        // ========== SEND NOTIFICATIONS ==========
+        // Get vendor and buyer IDs
+        const { data: order } = await supabase
+          .from("orders")
+          .select("vendor_user_id, user_id")
+          .eq("order_id", delivery.order_id)
+          .single();
+
+        if (order?.vendor_user_id && order?.user_id) {
+          await sendPickupConfirmationNotification(
+            delivery,
+            order.vendor_user_id,
+            order.user_id,
           );
         }
+        // ========== END NOTIFICATIONS ==========
 
         Alert.alert("Success", "Pickup confirmed with proof photo!");
         loadDeliveries();
@@ -1319,24 +1366,21 @@ const RiderDelivery = () => {
           imageUrl,
         );
 
-        // Send notifications
-        const orderUsers = await getOrderUsers(delivery.order_id);
-        if (orderUsers) {
-          await notifyVendorDeliveryUpdate(
-            orderUsers.vendorId,
-            delivery.id,
-            delivery.order_number,
-            "Delivered",
-            `Order #${delivery.order_number} has been delivered successfully!`,
-          );
-          await notifyBuyerDeliveryUpdate(
-            orderUsers.buyerId,
-            delivery.id,
-            delivery.order_number,
-            "Delivered",
-            `Your order #${delivery.order_number} has been delivered! Thank you for ordering!`,
+        // ========== SEND NOTIFICATIONS ==========
+        const { data: order } = await supabase
+          .from("orders")
+          .select("vendor_user_id, user_id")
+          .eq("order_id", delivery.order_id)
+          .single();
+
+        if (order?.vendor_user_id && order?.user_id) {
+          await sendDeliveryCompletionNotification(
+            delivery,
+            order.vendor_user_id,
+            order.user_id,
           );
         }
+        // ========== END NOTIFICATIONS ==========
 
         Alert.alert("Success", "Delivery completed with proof photo!");
         loadDeliveries();
@@ -1348,18 +1392,201 @@ const RiderDelivery = () => {
       setUploadingId(null);
     }
   };
-  // Make phone call
-  const makePhoneCall = (phoneNumber: string) => {
-    if (phoneNumber && phoneNumber !== "No phone") {
-      Linking.openURL(`tel:${phoneNumber}`);
-    } else {
-      Alert.alert("Error", "No phone number available");
+
+  // Send notification for delivery acceptance/rejection
+  const sendDeliveryResponseNotification = async (
+    delivery: Delivery,
+    accepted: boolean,
+    vendorId: string,
+  ) => {
+    try {
+      if (accepted) {
+        await createNotificationWithPush(
+          {
+            userId: vendorId,
+            userType: "vendor",
+            type: "delivery_accepted",
+            title: "Delivery Accepted!",
+            message: `Rider has accepted delivery for order #${delivery.order_number}`,
+            metadata: {
+              delivery_id: delivery.id,
+              order_number: delivery.order_number,
+              rider_id: riderId,
+            },
+            relatedId: delivery.id,
+          },
+          true,
+        );
+      } else {
+        await createNotificationWithPush(
+          {
+            userId: vendorId,
+            userType: "vendor",
+            type: "delivery_rejected",
+            title: "❌ Delivery Rejected",
+            message: `Rider rejected delivery for order #${delivery.order_number}`,
+            metadata: {
+              delivery_id: delivery.id,
+              order_number: delivery.order_number,
+            },
+            relatedId: delivery.id,
+          },
+          true,
+        );
+        console.log(
+          `✅ Delivery rejection notification sent to vendor: ${vendorId}`,
+        );
+      }
+    } catch (error) {
+      console.error("Error sending delivery response notification:", error);
     }
   };
 
-  // View proof image
-  const handleViewProof = (imageUrl: string) => {
-    Linking.openURL(imageUrl);
+  // Send notification for pickup confirmation
+  const sendPickupConfirmationNotification = async (
+    delivery: Delivery,
+    vendorId: string,
+    buyerId: string,
+  ) => {
+    try {
+      // Notify vendor that items were picked up
+      await createNotificationWithPush(
+        {
+          userId: vendorId,
+          userType: "vendor",
+          type: "pickup_confirmed",
+          title: "📦 Order Picked Up!",
+          message: `Order #${delivery.order_number} has been picked up by rider`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+
+      // Notify buyer that order is on the way
+      await createNotificationWithPush(
+        {
+          userId: buyerId,
+          userType: "buyer",
+          type: "order_on_the_way",
+          title: "Your Order is On the Way!",
+          message: `Order #${delivery.order_number} has been picked up and is on its way to you.`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+      console.log(
+        `✅ Pickup confirmation notifications sent for order: ${delivery.order_number}`,
+      );
+    } catch (error) {
+      console.error("Error sending pickup confirmation notifications:", error);
+    }
+  };
+
+  // Send notification for delivery completion
+  const sendDeliveryCompletionNotification = async (
+    delivery: Delivery,
+    vendorId: string,
+    buyerId: string,
+  ) => {
+    try {
+      // Notify vendor that delivery is complete
+      await createNotificationWithPush(
+        {
+          userId: vendorId,
+          userType: "vendor",
+          type: "delivery_completed",
+          title: "✅ Delivery Completed!",
+          message: `Order #${delivery.order_number} has been delivered successfully.`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+
+      // Notify buyer that order is delivered
+      await createNotificationWithPush(
+        {
+          userId: buyerId,
+          userType: "buyer",
+          type: "order_delivered",
+          title: "🎉 Order Delivered!",
+          message: `Your order #${delivery.order_number} has been delivered. Enjoy!`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+      console.log(
+        `✅ Delivery completion notifications sent for order: ${delivery.order_number}`,
+      );
+    } catch (error) {
+      console.error("Error sending delivery completion notifications:", error);
+    }
+  };
+
+  // Send notification for failed delivery
+  const sendDeliveryFailedNotification = async (
+    delivery: Delivery,
+    vendorId: string,
+    buyerId: string,
+    reason: string,
+  ) => {
+    try {
+      // Notify vendor about failed delivery
+      await createNotificationWithPush(
+        {
+          userId: vendorId,
+          userType: "vendor",
+          type: "delivery_failed",
+          title: "⚠️ Delivery Failed",
+          message: `Order #${delivery.order_number} could not be delivered. Reason: ${reason}`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+            failure_reason: reason,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+
+      // Notify buyer about failed delivery
+      await createNotificationWithPush(
+        {
+          userId: buyerId,
+          userType: "buyer",
+          type: "delivery_failed",
+          title: "Delivery Issue",
+          message: `Your order #${delivery.order_number} could not be delivered. Reason: ${reason}. Please contact support.`,
+          metadata: {
+            delivery_id: delivery.id,
+            order_number: delivery.order_number,
+            failure_reason: reason,
+          },
+          relatedId: delivery.id,
+        },
+        true,
+      );
+      console.log(
+        `✅ Delivery failure notifications sent for order: ${delivery.order_number}`,
+      );
+    } catch (error) {
+      console.error("Error sending delivery failure notifications:", error);
+    }
   };
 
   const getStatusColor = (status: DatabaseDeliveryStatus) => {
@@ -1534,21 +1761,9 @@ const RiderDelivery = () => {
               </>
             )}
 
-            {/* STAGE 2: Accepted but waiting for seller to prepare */}
-            {delivery.status === "assigned" && (
-              <TouchableOpacity
-                style={RiderDeliveryStyles.secondaryButton}
-                onPress={() => handleRejectDelivery(delivery.id)}
-                disabled={isUploading}
-              >
-                <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                  Cancel Delivery
-                </Text>
-              </TouchableOpacity>
-            )}
-
             {/* STAGE 3: Seller marked as ready - Rider can pickup */}
-            {delivery.status === "ready_to_pickup" && (
+            {(delivery.status === "assigned" ||
+              delivery.status === "ready_to_pickup") && (
               <>
                 <TouchableOpacity
                   style={RiderDeliveryStyles.secondaryButton}
@@ -1556,7 +1771,7 @@ const RiderDelivery = () => {
                   disabled={isUploading}
                 >
                   <Text style={RiderDeliveryStyles.secondaryButtonText}>
-                    Reject
+                    Cancel Delivery
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1738,6 +1953,41 @@ const RiderDelivery = () => {
           setSelectedDelivery(null);
         }}
         delivery={selectedDelivery}
+        onReportBuyer={(orderId, buyerId, buyerName) => {
+          setReportTarget({
+            id: buyerId,
+            name: buyerName,
+            type: "buyer",
+          });
+          setReportModalVisible(true);
+        }}
+        onReportSeller={(orderId, sellerId, sellerName) => {
+          setReportTarget({
+            id: sellerId,
+            name: sellerName,
+            type: "seller",
+          });
+          setReportModalVisible(true);
+        }}
+      />
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => {
+          setReportModalVisible(false);
+          setReportTarget(null);
+        }}
+        reportType={reportTarget?.type || "order"}
+        targetId={reportTarget?.id || ""}
+        targetName={reportTarget?.name || ""}
+        reporterId={riderId || ""}
+        orderId={
+          reportTarget?.type !== "order"
+            ? selectedDelivery?.order_id
+            : undefined
+        }
+        onReportSubmitted={() => {
+          Alert.alert("Success", "Report submitted successfully");
+        }}
       />
       <ReceiptModal
         visible={receiptModalVisible}
@@ -1834,26 +2084,22 @@ const RiderDelivery = () => {
                         failDeliveryData.reason,
                       );
 
-                      // Send notifications
-                      const orderUsers = await getOrderUsers(
-                        failDeliveryData.delivery.order_id,
-                      );
-                      if (orderUsers) {
-                        await notifyVendorDeliveryUpdate(
-                          orderUsers.vendorId,
-                          failDeliveryData.delivery.id,
-                          failDeliveryData.delivery.order_number,
-                          "Failed",
-                          `Delivery #${failDeliveryData.delivery.order_number} failed: ${failDeliveryData.reason}`,
-                        );
-                        await notifyBuyerDeliveryUpdate(
-                          orderUsers.buyerId,
-                          failDeliveryData.delivery.id,
-                          failDeliveryData.delivery.order_number,
-                          "Failed",
-                          `Delivery #${failDeliveryData.delivery.order_number} could not be completed: ${failDeliveryData.reason}`,
+                      // ========== SEND NOTIFICATIONS ==========
+                      const { data: order } = await supabase
+                        .from("orders")
+                        .select("vendor_user_id, user_id")
+                        .eq("order_id", failDeliveryData.delivery.order_id)
+                        .single();
+
+                      if (order?.vendor_user_id && order?.user_id) {
+                        await sendDeliveryFailedNotification(
+                          failDeliveryData.delivery,
+                          order.vendor_user_id,
+                          order.user_id,
+                          failDeliveryData.reason,
                         );
                       }
+                      // ========== END NOTIFICATIONS ==========
 
                       Alert.alert("Success", "Issue reported successfully");
                       setFailModalVisible(false);

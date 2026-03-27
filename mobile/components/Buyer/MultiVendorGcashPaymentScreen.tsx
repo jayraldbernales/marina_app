@@ -179,6 +179,9 @@ const MultiVendorGcashPaymentScreen = () => {
       // Upload screenshot
       const screenshotUrl = await uploadScreenshot(gcashScreenshot);
 
+      // Generate order number for this vendor
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
       // Create order for this vendor with payment proof
       const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
@@ -201,61 +204,68 @@ const MultiVendorGcashPaymentScreen = () => {
 
       if (rpcError) throw rpcError;
 
-      // Get order number
+      // Get order number for confirmation
       const { data: orderData } = await supabase
         .from("orders")
         .select("order_number, total_amount")
         .eq("order_id", newOrderId)
         .single();
 
+      const finalOrderNumber = orderData?.order_number || orderNumber;
+
       // ========== SEND PUSH NOTIFICATIONS ==========
       try {
-        // Notify vendor
-        await createNotificationWithPush(
-          {
-            userId: currentVendor.vendorUserId,
-            userType: "vendor",
-            type: "order_paid",
-            title: "🛒 New Order with GCash Payment!",
-            message: `Order #${orderData?.order_number} - ₱${currentVendor.total.toLocaleString()} (GCash payment)`,
-            metadata: {
-              order_id: newOrderId,
-              order_number: orderData?.order_number,
-              total: currentVendor.total,
-              shop_name: currentVendor.shopName,
-            },
-            relatedId: newOrderId,
-          },
-          true,
-        );
-        console.log(
-          `✅ Push notification sent to vendor ${currentVendor.shopName}`,
-        );
-
-        // Notify buyer
-        if (user?.id) {
+        // Send notification to VENDOR
+        if (currentVendor.vendorUserId) {
           await createNotificationWithPush(
             {
-              userId: user.id,
-              userType: "buyer",
-              type: "order_placed",
-              title: "✅ Order Placed with GCash!",
-              message: `Your order for ${currentVendor.shopName} (${orderData?.order_number}) has been placed. Payment pending verification.`,
+              userId: currentVendor.vendorUserId,
+              userType: "vendor",
+              type: "order",
+              title: "🛒 New Order Received!",
+              message: `Order #${finalOrderNumber} - Paid via GCash. Payment pending verification.`,
               metadata: {
                 order_id: newOrderId,
-                order_number: orderData?.order_number,
-                shop_name: currentVendor.shopName,
-                total: currentVendor.total,
+                order_number: finalOrderNumber,
+                payment_method: "gcash",
+                vendor_shop: currentVendor.shopName,
+                items_count: currentVendor.items.length,
               },
               relatedId: newOrderId,
             },
             true,
           );
-          console.log("✅ Push notification sent to buyer");
+          console.log(
+            `✅ Order notification sent to vendor: ${currentVendor.vendorUserId}`,
+          );
+        }
+
+        // Send notification to BUYER
+        if (user?.id) {
+          await createNotificationWithPush(
+            {
+              userId: user.id,
+              userType: "buyer",
+              type: "order_confirmation",
+              title: "Order Placed Successfully!",
+              message: `Your order #${finalOrderNumber} for ${currentVendor.shopName} has been placed. Payment pending verification.`,
+              metadata: {
+                order_id: newOrderId,
+                order_number: finalOrderNumber,
+                payment_method: "gcash",
+                vendor_shop: currentVendor.shopName,
+                items_count: currentVendor.items.length,
+              },
+              relatedId: newOrderId,
+            },
+            true,
+          );
+          console.log(
+            `Order confirmation sent to buyer for order: ${finalOrderNumber}`,
+          );
         }
       } catch (pushError) {
         console.error("Error sending push notifications:", pushError);
-        // Don't block the payment flow if push fails
       }
       // ========== END PUSH NOTIFICATIONS ==========
 
@@ -264,7 +274,7 @@ const MultiVendorGcashPaymentScreen = () => {
       updatedPayments[currentVendorIndex] = {
         ...currentVendor,
         orderId: newOrderId,
-        orderNumber: orderData?.order_number,
+        orderNumber: finalOrderNumber,
       };
       setVendorPayments(updatedPayments);
 
@@ -283,7 +293,7 @@ const MultiVendorGcashPaymentScreen = () => {
         // All vendors paid
         Alert.alert(
           "All Payments Submitted!",
-          `All ${vendorPayments.length} payments have been submitted. Vendors will verify within 15-30 minutes.`,
+          `All ${vendorPayments.length} orders have been placed. Vendors will verify payments within 15-30 minutes.`,
           [
             {
               text: "View Orders",
@@ -299,7 +309,6 @@ const MultiVendorGcashPaymentScreen = () => {
       setIsUploading(false);
     }
   };
-
   const handleBackToPrevious = () => {
     router.back();
   };

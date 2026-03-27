@@ -11,6 +11,7 @@ import { ViewerLayout } from "@/components/layout/ViewerLayout";
 import AOS from "aos";
 import "aos/dist/aos.css";
 import { Loader2 } from "lucide-react";
+import Reports from "./pages/Reports";
 
 /* -----------------------------
    Lazy-loaded Pages
@@ -85,7 +86,6 @@ function AppRoutes() {
         {/* Public */}
         <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<LoginPage />} />
-
         {/* Admin */}
         <Route
           path="/admin"
@@ -156,8 +156,17 @@ function AppRoutes() {
               </AdminLayout>
             </ProtectedRoute>
           }
+        />{" "}
+        <Route
+          path="/admin/user-reports"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminLayout>
+                <Reports />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
         />
-
         {/* Viewer */}
         <Route
           path="/viewer"
@@ -179,7 +188,6 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
-
         {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Routes>

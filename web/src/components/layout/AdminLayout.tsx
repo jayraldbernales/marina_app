@@ -16,6 +16,7 @@ const pageTitles: Record<string, string> = {
   "/admin/riders": "Rider Management",
   "/admin/orders": "Order Monitoring",
   "/admin/reports": "Reports & Analytics",
+  "/admin/user-reports": "User Reports",
 };
 
 export function AdminLayout({ children }: AdminLayoutProps) {

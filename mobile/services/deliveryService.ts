@@ -41,7 +41,9 @@ export type Delivery = {
   scheduled_date: string;
   delivery_address: string;
   vendor_address: string;
+  customer_id?: string; // NEW
   vendor_name: string;
+  vendor_id?: string; // NEW
   vendor_lat?: number;
   vendor_lng?: number;
   customer_lat?: number;
@@ -506,7 +508,6 @@ class DeliveryService {
     return data;
   }
 
-  // Format deliveries from database to match your UI
   private async formatDeliveries(data: any[]): Promise<Delivery[]> {
     const formattedDeliveries = [];
 
@@ -530,17 +531,17 @@ class DeliveryService {
         order.vendor_user_id,
       );
 
-      // Get customer profile for name and phone
+      // Get customer profile for name, phone, and ID
       const { data: customerProfile } = await supabase
         .from("profiles")
-        .select("full_name, mobile_number")
+        .select("full_name, mobile_number, user_id") // ✅ Add user_id
         .eq("user_id", order.user_id)
         .single();
 
-      // Get vendor's mobile number from profiles table
+      // Get vendor's mobile number and profile
       const { data: vendorUserProfile } = await supabase
         .from("profiles")
-        .select("mobile_number")
+        .select("mobile_number, user_id") // ✅ Add user_id
         .eq("user_id", order.vendor_user_id)
         .single();
 
@@ -584,6 +585,9 @@ class DeliveryService {
         delivery_address: customerAddress.full_address || "",
         vendor_address: vendorAddress?.full_address || "",
         vendor_name: order.vendor_profiles?.shop_name || "",
+        // ✅ NEW: Add customer_id and vendor_id
+        customer_id: order.user_id, // From the order table
+        vendor_id: order.vendor_user_id, // From the order table
         vendor_lat: vendorAddress?.latitude,
         vendor_lng: vendorAddress?.longitude,
         customer_lat: customerAddress.latitude,

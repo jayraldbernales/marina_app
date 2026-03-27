@@ -566,7 +566,7 @@ const CartScreen = () => {
 
       if (addressError) throw addressError;
       if (!addressData) {
-        refreshCartCount(); // revert on error
+        refreshCartCount();
         Alert.alert(
           "Error",
           "No default address found. Please set a default address.",
@@ -608,7 +608,14 @@ const CartScreen = () => {
               },
             );
             if (rpcError) throw rpcError;
-            return { orderNumber, vendorDeliveryFee, orderTotal };
+            return {
+              orderNumber,
+              orderId,
+              vendorDeliveryFee,
+              orderTotal,
+              items,
+              vendorUserId,
+            };
           },
         );
 
@@ -683,15 +690,88 @@ const CartScreen = () => {
         );
         const finalTotal = subtotal + totalDeliveryFeeResult;
 
-        await fetchCartItems();
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        for (const result of orderResults) {
+          const { orderNumber, orderId, items, vendorUserId } = result; // ← ADD orderId here
 
-        const cartIdsToDelete = [
+          // Send notification to VENDOR
+          if (vendorUserId) {
+            await createNotificationWithPush(
+              {
+                userId: vendorUserId,
+                userType: "vendor",
+                type: "order",
+                title: "🛒 New Order Received!",
+                message: `Order #${orderNumber} - ${items.length} item(s)`,
+                metadata: {
+                  order_number: orderNumber,
+                  items_count: items.length,
+                },
+                relatedId: orderId, // ✅ CORRECT - using UUID
+              },
+              true,
+            );
+            console.log(`✅ Push notification sent to vendor: ${vendorUserId}`);
+          }
+
+          // Send notification to BUYER
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Order Placed Successfully!",
+                message: `Your order #${orderNumber} has been placed.`,
+                metadata: {
+                  order_number: orderNumber,
+                  items_count: items.length,
+                },
+                relatedId: orderId, // ✅ CORRECT - using UUID
+              },
+              true,
+            );
+            console.log(
+              `✅ Push notification sent to buyer for order: ${orderNumber}`,
+            );
+          }
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
+        // 🔥 FIX: Delete only selected cart items, not entire carts
+        const selectedCartItemIds = selectedItems.map(
+          (item) => item.cartItemId,
+        );
+
+        // Delete selected cart items from cart_items table
+        const { error: deleteItemsError } = await supabase
+          .from("cart_items")
+          .delete()
+          .in("cart_item_id", selectedCartItemIds);
+
+        if (deleteItemsError) throw deleteItemsError;
+
+        // After deleting items, check if any carts are now empty and delete those carts
+        const affectedCartIds = [
           ...new Set(selectedItems.map((item) => item.cartId)),
         ];
-        if (cartIdsToDelete.length > 0) {
-          await supabase.from("carts").delete().in("cart_id", cartIdsToDelete);
-          refreshCartCount(); // sync to real count after order
+
+        for (const cartId of affectedCartIds) {
+          // Check if this cart still has any items
+          const { data: remainingItems, error: checkError } = await supabase
+            .from("cart_items")
+            .select("cart_item_id")
+            .eq("cart_id", cartId);
+
+          if (checkError) throw checkError;
+
+          // If no items left, delete the cart
+          if (!remainingItems || remainingItems.length === 0) {
+            await supabase.from("carts").delete().eq("cart_id", cartId);
+          }
         }
+
+        await fetchCartItems(); // Refresh the cart display
+        refreshCartCount(); // Sync to real count after order
 
         Alert.alert(
           "Orders Placed Successfully!",
@@ -705,6 +785,7 @@ const CartScreen = () => {
           ],
         );
       } else {
+        // For GCash payment, you need to handle similarly
         const itemsByVendor = getVendorGroups();
 
         const vendorPromises = Object.keys(itemsByVendor).map(

@@ -157,7 +157,7 @@ export default function Layout() {
               updated_at: new Date().toISOString(),
             },
             {
-              onConflict: "expo_push_token",
+              onConflict: "user_id",
             },
           );
 

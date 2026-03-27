@@ -24,6 +24,7 @@ import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { chatService } from "@/lib/chat";
 import RatingModal from "../components/Buyer/RatingModal";
+import { ReportModal } from "@/components/ReportModal";
 
 type OrderStatus =
   | "pending"
@@ -148,10 +149,18 @@ const OrderDetailsModal = ({
   visible,
   onClose,
   order,
+  onReportSeller,
+  onReportRider,
 }: {
   visible: boolean;
   onClose: () => void;
   order: DisplayOrder | null;
+  onReportSeller?: (
+    orderId: string,
+    sellerId: string,
+    sellerName: string,
+  ) => void;
+  onReportRider?: (orderId: string, riderId: string, riderName: string) => void;
 }) => {
   const [pickupProofUrl, setPickupProofUrl] = useState<string | null>(null);
   const [deliveryProofUrl, setDeliveryProofUrl] = useState<string | null>(null);
@@ -459,15 +468,6 @@ const OrderDetailsModal = ({
                       >
                         {order.failureReason || "No reason provided"}
                       </Text>
-                      <Text
-                        style={{
-                          color: "#b91c1c",
-                          fontSize: 13,
-                          opacity: 0.9,
-                        }}
-                      >
-                        This delivery was not completed
-                      </Text>
                     </View>
                   </View>
                 </View>
@@ -598,6 +598,43 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             </View>
+            {/* Report Seller Button - Only for failed orders */}
+            {order.status === "failed" &&
+              order.vendorId &&
+              order.vendorShopName && (
+                <TouchableOpacity
+                  style={[S.reportButton]}
+                  onPress={() =>
+                    onReportSeller?.(
+                      order.id,
+                      order.vendorId!,
+                      order.vendorShopName!,
+                    )
+                  }
+                >
+                  <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                  <Text style={S.reportButtonText}>Report Seller</Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Report Rider Button - Only for failed orders */}
+            {order.status === "failed" &&
+              order.riderAssignment?.id &&
+              order.riderAssignment?.name && (
+                <TouchableOpacity
+                  style={[S.reportButton, { marginTop: 12, marginBottom: 24 }]}
+                  onPress={() =>
+                    onReportRider?.(
+                      order.id,
+                      order.riderAssignment!.id,
+                      order.riderAssignment!.name,
+                    )
+                  }
+                >
+                  <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                  <Text style={S.reportButtonText}>Report Rider</Text>
+                </TouchableOpacity>
+              )}
           </ScrollView>
         </View>
       </View>
@@ -617,6 +654,13 @@ const OrdersScreen = () => {
 
   const navigation = useNavigation();
   const user = useUserStore((state) => state.user);
+  // NEW: Report modal state
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    id: string;
+    name: string;
+    type: "buyer" | "seller" | "rider" | "order";
+  } | null>(null);
 
   const tabs = [
     { key: "to-pay", label: "To Pay" },
@@ -668,7 +712,15 @@ const OrdersScreen = () => {
       ),
     );
   };
-
+  const handleReport = (
+    targetId: string,
+    targetName: string,
+    type: "buyer" | "seller" | "rider" | "order",
+    orderId?: string,
+  ) => {
+    setReportTarget({ id: targetId, name: targetName, type });
+    setReportModalVisible(true);
+  };
   // Handle order card press to show modal
   const handleOrderPress = (order: DisplayOrder) => {
     setSelectedOrder(order);
@@ -720,7 +772,6 @@ const OrdersScreen = () => {
     }
   };
 
-  // Fetch orders from Supabase
   const fetchOrders = async () => {
     if (!user?.id) {
       setLoading(false);
@@ -745,8 +796,10 @@ const OrdersScreen = () => {
         return;
       }
 
-      // Batch fetch order items for all orders to reduce round-trips
+      // Batch fetch order items for all orders
       const orderIds = (ordersData as any[]).map((o) => o.order_id);
+
+      // Fetch items
       const { data: itemsAll, error: itemsAllError } = await supabase
         .from("order_items")
         .select(
@@ -758,12 +811,26 @@ const OrdersScreen = () => {
         console.error("Error fetching items for orders:", itemsAllError);
       }
 
+      // NEW: Fetch delivery info including failure_reason
+      const { data: deliveriesAll } = await supabase
+        .from("deliveries")
+        .select("order_id, failure_reason")
+        .in("order_id", orderIds);
+
       // Group items by order_id
       const itemsByOrder: Record<string, any[]> = {};
       (itemsAll || []).forEach((it: any) => {
         const oid = it.order_id;
         if (!itemsByOrder[oid]) itemsByOrder[oid] = [];
         itemsByOrder[oid].push(it);
+      });
+
+      // Create a map of failure reasons by order_id
+      const failureReasonsByOrder: Record<string, string> = {};
+      (deliveriesAll || []).forEach((d: any) => {
+        if (d?.order_id && d.failure_reason) {
+          failureReasonsByOrder[d.order_id] = d.failure_reason;
+        }
       });
 
       const displayOrders: DisplayOrder[] = (ordersData as any[]).map(
@@ -807,11 +874,12 @@ const OrdersScreen = () => {
             vendorShopName: displayItems[0]?.vendor,
             vendorId: displayItems[0]?.vendorId,
             riderAssignment: null,
+            failureReason: failureReasonsByOrder[order.order_id] || null, // NEW: Add failure reason
           } as DisplayOrder;
         },
       );
 
-      // Parallelize rider assignment fetches for orders that need it
+      // Parallelize rider assignment fetches
       const riderPromises = displayOrders.map((o) => {
         const needs = [
           "preparing",
@@ -1492,7 +1560,6 @@ const OrdersScreen = () => {
         )}
       />
 
-      {/* Order Details Modal */}
       <OrderDetailsModal
         visible={modalVisible}
         onClose={() => {
@@ -1500,6 +1567,34 @@ const OrdersScreen = () => {
           setSelectedOrder(null);
         }}
         order={selectedOrder}
+        onReportSeller={(orderId, sellerId, sellerName) => {
+          setReportTarget({
+            id: sellerId,
+            name: sellerName,
+            type: "seller",
+          });
+          setReportModalVisible(true);
+        }}
+        onReportRider={(orderId, riderId, riderName) => {
+          setReportTarget({ id: riderId, name: riderName, type: "rider" });
+          setReportModalVisible(true);
+        }}
+      />
+
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => {
+          setReportModalVisible(false);
+          setReportTarget(null);
+        }}
+        reportType={reportTarget?.type || "order"}
+        targetId={reportTarget?.id || ""}
+        targetName={reportTarget?.name || ""}
+        reporterId={user?.id || ""}
+        orderId={reportTarget?.type !== "order" ? selectedOrder?.id : undefined}
+        onReportSubmitted={() => {
+          Alert.alert("Success", "Report submitted successfully");
+        }}
       />
 
       <RatingModal

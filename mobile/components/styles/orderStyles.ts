@@ -967,4 +967,21 @@ export const orderStyles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
+  reportButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+  },
+  reportButtonText: {
+    fontSize: 14,
+    color: "#ef4444",
+    marginLeft: 8,
+    fontWeight: "500",
+  },
 });

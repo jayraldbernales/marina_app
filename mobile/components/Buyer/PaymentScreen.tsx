@@ -219,50 +219,48 @@ const GcashPaymentScreen = () => {
 
         // ========== SEND PUSH NOTIFICATIONS ==========
         try {
-          const { data: orderData } = await supabase
-            .from("orders")
-            .select("order_number, total_amount, vendor_user_id")
-            .eq("order_id", orderId)
-            .maybeSingle();
-
-          if (orderData) {
-            // Notify vendor
+          // Send notification to VENDOR about payment submission
+          if (vendorUserId) {
             await createNotificationWithPush(
               {
-                userId: orderData.vendor_user_id,
+                userId: vendorUserId,
                 userType: "vendor",
-                type: "payment_received",
-                title: "💵 Payment Received!",
-                message: `Order #${orderData.order_number} - ₱${orderData.total_amount.toLocaleString()} payment received via GCash`,
+                type: "payment_submitted",
+                title: "Payment Proof Submitted",
+                message: `Order #${orderNumber} - GCash payment proof received.`,
                 metadata: {
                   order_id: orderId,
-                  order_number: orderData.order_number,
-                  total: orderData.total_amount,
+                  order_number: orderNumber,
+                  payment_method: "gcash",
                 },
                 relatedId: orderId,
               },
               true,
             );
+            console.log(
+              `✅ Payment notification sent to vendor: ${vendorUserId}`,
+            );
+          }
 
-            // Notify buyer
-            if (user?.id) {
-              await createNotificationWithPush(
-                {
-                  userId: user.id,
-                  userType: "buyer",
-                  type: "payment_submitted",
-                  title: "✅ Payment Submitted!",
-                  message: `Your payment for order #${orderData.order_number} has been submitted and pending verification.`,
-                  metadata: {
-                    order_id: orderId,
-                    order_number: orderData.order_number,
-                  },
-                  relatedId: orderId,
+          // Send notification to BUYER confirming submission
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "payment_received",
+                title: "Payment Submitted!",
+                message: `Your payment for order #${orderNumber} has been submitted and is pending verification.`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderNumber,
+                  payment_method: "gcash",
                 },
-                true,
-              );
-            }
-            console.log("✅ Push notifications sent for payment");
+                relatedId: orderId,
+              },
+              true,
+            );
+            console.log(`✅ Payment confirmation sent to buyer: ${user.id}`);
           }
         } catch (pushError) {
           console.error("Error sending push notifications:", pushError);
@@ -312,52 +310,56 @@ const GcashPaymentScreen = () => {
 
         if (rpcError) throw rpcError;
 
+        // Fetch order number for the new order
+        const { data: orderData, error: orderError } = await supabase
+          .from("orders")
+          .select("order_number")
+          .eq("order_id", newOrderId)
+          .maybeSingle();
+
+        const newOrderNumber = orderData?.order_number || "New Order";
+
         // ========== SEND PUSH NOTIFICATIONS ==========
         try {
-          const { data: orderData } = await supabase
-            .from("orders")
-            .select("order_number, total_amount")
-            .eq("order_id", newOrderId)
-            .maybeSingle();
-
-          if (orderData) {
-            // Notify vendor
+          // Send notification to VENDOR
+          if (vendorUserId) {
             await createNotificationWithPush(
               {
                 userId: vendorUserId,
                 userType: "vendor",
-                type: "order_paid",
-                title: "🛒 New Order with GCash Payment!",
-                message: `Order #${orderData.order_number} - ₱${orderData.total_amount.toLocaleString()} (GCash payment)`,
+                type: "order",
+                title: "🛒 New Order Received!",
+                message: `Order #${newOrderNumber} - Paid via GCash. Payment pending verification.`,
                 metadata: {
                   order_id: newOrderId,
-                  order_number: orderData.order_number,
-                  total: orderData.total_amount,
+                  order_number: newOrderNumber,
+                  payment_method: "gcash",
                 },
                 relatedId: newOrderId,
               },
               true,
             );
+          }
 
-            // Notify buyer
-            if (user?.id) {
-              await createNotificationWithPush(
-                {
-                  userId: user.id,
-                  userType: "buyer",
-                  type: "order_placed",
-                  title: "✅ Order Placed with GCash!",
-                  message: `Your order #${orderData.order_number} has been placed. Payment is pending verification.`,
-                  metadata: {
-                    order_id: newOrderId,
-                    order_number: orderData.order_number,
-                  },
-                  relatedId: newOrderId,
+          // Send notification to BUYER
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Order Placed Successfully!",
+                message: `Your order #${newOrderNumber} has been placed. Payment pending verification.`,
+                metadata: {
+                  order_id: newOrderId,
+                  order_number: newOrderNumber,
+                  payment_method: "gcash",
                 },
-                true,
-              );
-            }
-            console.log("✅ Push notifications sent for new order with GCash");
+                relatedId: newOrderId,
+              },
+              true,
+            );
+            console.log(`Order confirmation sent to buyer: ${user.id}`);
           }
         } catch (pushError) {
           console.error("Error sending push notifications:", pushError);
@@ -366,7 +368,7 @@ const GcashPaymentScreen = () => {
 
         Alert.alert(
           "Order Placed Successfully!",
-          `Your order has been placed and payment proof submitted. The vendor will verify it within 15-30 minutes.`,
+          `Your order #${newOrderNumber} has been placed and payment proof submitted. The vendor will verify it within 15-30 minutes.`,
           [
             {
               text: "View Order",

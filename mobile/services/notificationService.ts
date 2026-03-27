@@ -645,58 +645,93 @@ export async function sendPushToMultipleUsers(
   return { success, failed };
 }
 
-// Save or update push token for current user
 export async function savePushToken(
   userId: string,
   expoPushToken: string,
   deviceType: string,
 ): Promise<void> {
   try {
-    const { error } = await supabase.from("user_push_tokens").upsert(
-      {
-        user_id: userId,
-        expo_push_token: expoPushToken,
-        device_type: deviceType,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "expo_push_token",
-      },
-    );
+    console.log(`💾 ===== SAVING PUSH TOKEN USING RPC =====`);
+    console.log(`💾 User ID: ${userId}`);
+    console.log(`💾 Token: ${expoPushToken}`);
+    console.log(`💾 Device: ${deviceType}`);
+
+    // Use RPC to bypass RLS (same pattern as notifications)
+    const { data, error } = await supabase.rpc("save_user_push_token", {
+      p_user_id: userId,
+      p_expo_push_token: expoPushToken,
+      p_device_type: deviceType,
+    });
 
     if (error) {
-      console.error("Error saving push token:", error);
+      console.error("❌ RPC Error:", error);
       throw error;
     }
 
-    console.log(`✅ Push token saved for user ${userId}`);
+    console.log(`✅ RPC Success! Response:`, data);
+    console.log(`✅ Push token saved successfully for user ${userId}`);
   } catch (error) {
-    console.error("Error saving push token:", error);
+    console.error("❌ Error saving push token:", error);
+    throw error;
   }
 }
-
 // Enhanced createNotification that also sends push notifications
 export async function createNotificationWithPush(
   params: CreateNotificationParams,
   sendPush: boolean = true,
-): Promise<Notification> {
-  // First, create the in-app notification
-  const notification = await createNotification(params);
-
-  // Then send push notification if requested
-  if (sendPush) {
-    await sendPushToUser(
-      params.userId,
-      params.title,
-      params.message || params.title,
+): Promise<Notification | null> {
+  try {
+    // Create notification using the function that bypasses RLS
+    const { data: notificationId, error: functionError } = await supabase.rpc(
+      "insert_notification_for_user",
       {
-        type: params.type,
-        notification_id: notification.notification_id,
-        related_id: params.relatedId,
-        ...params.metadata,
+        p_user_id: params.userId,
+        p_user_type: params.userType,
+        p_type: params.type,
+        p_title: params.title,
+        p_message: params.message || null,
+        p_metadata: params.metadata || {},
+        p_related_id: params.relatedId || null,
       },
     );
-  }
 
-  return notification;
+    if (functionError) {
+      console.error("Error creating notification:", functionError);
+      return null;
+    }
+
+    console.log("✅ Notification created with ID:", notificationId);
+
+    // Send push notification if requested
+    if (sendPush) {
+      await sendPushToUser(
+        params.userId,
+        params.title,
+        params.message || params.title,
+        {
+          type: params.type,
+          notification_id: notificationId,
+          related_id: params.relatedId,
+          ...params.metadata,
+        },
+      );
+    }
+
+    // Return a minimal notification object (optional)
+    return {
+      notification_id: notificationId,
+      user_id: params.userId,
+      user_type: params.userType,
+      type: params.type,
+      title: params.title,
+      message: params.message || null,
+      metadata: params.metadata || {},
+      is_read: false,
+      created_at: new Date().toISOString(),
+      related_id: params.relatedId || null,
+    } as Notification;
+  } catch (error) {
+    console.error("Error in createNotificationWithPush:", error);
+    return null;
+  }
 }
