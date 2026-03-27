@@ -335,6 +335,85 @@ const ReceiptModal = ({
   );
 };
 
+// Send notification to vendor about delivery status
+const notifyVendorDeliveryUpdate = async (
+  vendorUserId: string,
+  deliveryId: string,
+  orderNumber: string,
+  status: string,
+  message: string,
+) => {
+  try {
+    await createNotificationWithPush(
+      {
+        userId: vendorUserId,
+        userType: "vendor",
+        type: "delivery_update",
+        title: `Delivery ${status}`,
+        message: message,
+        metadata: {
+          delivery_id: deliveryId,
+          order_number: orderNumber,
+          status: status,
+        },
+        relatedId: deliveryId,
+      },
+      true,
+    );
+    console.log(`✅ Push notification sent to vendor for delivery ${status}`);
+  } catch (error) {
+    console.error(`Error sending vendor notification:`, error);
+  }
+};
+
+// Send notification to buyer about delivery status
+const notifyBuyerDeliveryUpdate = async (
+  buyerUserId: string,
+  deliveryId: string,
+  orderNumber: string,
+  status: string,
+  message: string,
+) => {
+  try {
+    await createNotificationWithPush(
+      {
+        userId: buyerUserId,
+        userType: "buyer",
+        type: "delivery_update",
+        title: `Delivery ${status}`,
+        message: message,
+        metadata: {
+          delivery_id: deliveryId,
+          order_number: orderNumber,
+          status: status,
+        },
+        relatedId: deliveryId,
+      },
+      true,
+    );
+    console.log(`✅ Push notification sent to buyer for delivery ${status}`);
+  } catch (error) {
+    console.error(`Error sending buyer notification:`, error);
+  }
+};
+
+// Get vendor and buyer user IDs from order
+const getOrderUsers = async (orderId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("user_id, vendor_user_id")
+      .eq("order_id", orderId)
+      .single();
+
+    if (error) throw error;
+    return { buyerId: data.user_id, vendorId: data.vendor_user_id };
+  } catch (error) {
+    console.error("Error getting order users:", error);
+    return null;
+  }
+};
+
 // Delivery Details Modal Component (View-Only) - UPDATED with proof photos as buttons
 const DeliveryDetailsModal = ({
   visible,
@@ -1192,7 +1271,6 @@ const RiderDelivery = () => {
 
   const handlePickupWithProof = async (delivery: Delivery) => {
     try {
-      // Request camera permission
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
@@ -1202,7 +1280,6 @@ const RiderDelivery = () => {
         return;
       }
 
-      // Open camera
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
@@ -1213,7 +1290,6 @@ const RiderDelivery = () => {
         setUploadingId(delivery.id);
         const imageUri = result.assets[0].uri;
 
-        // Upload image and update status
         const imageUrl = await deliveryService.uploadProofImage(
           imageUri,
           delivery.id,
@@ -1257,7 +1333,6 @@ const RiderDelivery = () => {
 
   const handleDeliveredWithProof = async (delivery: Delivery) => {
     try {
-      // Request camera permission
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
@@ -1267,7 +1342,6 @@ const RiderDelivery = () => {
         return;
       }
 
-      // Open camera
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
@@ -1278,7 +1352,6 @@ const RiderDelivery = () => {
         setUploadingId(delivery.id);
         const imageUri = result.assets[0].uri;
 
-        // Upload image and update status
         const imageUrl = await deliveryService.uploadProofImage(
           imageUri,
           delivery.id,

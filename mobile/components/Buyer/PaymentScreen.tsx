@@ -185,7 +185,6 @@ const GcashPaymentScreen = () => {
     router.back();
   };
 
-  // Submit GCash payment proof
   const handleSubmitPayment = async () => {
     if (!gcashReference.trim()) {
       Alert.alert("Error", "Please enter GCash reference number");

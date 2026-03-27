@@ -620,6 +620,69 @@ const CartScreen = () => {
         );
 
         const orderResults = await Promise.all(orderPromises);
+
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          // Send notifications to each vendor
+          const vendorIds = Object.keys(itemsByVendor);
+          for (let i = 0; i < vendorIds.length; i++) {
+            const vendorUserId = vendorIds[i];
+            const result = orderResults[i];
+
+            if (vendorUserId && result) {
+              await createNotificationWithPush(
+                {
+                  userId: vendorUserId,
+                  userType: "vendor",
+                  type: "order",
+                  title: "🛒 New Order Received!",
+                  message: `Order #${result.orderNumber} - ₱${result.orderTotal.toLocaleString()}`,
+                  metadata: {
+                    order_number: result.orderNumber,
+                    total: result.orderTotal,
+                    item_count: itemsByVendor[vendorUserId].length,
+                  },
+                },
+                true,
+              );
+              console.log(
+                `✅ Push notification sent to vendor ${vendorUserId}`,
+              );
+            }
+          }
+
+          // Send notification to BUYER (current user)
+          if (user?.id) {
+            const totalOrderAmount = orderResults.reduce(
+              (sum, r) => sum + r.orderTotal,
+              0,
+            );
+            const orderNumbers = orderResults
+              .map((r) => r.orderNumber)
+              .join(", ");
+
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Orders Placed Successfully!",
+                message: `${orderResults.length} order(s) placed: ${orderNumbers}`,
+                metadata: {
+                  order_count: orderResults.length,
+                  order_numbers: orderNumbers,
+                  total_amount: totalOrderAmount,
+                },
+              },
+              true,
+            );
+            console.log("✅ Push notification sent to buyer");
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+          // Don't block the order flow if push fails
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
         const orderNumbers = orderResults.map((r) => r.orderNumber);
         const totalDeliveryFeeResult = orderResults.reduce(
           (sum, result) => sum + result.vendorDeliveryFee,
