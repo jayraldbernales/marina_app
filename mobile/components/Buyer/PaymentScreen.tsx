@@ -19,6 +19,7 @@ import { useUserStore } from "@/store/userStore";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type PaymentParams = {
   orderId?: string;
@@ -217,6 +218,56 @@ const GcashPaymentScreen = () => {
 
         if (error) throw error;
 
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          // Send notification to VENDOR about payment submission
+          if (vendorUserId) {
+            await createNotificationWithPush(
+              {
+                userId: vendorUserId,
+                userType: "vendor",
+                type: "payment_submitted",
+                title: "Payment Proof Submitted",
+                message: `Order #${orderNumber} - GCash payment proof received.`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderNumber,
+                  payment_method: "gcash",
+                },
+                relatedId: orderId,
+              },
+              true,
+            );
+            console.log(
+              `✅ Payment notification sent to vendor: ${vendorUserId}`,
+            );
+          }
+
+          // Send notification to BUYER confirming submission
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "payment_received",
+                title: "Payment Submitted!",
+                message: `Your payment for order #${orderNumber} has been submitted and is pending verification.`,
+                metadata: {
+                  order_id: orderId,
+                  order_number: orderNumber,
+                  payment_method: "gcash",
+                },
+                relatedId: orderId,
+              },
+              true,
+            );
+            console.log(`✅ Payment confirmation sent to buyer: ${user.id}`);
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
+
         Alert.alert(
           "Payment Submitted Successfully!",
           `Your payment proof for order #${orderNumber} has been submitted. The vendor will verify it within 15-30 minutes.`,
@@ -260,9 +311,65 @@ const GcashPaymentScreen = () => {
 
         if (rpcError) throw rpcError;
 
+        // Fetch order number for the new order
+        const { data: orderData, error: orderError } = await supabase
+          .from("orders")
+          .select("order_number")
+          .eq("order_id", newOrderId)
+          .maybeSingle();
+
+        const newOrderNumber = orderData?.order_number || "New Order";
+
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        try {
+          // Send notification to VENDOR
+          if (vendorUserId) {
+            await createNotificationWithPush(
+              {
+                userId: vendorUserId,
+                userType: "vendor",
+                type: "order",
+                title: "🛒 New Order Received!",
+                message: `Order #${newOrderNumber} - Paid via GCash. Payment pending verification.`,
+                metadata: {
+                  order_id: newOrderId,
+                  order_number: newOrderNumber,
+                  payment_method: "gcash",
+                },
+                relatedId: newOrderId,
+              },
+              true,
+            );
+          }
+
+          // Send notification to BUYER
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Order Placed Successfully!",
+                message: `Your order #${newOrderNumber} has been placed. Payment pending verification.`,
+                metadata: {
+                  order_id: newOrderId,
+                  order_number: newOrderNumber,
+                  payment_method: "gcash",
+                },
+                relatedId: newOrderId,
+              },
+              true,
+            );
+            console.log(`Order confirmation sent to buyer: ${user.id}`);
+          }
+        } catch (pushError) {
+          console.error("Error sending push notifications:", pushError);
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
+
         Alert.alert(
           "Order Placed Successfully!",
-          `Your order has been placed and payment proof submitted. The vendor will verify it within 15-30 minutes.`,
+          `Your order #${newOrderNumber} has been placed and payment proof submitted. The vendor will verify it within 15-30 minutes.`,
           [
             {
               text: "View Order",

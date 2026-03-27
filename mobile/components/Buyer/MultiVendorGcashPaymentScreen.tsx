@@ -19,6 +19,7 @@ import { useUserStore } from "@/store/userStore";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type VendorPayment = {
   vendorUserId: string;
@@ -178,11 +179,14 @@ const MultiVendorGcashPaymentScreen = () => {
       // Upload screenshot
       const screenshotUrl = await uploadScreenshot(gcashScreenshot);
 
+      // Generate order number for this vendor
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
       // Create order for this vendor with payment proof
       const { data: newOrderId, error: rpcError } = await supabase.rpc(
         "place_cart_order",
         {
-          p_order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          p_order_number: orderNumber,
           p_user_id: user?.id,
           p_vendor_user_id: currentVendor.vendorUserId,
           p_address_id: addressId,
@@ -198,19 +202,77 @@ const MultiVendorGcashPaymentScreen = () => {
 
       if (rpcError) throw rpcError;
 
-      // Get order number
+      // Get order number for confirmation
       const { data: orderData } = await supabase
         .from("orders")
         .select("order_number")
         .eq("order_id", newOrderId)
         .single();
 
+      const finalOrderNumber = orderData?.order_number || orderNumber;
+
+      // ========== SEND PUSH NOTIFICATIONS ==========
+      try {
+        // Send notification to VENDOR
+        if (currentVendor.vendorUserId) {
+          await createNotificationWithPush(
+            {
+              userId: currentVendor.vendorUserId,
+              userType: "vendor",
+              type: "order",
+              title: "🛒 New Order Received!",
+              message: `Order #${finalOrderNumber} - Paid via GCash. Payment pending verification.`,
+              metadata: {
+                order_id: newOrderId,
+                order_number: finalOrderNumber,
+                payment_method: "gcash",
+                vendor_shop: currentVendor.shopName,
+                items_count: currentVendor.items.length,
+              },
+              relatedId: newOrderId,
+            },
+            true,
+          );
+          console.log(
+            `✅ Order notification sent to vendor: ${currentVendor.vendorUserId}`,
+          );
+        }
+
+        // Send notification to BUYER
+        if (user?.id) {
+          await createNotificationWithPush(
+            {
+              userId: user.id,
+              userType: "buyer",
+              type: "order_confirmation",
+              title: "Order Placed Successfully!",
+              message: `Your order #${finalOrderNumber} for ${currentVendor.shopName} has been placed. Payment pending verification.`,
+              metadata: {
+                order_id: newOrderId,
+                order_number: finalOrderNumber,
+                payment_method: "gcash",
+                vendor_shop: currentVendor.shopName,
+                items_count: currentVendor.items.length,
+              },
+              relatedId: newOrderId,
+            },
+            true,
+          );
+          console.log(
+            `Order confirmation sent to buyer for order: ${finalOrderNumber}`,
+          );
+        }
+      } catch (pushError) {
+        console.error("Error sending push notifications:", pushError);
+      }
+      // ========== END PUSH NOTIFICATIONS ==========
+
       // Update state
       const updatedPayments = [...vendorPayments];
       updatedPayments[currentVendorIndex] = {
         ...currentVendor,
         orderId: newOrderId,
-        orderNumber: orderData?.order_number,
+        orderNumber: finalOrderNumber,
       };
       setVendorPayments(updatedPayments);
 
@@ -229,7 +291,7 @@ const MultiVendorGcashPaymentScreen = () => {
         // All vendors paid
         Alert.alert(
           "All Payments Submitted!",
-          `All ${vendorPayments.length} payments have been submitted. Vendors will verify within 15-30 minutes.`,
+          `All ${vendorPayments.length} orders have been placed. Vendors will verify payments within 15-30 minutes.`,
           [
             {
               text: "View Orders",
@@ -245,7 +307,6 @@ const MultiVendorGcashPaymentScreen = () => {
       setIsUploading(false);
     }
   };
-
   const handleBackToPrevious = () => {
     router.back();
   };

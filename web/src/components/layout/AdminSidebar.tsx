@@ -7,6 +7,7 @@ import {
   Bike,
   ShoppingCart,
   BarChart3,
+  Flag,
   Anchor,
   FileCheck,
 } from "lucide-react";
@@ -24,6 +25,7 @@ const adminNavItems: NavItem[] = [
   { title: "Riders", href: "/admin/riders", icon: Bike },
   { title: "Orders", href: "/admin/orders", icon: ShoppingCart },
   { title: "Reports", href: "/admin/reports", icon: BarChart3 },
+  { title: "User Reports", href: "/admin/user-reports", icon: Flag },
 ];
 
 export function AdminSidebar() {

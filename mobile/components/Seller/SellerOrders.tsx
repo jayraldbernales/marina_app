@@ -25,6 +25,8 @@ import { useUserStore } from "@/store/userStore";
 import { computeFreshness } from "@/utils/freshness";
 import { dispatchService } from "@/services/dispatchService";
 import { useVendorOrderContext } from "@/contexts/VendorOrderContext";
+import { createNotificationWithPush } from "@/services/notificationService";
+import { ReportModal } from "@/components/ReportModal";
 
 type OrderStatus =
   | "pending"
@@ -90,6 +92,8 @@ const OrderDetailsModal = ({
   onVerifyPayment,
   onRejectPayment,
   onFindRider,
+  onReportBuyer,
+  onReportRider,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -97,6 +101,12 @@ const OrderDetailsModal = ({
   onVerifyPayment?: (orderId: string) => void;
   onRejectPayment?: (orderId: string) => void;
   onFindRider?: (orderId: string) => void;
+  onReportBuyer?: (
+    orderId: string,
+    customerId: string,
+    customerName: string,
+  ) => void;
+  onReportRider?: (orderId: string, riderId: string, riderName: string) => void;
 }) => {
   const [pickupProofUrl, setPickupProofUrl] = useState<string | null>(null);
   const [deliveryProofUrl, setDeliveryProofUrl] = useState<string | null>(null);
@@ -483,15 +493,6 @@ const OrderDetailsModal = ({
                       >
                         {order.failureReason || "No reason provided"}
                       </Text>
-                      <Text
-                        style={{
-                          color: "#b91c1c",
-                          fontSize: 13,
-                          opacity: 0.9,
-                        }}
-                      >
-                        This delivery was not completed
-                      </Text>
                     </View>
                   </View>
                 </View>
@@ -603,6 +604,43 @@ const OrderDetailsModal = ({
                 </View>
               </View>
             </View>
+            {/* Report Buyer Button */}
+            {order.status === "failed" &&
+              order.customerId &&
+              order.customerName && (
+                <TouchableOpacity
+                  style={[S.reportButton]}
+                  onPress={() =>
+                    onReportBuyer?.(
+                      order.id,
+                      order.customerId!,
+                      order.customerName!,
+                    )
+                  }
+                >
+                  <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                  <Text style={S.reportButtonText}>Report Buyer</Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Report Rider Button */}
+            {order.status === "failed" &&
+              order.riderAssignment?.id &&
+              order.riderAssignment?.name && (
+                <TouchableOpacity
+                  style={[S.reportButton, { marginTop: 12, marginBottom: 24 }]}
+                  onPress={() =>
+                    onReportRider?.(
+                      order.id,
+                      order.riderAssignment!.id,
+                      order.riderAssignment!.name,
+                    )
+                  }
+                >
+                  <Ionicons name="flag-outline" size={16} color="#ef4444" />
+                  <Text style={S.reportButtonText}>Report Rider</Text>
+                </TouchableOpacity>
+              )}
           </ScrollView>
         </View>
       </View>
@@ -625,6 +663,14 @@ const SellerOrders = () => {
   // NEW: Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+
+  // NEW: Report modal state
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    id: string;
+    name: string;
+    type: "buyer" | "seller" | "rider" | "order";
+  } | null>(null);
 
   const navigation = useNavigation();
   const user = useUserStore((s) => s.user);
@@ -653,6 +699,90 @@ const SellerOrders = () => {
     }
   };
 
+  const handleReport = (
+    targetId: string,
+    targetName: string,
+    type: "buyer" | "seller" | "rider" | "order",
+    orderId?: string,
+  ) => {
+    setReportTarget({ id: targetId, name: targetName, type });
+    setReportModalVisible(true);
+  };
+
+  // Handle Cancel/Refund for failed orders - REUSING existing function
+  const handleCancelFailedOrder = async (orderId: string) => {
+    Alert.alert(
+      "Cancel Order & Refund",
+      "Are you sure you want to cancel this failed order? This will restore stock and process a refund if payment was made.",
+      [
+        { text: "No", style: "cancel" },
+        {
+          text: "Yes, Cancel Order",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setUpdatingOrderId(orderId);
+
+              // Find current order for notification
+              const currentOrder = orders.find((o) => o.id === orderId);
+
+              // REUSE the existing vendor_cancel_order function
+              const { error } = await supabase.rpc("vendor_cancel_order", {
+                p_order_id: orderId,
+                p_vendor_user_id: user?.id,
+              });
+
+              if (error) throw error;
+
+              // Update local state
+              setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                  order.id === orderId
+                    ? { ...order, status: "cancelled" as OrderStatus }
+                    : order,
+                ),
+              );
+
+              if (selectedOrder?.id === orderId) {
+                setSelectedOrder((prev) =>
+                  prev ? { ...prev, status: "cancelled" as OrderStatus } : null,
+                );
+              }
+              refreshPendingOrders();
+
+              // Send notification to buyer
+              if (currentOrder?.customerId && currentOrder) {
+                await sendStatusUpdateNotification(
+                  currentOrder,
+                  "cancelled",
+                  currentOrder.customerId,
+                );
+              }
+
+              Alert.alert(
+                "Success",
+                currentOrder?.paymentStatus === "paid"
+                  ? "Order has been cancelled and refund processed"
+                  : "Order has been cancelled and stock restored",
+              );
+
+              setTimeout(() => {
+                fetchOrders();
+              }, 1000);
+            } catch (error: any) {
+              console.error("Cancel failed order error:", error);
+              Alert.alert(
+                "Error",
+                error.message || "Failed to cancel order. Please try again.",
+              );
+            } finally {
+              setUpdatingOrderId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
   // Handle Find Rider (retry dispatch)
   const handleFindRider = async (orderId: string) => {
     Alert.alert("Find Rider", "Looking for available riders again?", [
@@ -1143,10 +1273,12 @@ const SellerOrders = () => {
     }
   };
 
-  // Reject order with restock
   const rejectOrderWithRestock = async (orderId: string) => {
     try {
       setUpdatingOrderId(orderId);
+
+      // Find current order for notification
+      const currentOrder = orders.find((o) => o.id === orderId);
 
       const { error } = await supabase.rpc("reject_order_with_restock", {
         p_order_id: orderId,
@@ -1176,6 +1308,17 @@ const SellerOrders = () => {
         ),
       );
       refreshPendingOrders();
+
+      // ========== SEND PUSH NOTIFICATION ==========
+      if (currentOrder?.customerId && currentOrder) {
+        await sendStatusUpdateNotification(
+          currentOrder,
+          "rejected",
+          currentOrder.customerId,
+        );
+      }
+      // ========== END PUSH NOTIFICATION ==========
+
       Alert.alert(
         "Success",
         "Order has been rejected and stock has been restored",
@@ -1200,6 +1343,9 @@ const SellerOrders = () => {
     try {
       setUpdatingOrderId(orderId);
 
+      // Find the current order to get buyer ID and details
+      const currentOrder = orders.find((o) => o.id === orderId);
+
       if (newStatus === "cancelled" || newStatus === "rejected") {
         await rejectOrderWithRestock(orderId);
         return;
@@ -1223,12 +1369,25 @@ const SellerOrders = () => {
         return;
       }
 
+      // Update local state
       setOrders((prevOrders) =>
         prevOrders.map((order) =>
           order.id === orderId ? { ...order, status: newStatus } : order,
         ),
       );
       refreshPendingOrders();
+
+      // ========== SEND PUSH NOTIFICATION ==========
+      // Send notification to buyer about status change
+      if (currentOrder?.customerId && currentOrder) {
+        await sendStatusUpdateNotification(
+          currentOrder,
+          newStatus,
+          currentOrder.customerId,
+        );
+      }
+      // ========== END PUSH NOTIFICATION ==========
+
       if (newStatus === "preparing") {
         dispatchService
           .handleOrderAcceptance(orderId, user?.id!)
@@ -1307,6 +1466,9 @@ const SellerOrders = () => {
             try {
               setUpdatingOrderId(orderId);
 
+              // Find current order for notification
+              const currentOrder = orders.find((o) => o.id === orderId);
+
               const { error } = await supabase.rpc("vendor_cancel_order", {
                 p_order_id: orderId,
                 p_vendor_user_id: user?.id,
@@ -1328,6 +1490,17 @@ const SellerOrders = () => {
                 );
               }
               refreshPendingOrders();
+
+              // ========== SEND PUSH NOTIFICATION ==========
+              if (currentOrder?.customerId && currentOrder) {
+                await sendStatusUpdateNotification(
+                  currentOrder,
+                  "cancelled",
+                  currentOrder.customerId,
+                );
+              }
+              // ========== END PUSH NOTIFICATION ==========
+
               Alert.alert(
                 "Success",
                 "Order has been cancelled and stock restored",
@@ -1459,7 +1632,63 @@ const SellerOrders = () => {
       ],
     );
   };
+  // Send push notification for order status update
+  const sendStatusUpdateNotification = async (
+    order: DisplayOrder,
+    newStatus: OrderStatus,
+    buyerId: string,
+  ) => {
+    try {
+      const statusMessages: Record<OrderStatus, string> = {
+        pending: "Order is pending confirmation",
+        preparing: "Order is being prepared",
+        "ready-to-ship": "Order is ready for pickup",
+        shipped: "Order is on its way!",
+        delivered: "Order has been delivered! 🎉",
+        failed: "Order delivery failed",
+        cancelled: "Order has been cancelled",
+        rejected: "Order has been rejected",
+        finding_rider: "Looking for a rider",
+        dispatch_failed: "Dispatch failed",
+      };
 
+      const statusTitles: Record<OrderStatus, string> = {
+        pending: "Order Status Update",
+        preparing: "Order Being Prepared",
+        "ready-to-ship": "Order Ready for Pickup",
+        shipped: "Order Shipped! 🚚",
+        delivered: "Order Delivered! ✅",
+        failed: "Delivery Failed ❌",
+        cancelled: "Order Cancelled",
+        rejected: "Order Rejected",
+        finding_rider: "Finding Rider",
+        dispatch_failed: "Dispatch Failed",
+      };
+
+      await createNotificationWithPush(
+        {
+          userId: buyerId,
+          userType: "buyer",
+          type: "order_status_update",
+          title: statusTitles[newStatus],
+          message: `${statusMessages[newStatus]}\nOrder #${order.orderNumber}`,
+          metadata: {
+            order_id: order.id,
+            order_number: order.orderNumber,
+            new_status: newStatus,
+            old_status: order.status,
+          },
+          relatedId: order.id,
+        },
+        true,
+      );
+      console.log(
+        `✅ Status update notification sent to buyer for order: ${order.orderNumber}`,
+      );
+    } catch (error) {
+      console.error("Error sending status update notification:", error);
+    }
+  };
   // NEW: Filter orders based on search query (memoized)
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -1787,6 +2016,54 @@ const SellerOrders = () => {
                 </Text>
               </TouchableOpacity>
             )}
+
+            {order.status === "failed" && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.secondaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleCancelFailedOrder(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.light.coral}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        sellerOrderStyles.secondaryButtonText,
+                        { color: COLORS.light.primary },
+                      ]}
+                    >
+                      {order.paymentStatus === "paid"
+                        ? "Cancel & Refund"
+                        : "Cancel Order"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    sellerOrderStyles.primaryButton,
+                    isUpdating && { opacity: 0.5 },
+                  ]}
+                  onPress={() => handleFindRider(order.id)}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={sellerOrderStyles.primaryButtonText}>
+                      Find Rider Again
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
             {order.status === "delivered" && (
               <>
                 {order.paymentMethod === "cod" &&
@@ -2040,6 +2317,34 @@ const SellerOrders = () => {
         onVerifyPayment={handleVerifyPayment}
         onRejectPayment={handleRejectPayment}
         onFindRider={handleFindRider}
+        onReportBuyer={(orderId, customerId, customerName) => {
+          setReportTarget({
+            id: customerId,
+            name: customerName,
+            type: "buyer",
+          });
+          setReportModalVisible(true);
+        }}
+        onReportRider={(orderId, riderId, riderName) => {
+          setReportTarget({ id: riderId, name: riderName, type: "rider" });
+          setReportModalVisible(true);
+        }}
+      />
+
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => {
+          setReportModalVisible(false);
+          setReportTarget(null);
+        }}
+        reportType={reportTarget?.type || "order"}
+        targetId={reportTarget?.id || ""}
+        targetName={reportTarget?.name || ""}
+        reporterId={user?.id || ""}
+        orderId={reportTarget?.type !== "order" ? selectedOrder?.id : undefined}
+        onReportSubmitted={() => {
+          Alert.alert("Success", "Report submitted successfully");
+        }}
       />
     </SafeAreaView>
   );

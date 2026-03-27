@@ -28,6 +28,7 @@ import { useUserStore } from "@/store/userStore";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCartContext } from "@/contexts/CartContext";
 import { COLORS } from "@/constants";
+import { createNotificationWithPush } from "@/services/notificationService";
 
 type RootStackParamList = {
   OrderTracking: undefined;
@@ -607,7 +608,14 @@ const CartScreen = () => {
               },
             );
             if (rpcError) throw rpcError;
-            return { orderNumber, vendorDeliveryFee, orderTotal, items };
+            return {
+              orderNumber,
+              orderId,
+              vendorDeliveryFee,
+              orderTotal,
+              items,
+              vendorUserId,
+            };
           },
         );
 
@@ -619,6 +627,53 @@ const CartScreen = () => {
         );
         const finalTotal = subtotal + totalDeliveryFeeResult;
 
+        // ========== SEND PUSH NOTIFICATIONS ==========
+        for (const result of orderResults) {
+          const { orderNumber, orderId, items, vendorUserId } = result; // ← ADD orderId here
+
+          // Send notification to VENDOR
+          if (vendorUserId) {
+            await createNotificationWithPush(
+              {
+                userId: vendorUserId,
+                userType: "vendor",
+                type: "order",
+                title: "🛒 New Order Received!",
+                message: `Order #${orderNumber} - ${items.length} item(s)`,
+                metadata: {
+                  order_number: orderNumber,
+                  items_count: items.length,
+                },
+                relatedId: orderId, // ✅ CORRECT - using UUID
+              },
+              true,
+            );
+            console.log(`✅ Push notification sent to vendor: ${vendorUserId}`);
+          }
+
+          // Send notification to BUYER
+          if (user?.id) {
+            await createNotificationWithPush(
+              {
+                userId: user.id,
+                userType: "buyer",
+                type: "order_confirmation",
+                title: "Order Placed Successfully!",
+                message: `Your order #${orderNumber} has been placed.`,
+                metadata: {
+                  order_number: orderNumber,
+                  items_count: items.length,
+                },
+                relatedId: orderId, // ✅ CORRECT - using UUID
+              },
+              true,
+            );
+            console.log(
+              `✅ Push notification sent to buyer for order: ${orderNumber}`,
+            );
+          }
+        }
+        // ========== END PUSH NOTIFICATIONS ==========
         // 🔥 FIX: Delete only selected cart items, not entire carts
         const selectedCartItemIds = selectedItems.map(
           (item) => item.cartItemId,

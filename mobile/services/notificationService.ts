@@ -645,36 +645,36 @@ export async function sendPushToMultipleUsers(
   return { success, failed };
 }
 
-// Save or update push token for current user
 export async function savePushToken(
   userId: string,
   expoPushToken: string,
   deviceType: string,
 ): Promise<void> {
   try {
-    const { error } = await supabase.from("user_push_tokens").upsert(
-      {
-        user_id: userId,
-        expo_push_token: expoPushToken,
-        device_type: deviceType,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "expo_push_token",
-      },
-    );
+    console.log(`💾 ===== SAVING PUSH TOKEN USING RPC =====`);
+    console.log(`💾 User ID: ${userId}`);
+    console.log(`💾 Token: ${expoPushToken}`);
+    console.log(`💾 Device: ${deviceType}`);
+
+    // Use RPC to bypass RLS (same pattern as notifications)
+    const { data, error } = await supabase.rpc("save_user_push_token", {
+      p_user_id: userId,
+      p_expo_push_token: expoPushToken,
+      p_device_type: deviceType,
+    });
 
     if (error) {
-      console.error("Error saving push token:", error);
+      console.error("❌ RPC Error:", error);
       throw error;
     }
 
-    console.log(`✅ Push token saved for user ${userId}`);
+    console.log(`✅ RPC Success! Response:`, data);
+    console.log(`✅ Push token saved successfully for user ${userId}`);
   } catch (error) {
-    console.error("Error saving push token:", error);
+    console.error("❌ Error saving push token:", error);
+    throw error;
   }
 }
-
 // Enhanced createNotification that also sends push notifications
 export async function createNotificationWithPush(
   params: CreateNotificationParams,
