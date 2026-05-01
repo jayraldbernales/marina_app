@@ -182,9 +182,6 @@ const MultiVendorGcashPaymentScreen = () => {
       // Generate order number for this vendor
       const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
-      // Create order for this vendor with payment proof
-      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-
       const { data: newOrderId, error: rpcError } = await supabase.rpc(
         "place_cart_order",
         {

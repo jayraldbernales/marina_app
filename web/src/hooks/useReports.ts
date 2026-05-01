@@ -279,25 +279,36 @@ const fetchRiderPerformance = async (
   dateRange: DateRange,
 ): Promise<RiderPerformance[]> => {
   try {
-    const { data: riders } = await supabase
+    // First get all approved riders with their profiles
+    const { data: riders, error: ridersError } = await supabase
       .from("rider_profiles")
       .select(
         `
         user_id,
         approval_status,
         is_available,
-        profiles!rider_profiles_user_id_fkey (
-          full_name
+        banned,
+        profiles!inner (
+          full_name,
+          email,
+          mobile_number
         )
       `,
       )
-      .eq("approval_status", "approved");
+      .eq("approval_status", "approved")
+      .eq("banned", false); // Only include non-banned riders
+
+    if (ridersError) {
+      console.error("Error fetching riders:", ridersError);
+      return [];
+    }
 
     if (!riders || riders.length === 0) return [];
 
     const riderIds = riders.map((r) => r.user_id);
 
-    const { data: deliveries } = await supabase
+    // Fetch deliveries for these riders within date range
+    const { data: deliveries, error: deliveriesError } = await supabase
       .from("deliveries")
       .select(
         `
@@ -305,34 +316,49 @@ const fetchRiderPerformance = async (
         rider_user_id,
         status,
         assigned_at,
-        delivered_time
+        delivered_time,
+        created_at
       `,
       )
       .in("rider_user_id", riderIds)
       .gte("assigned_at", dateRange.start)
       .lte("assigned_at", dateRange.end);
 
-    const { data: reviews } = await supabase
+    if (deliveriesError) {
+      console.error("Error fetching deliveries:", deliveriesError);
+      return [];
+    }
+
+    // Fetch reviews/ratings for riders
+    const { data: reviews, error: reviewsError } = await supabase
       .from("reviews")
-      .select("rider_user_id, rider_rating")
+      .select("rider_user_id, rider_rating, created_at")
       .in("rider_user_id", riderIds)
       .gte("created_at", dateRange.start)
       .lte("created_at", dateRange.end);
 
+    if (reviewsError) {
+      console.error("Error fetching reviews:", reviewsError);
+    }
+
+    // Process ratings
     const ratingMap = new Map<string, { sum: number; count: number }>();
     reviews?.forEach((review) => {
-      const current = ratingMap.get(review.rider_user_id) || {
-        sum: 0,
-        count: 0,
-      };
-      current.sum += review.rider_rating;
-      current.count += 1;
-      ratingMap.set(review.rider_user_id, current);
+      if (review.rider_user_id && review.rider_rating) {
+        const current = ratingMap.get(review.rider_user_id) || {
+          sum: 0,
+          count: 0,
+        };
+        current.sum += review.rider_rating;
+        current.count += 1;
+        ratingMap.set(review.rider_user_id, current);
+      }
     });
 
+    // Process delivery statistics
     const deliveryStats = new Map<
       string,
-      { total: number; completed: number; avgTime: number }
+      { total: number; completed: number; totalDeliveryTime: number }
     >();
 
     deliveries?.forEach((delivery) => {
@@ -342,50 +368,56 @@ const fetchRiderPerformance = async (
       const current = deliveryStats.get(riderId) || {
         total: 0,
         completed: 0,
-        avgTime: 0,
+        totalDeliveryTime: 0,
       };
       current.total += 1;
 
       if (delivery.status === "delivered") {
         current.completed += 1;
 
+        // Calculate delivery time using assigned_at and delivered_time
         if (delivery.assigned_at && delivery.delivered_time) {
           const assignedTime = new Date(delivery.assigned_at).getTime();
           const deliveredTime = new Date(delivery.delivered_time).getTime();
-          const timeDiff = (deliveredTime - assignedTime) / (1000 * 60);
-
-          current.avgTime =
-            current.avgTime === 0 ? timeDiff : (current.avgTime + timeDiff) / 2;
+          const timeDiff = (deliveredTime - assignedTime) / (1000 * 60); // in minutes
+          current.totalDeliveryTime += timeDiff;
         }
       }
 
       deliveryStats.set(riderId, current);
     });
 
-    return riders
-      .map((rider) => {
-        const stats = deliveryStats.get(rider.user_id) || {
-          total: 0,
-          completed: 0,
-          avgTime: 0,
-        };
-        const rating = ratingMap.get(rider.user_id);
-        const avgRating = rating ? rating.sum / rating.count : undefined;
-        const profile =
-          Array.isArray(rider.profiles) && rider.profiles.length > 0
-            ? rider.profiles[0]
-            : { full_name: "Unknown Rider" };
+    // Build rider performance array
+    const riderPerformance = riders.map((rider) => {
+      const stats = deliveryStats.get(rider.user_id) || {
+        total: 0,
+        completed: 0,
+        totalDeliveryTime: 0,
+      };
 
-        return {
-          id: rider.user_id,
-          name: profile?.full_name || "Unknown Rider",
-          totalDeliveries: stats.total,
-          completedDeliveries: stats.completed,
-          avgDeliveryTime: stats.avgTime || undefined,
-          rating: avgRating,
-          status: rider.is_available ? "available" : "unavailable",
-        };
-      })
+      const rating = ratingMap.get(rider.user_id);
+      const avgRating = rating ? rating.sum / rating.count : undefined;
+
+      // Get rider name from profiles
+      const profile = rider.profiles as any;
+      const riderName = profile?.full_name || "Unknown Rider";
+
+      return {
+        id: rider.user_id,
+        name: riderName,
+        totalDeliveries: stats.total,
+        completedDeliveries: stats.completed,
+        avgDeliveryTime:
+          stats.completed > 0
+            ? stats.totalDeliveryTime / stats.completed
+            : undefined,
+        rating: avgRating,
+        status: rider.is_available ? "available" : "unavailable",
+      };
+    });
+
+    // Sort by completed deliveries and return top 5
+    return riderPerformance
       .sort((a, b) => b.completedDeliveries - a.completedDeliveries)
       .slice(0, 5);
   } catch (error) {
