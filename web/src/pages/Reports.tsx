@@ -31,6 +31,8 @@ import {
   CheckCircle,
   Loader2,
   XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -100,7 +102,7 @@ const fetchReportedEntities = async (): Promise<ReportedEntity[]> => {
   // First, get all profiles to have user info
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, full_name, email, mobile_number");
+    .select("user_id, full_name, email, mobile_number, banned");
 
   // Get all vendor profiles
   const { data: vendors } = await supabase
@@ -242,6 +244,8 @@ const UserReports = () => {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -295,6 +299,32 @@ const UserReports = () => {
       });
     },
   });
+
+  const filteredEntities = entities.filter((entity) => {
+    const matchesSearch =
+      entity.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      entity.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (entity.mobile_number || "")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === "all" || entity.role === roleFilter;
+    return matchesSearch && matchesRole;
+  });
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredEntities.length / rowsPerPage);
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const currentEntities = filteredEntities.slice(startIndex, endIndex);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleRowsPerPageChange = (value: string) => {
+    setRowsPerPage(Number(value));
+    setCurrentPage(1); // Reset to first page when changing rows per page
+  };
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -355,17 +385,6 @@ const UserReports = () => {
         return <Badge variant="outline">{status}</Badge>;
     }
   };
-
-  const filteredEntities = entities.filter((entity) => {
-    const matchesSearch =
-      entity.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      entity.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (entity.mobile_number || "")
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase());
-    const matchesRole = roleFilter === "all" || entity.role === roleFilter;
-    return matchesSearch && matchesRole;
-  });
 
   const stats = {
     totalEntities: entities.length,
@@ -441,11 +460,20 @@ const UserReports = () => {
           <Input
             placeholder="Search by name, email, or phone..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1); // Reset to first page on search
+            }}
             className="pl-10"
           />
         </div>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
+        <Select
+          value={roleFilter}
+          onValueChange={(value) => {
+            setRoleFilter(value);
+            setCurrentPage(1); // Reset to first page on filter change
+          }}
+        >
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue placeholder="Role" />
           </SelectTrigger>
@@ -464,6 +492,9 @@ const UserReports = () => {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  #
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Entity
                 </th>
@@ -491,7 +522,7 @@ const UserReports = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredEntities.map((entity) => (
+              {currentEntities.map((entity, index) => (
                 <tr
                   key={`${entity.id}-${entity.role}`}
                   className={cn(
@@ -500,6 +531,9 @@ const UserReports = () => {
                     entity.is_banned && "bg-destructive/10",
                   )}
                 >
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+                    {startIndex + index + 1}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -509,7 +543,10 @@ const UserReports = () => {
                         <p className="text-sm font-medium text-foreground">
                           {entity.name}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p
+                          className="text-xs text-muted-foreground max-w-45 truncate"
+                          title={entity.email}
+                        >
                           {entity.email}
                         </p>
                         {entity.shop_name && (
@@ -585,14 +622,15 @@ const UserReports = () => {
                           setSelectedEntity(entity);
                           setViewDialogOpen(true);
                         }}
+                        className="px-2"
                       >
-                        <Eye className="w-4 h-4 mr-2" />
-                        View
+                        <Eye className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         className={cn(
+                          "px-2",
                           entity.is_banned
                             ? "text-success hover:text-success"
                             : "text-destructive hover:text-destructive",
@@ -604,13 +642,11 @@ const UserReports = () => {
                       >
                         {entity.is_banned ? (
                           <>
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                            Unban
+                            <CheckCircle className="w-4 h-4" />
                           </>
                         ) : (
                           <>
-                            <Ban className="w-4 h-4 mr-2" />
-                            Ban
+                            <Ban className="w-4 h-4" />
                           </>
                         )}
                       </Button>
@@ -621,6 +657,97 @@ const UserReports = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls Inside Table */}
+        {filteredEntities.length > 0 && (
+          <div className="px-6 py-4 border-t border-border bg-muted/30">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              {/* Rows per page selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Rows per page:
+                </span>
+                <Select
+                  value={rowsPerPage.toString()}
+                  onValueChange={handleRowsPerPageChange}
+                >
+                  <SelectTrigger className="w-20 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5</SelectItem>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Page info */}
+              <div className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to{" "}
+                {Math.min(endIndex, filteredEntities.length)} of{" "}
+                {filteredEntities.length} entities
+              </div>
+
+              {/* Pagination buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="h-8"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </Button>
+
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={
+                          currentPage === pageNum ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className="h-8 w-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="h-8"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {filteredEntities.length === 0 && (
           <div className="p-8 text-center">
             <Flag className="w-12 h-12 text-muted-foreground mx-auto mb-4" />

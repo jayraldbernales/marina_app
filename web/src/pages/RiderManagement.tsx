@@ -221,40 +221,50 @@ const RiderManagement = () => {
                   : "border-border",
             )}
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+            <div className="flex items-start justify-between gap-2 mb-4">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                   <Bike className="w-6 h-6 text-primary" />
                 </div>
-                <div>
-                  <h4 className="font-semibold text-foreground">
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-semibold text-foreground truncate">
                     {rider.name}
                   </h4>
-                  <p className="text-sm text-muted-foreground">{rider.email}</p>
+                  <p
+                    className="text-sm text-muted-foreground truncate"
+                    title={rider.email}
+                  >
+                    {rider.email}
+                  </p>
                 </div>
               </div>
-              {rider.status === "banned" ? (
-                <Badge variant="destructive" className="capitalize">
-                  <Ban className="w-3 h-3 mr-1" />
-                  Banned
-                </Badge>
-              ) : rider.status === "pending" ? (
-                <Badge
-                  variant="outline"
-                  className="bg-amber-100 text-amber-700 border-amber-200 capitalize"
-                >
-                  <Clock className="w-3 h-3 mr-1" />
-                  Pending
-                </Badge>
-              ) : (
-                <Badge
-                  variant="outline"
-                  className="bg-green-100 text-green-700 border-green-200 capitalize"
-                >
-                  <CheckCircle className="w-3 h-3 mr-1" />
-                  {rider.isAvailable ? "Available" : "Active"}
-                </Badge>
-              )}
+              <div className="shrink-0">
+                {rider.status === "banned" ? (
+                  <Badge
+                    variant="destructive"
+                    className="capitalize whitespace-nowrap"
+                  >
+                    <Ban className="w-3 h-3 mr-1" />
+                    Banned
+                  </Badge>
+                ) : rider.status === "pending" ? (
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-100 text-amber-700 border-amber-200 capitalize whitespace-nowrap"
+                  >
+                    <Clock className="w-3 h-3 mr-1" />
+                    Pending
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="bg-green-100 text-green-700 border-green-200 capitalize whitespace-nowrap"
+                  >
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    {rider.isAvailable ? "Available" : "Active"}
+                  </Badge>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3">

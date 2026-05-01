@@ -83,62 +83,69 @@ interface DisplayOrder {
   riderAssignment?: RiderAssignment | null;
   failureReason?: string;
 }
-
-const fetchRiderAssignment = async (
+const getRiderAssignmentForBuyer = async (
   orderId: string,
 ): Promise<RiderAssignment | null> => {
   try {
-    // Get the delivery with rider_user_id
+    // First get delivery info
     const { data: delivery, error: deliveryError } = await supabase
       .from("deliveries")
       .select("rider_user_id, status")
       .eq("order_id", orderId)
       .maybeSingle();
+
+    console.log("🔍 Delivery data:", delivery);
+    console.log("🔍 Delivery error:", deliveryError);
+
     if (deliveryError || !delivery || !delivery.rider_user_id) {
+      console.log("❌ No rider_user_id found");
       return null;
     }
 
-    // Get rider profile with vehicle type
+    // Query rider_profiles (which has public access for customers)
     const { data: riderProfile, error: riderError } = await supabase
       .from("rider_profiles")
-      .select("vehicle_type")
+      .select(
+        `
+        vehicle_type,
+        profiles!inner (
+          full_name,
+          avatar_url
+        )
+      `,
+      )
       .eq("user_id", delivery.rider_user_id)
       .maybeSingle();
 
-    if (riderError) {
-      return null;
-    }
+    console.log("🛵 Rider profile data:", riderProfile);
+    console.log("🛵 Rider profile error:", riderError);
+    console.log(
+      "🛵 Full riderProfile object:",
+      JSON.stringify(riderProfile, null, 2),
+    );
 
-    // Get user profile with name and avatar
-    const { data: userProfile, error: userError } = await supabase
-      .from("profiles")
-      .select("full_name, avatar_url")
-      .eq("user_id", delivery.rider_user_id)
-      .maybeSingle();
+    let statusText = delivery.status;
+    if (delivery.status === "assigned") statusText = "Assigned";
+    else if (delivery.status === "picked_up") statusText = "Picked up";
+    else if (delivery.status === "ready_to_pickup")
+      statusText = "Ready to Pickup";
+    else if (delivery.status === "failed") statusText = "Failed";
+    else if (delivery.status === "delivered") statusText = "Delivered";
 
-    if (userError || !userProfile) {
-      return null;
-    }
+    // Try different ways to access the profile data
+    const profile = (riderProfile as any)?.profiles;
+    console.log("📝 Extracted profile:", profile);
+    console.log("📝 Profile name:", profile?.full_name);
 
     return {
       id: delivery.rider_user_id,
-      name: userProfile.full_name || "Rider",
-      avatar: userProfile.avatar_url || null,
-      status:
-        delivery.status === "assigned"
-          ? "Assigned"
-          : delivery.status === "picked_up"
-            ? "Picked up"
-            : delivery.status === "ready_to_pickup"
-              ? "Ready to Pickup"
-              : delivery.status === "failed"
-                ? "Failed"
-                : delivery.status === "delivered"
-                  ? "Delivered"
-                  : delivery.status,
+      name: profile?.full_name || "Rider",
+      avatar: profile?.avatar_url || null,
+      status: statusText,
       vehicle: riderProfile?.vehicle_type || null,
     };
   } catch (error) {
+    console.error("Error fetching rider assignment:", error);
     return null;
   }
 };
@@ -280,7 +287,11 @@ const OrderDetailsModal = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={S.modalBody} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={S.modalBody}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+          >
             {/* ── Order meta ── */}
             <View style={S.modalSection}>
               <Text style={S.modalSectionTitle}>Order</Text>
@@ -622,7 +633,7 @@ const OrderDetailsModal = ({
               order.riderAssignment?.id &&
               order.riderAssignment?.name && (
                 <TouchableOpacity
-                  style={[S.reportButton, { marginTop: 12, marginBottom: 24 }]}
+                  style={[S.reportButton, { marginTop: 12, marginBottom: 32 }]}
                   onPress={() =>
                     onReportRider?.(
                       order.id,
@@ -811,10 +822,10 @@ const OrdersScreen = () => {
         console.error("Error fetching items for orders:", itemsAllError);
       }
 
-      // NEW: Fetch delivery info including failure_reason
+      // NEW: Fetch delivery info including failure_reason and rider_user_id
       const { data: deliveriesAll } = await supabase
         .from("deliveries")
-        .select("order_id, failure_reason")
+        .select("order_id, failure_reason, rider_user_id")
         .in("order_id", orderIds);
 
       // Group items by order_id
@@ -878,9 +889,8 @@ const OrdersScreen = () => {
           } as DisplayOrder;
         },
       );
-
-      // Parallelize rider assignment fetches
-      const riderPromises = displayOrders.map((o) => {
+      // Fetch rider details for relevant orders (same as vendor approach)
+      const riderPromises = displayOrders.map(async (order) => {
         const needs = [
           "preparing",
           "finding_rider",
@@ -888,13 +898,20 @@ const OrdersScreen = () => {
           "shipped",
           "delivered",
           "failed",
-        ].includes(o.status as string);
-        return needs ? fetchRiderAssignment(o.id) : Promise.resolve(null);
+        ].includes(order.status as string);
+
+        if (needs) {
+          const rider = await getRiderAssignmentForBuyer(order.id);
+          return rider;
+        }
+        return null;
       });
 
       const riderResults = await Promise.all(riderPromises);
-      riderResults.forEach((r, idx) => {
-        if (r) displayOrders[idx].riderAssignment = r;
+      riderResults.forEach((rider, idx) => {
+        if (rider) {
+          displayOrders[idx].riderAssignment = rider;
+        }
       });
 
       setOrders(displayOrders);

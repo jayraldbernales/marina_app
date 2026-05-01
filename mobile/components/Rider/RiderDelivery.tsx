@@ -807,26 +807,6 @@ const DeliveryDetailsModal = ({
                 )}
             </View>
 
-            {/* Track Order Button - Only show if status is picked_up (in transit) */}
-            {delivery.status === "picked_up" && (
-              <View style={[S.modalSection, { marginTop: 0 }]}>
-                <Text style={S.trackLabel}>Track Location</Text>
-                <TouchableOpacity
-                  style={S.trackOrderButton}
-                  onPress={handleTrackOrder}
-                >
-                  <Image
-                    source={require("../../assets/img/ridermap.png")}
-                    style={S.trackOrderImage}
-                    resizeMode="cover"
-                  />
-                  <View style={S.proofOverlay}>
-                    <Ionicons name="expand-outline" size={22} color="#fff" />
-                    <Text style={S.proofOverlayText}>Tap to view</Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            )}
             {/* ── Proof Photos — View buttons only (UPDATED) ── */}
             {(delivery.pickup_proof_url || delivery.delivered_proof_url) && (
               <View style={S.modalSection}>

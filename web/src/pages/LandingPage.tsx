@@ -199,7 +199,7 @@ const LandingPage = () => {
             </div>
 
             <span className="text-4xl md:text-5xl font-bold text-slate-900">
-              30
+              20
             </span>
             <span className="text-base text-slate-600 tracking-wide">
               Total Users
@@ -217,7 +217,7 @@ const LandingPage = () => {
             </div>
 
             <span className="text-4xl md:text-5xl font-bold text-slate-900">
-              15
+              5
             </span>
             <span className="text-base text-slate-600 tracking-wide">
               Registered Vendors
@@ -235,10 +235,10 @@ const LandingPage = () => {
             </div>
 
             <span className="text-4xl md:text-5xl font-bold text-slate-900">
-              150
+              6
             </span>
             <span className="text-base text-slate-600 tracking-wide">
-              Orders Completed
+              Registered Vendors
             </span>
           </div>
         </div>
@@ -279,21 +279,20 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* LGU Access Section */}
+      {/* Community Section */}
       <section
-        id="lgu-access"
+        id="community"
         className="py-16 md:py-24 px-4 md:px-6 bg-linear-to-b from-white to-slate-50"
       >
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <div data-aos="fade-right" data-aos-duration="600">
               <h2 className="text-3xl lg:text-4xl font-semibold tracking-tight text-slate-900 mb-6">
-                Transparent oversight for LGUs.
+                Fresh catch, delivered to you.
               </h2>
               <p className="text-base md:text-lg text-slate-600 leading-relaxed mb-8 max-w-xl">
-                Local government units can apply for viewer access to monitor
-                trade statistics, pricing trends, and marketplace activity in
-                real-time.
+                Browse live listings from trusted local aquatic vendors, compare
+                prices, and order fresh seafood directly.
               </p>
 
               <div className="space-y-4 mb-8">
@@ -303,11 +302,11 @@ const LandingPage = () => {
                   </div>
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-1">
-                      Trade statistics
+                      Live vendor listings
                     </h4>
                     <p className="text-slate-600 text-sm">
-                      Monitor volume, pricing, and market trends across your
-                      jurisdiction.
+                      See what's available today from vendors near you, updated
+                      in real-time.
                     </p>
                   </div>
                 </div>
@@ -317,10 +316,11 @@ const LandingPage = () => {
                   </div>
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-1">
-                      Price transparency
+                      Fair and transparent pricing
                     </h4>
                     <p className="text-slate-600 text-sm">
-                      Access historical and real-time seafood pricing data.
+                      Compare prices across vendors so you always get the best
+                      deal on fresh catch.
                     </p>
                   </div>
                 </div>
@@ -330,10 +330,11 @@ const LandingPage = () => {
                   </div>
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-1">
-                      Read-only access
+                      Support local fishermen
                     </h4>
                     <p className="text-slate-600 text-sm">
-                      Secure viewer permissions without operational control.
+                      Every order goes directly to local aquatic vendors in your
+                      community.
                     </p>
                   </div>
                 </div>
@@ -344,7 +345,7 @@ const LandingPage = () => {
                 variant="outline"
                 className="h-12 px-8 rounded-full text-base font-medium border-primary hover:bg-slate-50 hover:border-slate-400 transition-all duration-200"
               >
-                Apply for LGU Access
+                Explore the Marketplace
                 <ArrowRight className="ml-2 w-4 h-4" />
               </Button>
             </div>
@@ -358,23 +359,25 @@ const LandingPage = () => {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-700">
                     <span className="text-slate-400 text-sm font-medium">
-                      Market Overview
+                      Today's Listings
                     </span>
                     <span className="flex items-center gap-1.5 text-slate-400 text-xs">
                       <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                      Live Data
+                      Live
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-slate-800/50 rounded-xl p-4">
                       <div className="text-slate-400 text-xs mb-1">
-                        Daily Volume
+                        Available Now
                       </div>
                       <div className="text-white text-2xl font-semibold">
-                        ₱48,500
+                        48 items
                       </div>
-                      <div className="text-green-400 text-xs mt-1">+12.5%</div>
+                      <div className="text-green-400 text-xs mt-1">
+                        Fresh today
+                      </div>
                     </div>
                     <div className="bg-slate-800/50 rounded-xl p-4">
                       <div className="text-slate-400 text-xs mb-1">
@@ -383,13 +386,13 @@ const LandingPage = () => {
                       <div className="text-white text-2xl font-semibold">
                         15
                       </div>
-                      <div className="text-blue-400 text-xs mt-1">+8 today</div>
+                      <div className="text-blue-400 text-xs mt-1">Near you</div>
                     </div>
                   </div>
 
                   <div className="bg-slate-800/50 rounded-xl p-4">
                     <div className="text-slate-400 text-xs mb-3">
-                      Top Products Today
+                      Popular Right Now
                     </div>
                     <div className="space-y-2">
                       {["Bangus", "Tilapia", "Blue Marlin"].map((item, i) => (
@@ -483,7 +486,7 @@ const LandingPage = () => {
                         {item}
                       </a>
                     </li>
-                  )
+                  ),
                 )}
               </ul>
             </div>
@@ -504,7 +507,7 @@ const LandingPage = () => {
                         {item}
                       </a>
                     </li>
-                  )
+                  ),
                 )}
               </ul>
             </div>
@@ -525,7 +528,7 @@ const LandingPage = () => {
                         {item}
                       </a>
                     </li>
-                  )
+                  ),
                 )}
               </ul>
             </div>
