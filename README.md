@@ -4,3 +4,5 @@ A mobile marketplace for seafood products that connects vendors, buyers, and rid
 The project earned 1st Place in the Video Testimonial Category at BIDA ASENSO 2026, organized by CVAARRDEC in partnership with PCAARRD.”
 
 🎥 [Watch Video Testimonial](https://www.youtube.com/watch?v=BHqb87x6AyQ)
+
+![image alt](https://github.com/jayraldbernales/marina_app/blob/7ddbec90cb2ce6ec481a50416fed55efdb407cea/image.jpg)
